@@ -3,32 +3,36 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const GMark: React.FC<{ className?: string }> = ({ className }) => (
   <svg
-    viewBox="0 0 130 150"
+    viewBox="0 0 130 160"
     xmlns="http://www.w3.org/2000/svg"
     className={className}
     aria-hidden="true"
   >
-    {/* Top horizontal bar */}
-    <rect x="6" y="8" width="100" height="14" fill="currentColor" rx="1" />
+    {/* Top П-shape: horizontal bar + two short downward legs */}
+    <rect x="10" y="6" width="92" height="10" fill="currentColor" />
+    <rect x="10" y="6" width="10" height="26" fill="currentColor" />
+    <rect x="92" y="6" width="10" height="26" fill="currentColor" />
+
     {/* Top-right dot */}
-    <circle cx="120" cy="15" r="7" fill="currentColor" />
-    {/* Bowl (open ring) */}
+    <circle cx="120" cy="14" r="6" fill="currentColor" />
+
+    {/* Middle: full circle (bowl) */}
     <circle
-      cx="55"
-      cy="65"
-      r="30"
+      cx="56"
+      cy="73"
+      r="29"
       fill="none"
       stroke="currentColor"
-      strokeWidth="14"
+      strokeWidth="10"
     />
-    {/* Right descender + bottom hook */}
+
+    {/* Bottom: U-shape (open at top, separate from the bowl) */}
     <path
-      d="M 85 65 V 108 Q 85 128 65 128 H 25"
+      d="M 27 122 A 29 29 0 0 0 85 122"
       fill="none"
       stroke="currentColor"
-      strokeWidth="14"
+      strokeWidth="10"
       strokeLinecap="round"
-      strokeLinejoin="round"
     />
   </svg>
 );
@@ -88,7 +92,7 @@ export const Loader: React.FC<LoaderProps> = ({ tagline, onDone }) => {
           {showText && (
             <motion.div
               key="brand-text"
-              className="text-brand-600 font-extrabold tracking-tight leading-[0.92] select-none"
+              className="text-slate-900 font-extrabold tracking-tight leading-[0.92] select-none"
               initial={{ opacity: 0, x: -16 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5, ease: 'easeOut' }}
