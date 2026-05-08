@@ -257,6 +257,22 @@ const AdminPanel: React.FC = () => {
                 </div>
 
                 <section className="mb-8">
+                    <h2 className="text-xl font-semibold mb-4">Loader (анимация при открытии сайта)</h2>
+                    <label className="block">
+                        <span className="text-sm font-medium block mb-1">Текст под логотипом</span>
+                        <input
+                            className="border p-2 w-full rounded"
+                            placeholder="Образование за рубежом"
+                            value={localData.siteConfig?.loaderTagline ?? ''}
+                            onChange={e => setLocalData({ ...localData, siteConfig: { ...localData.siteConfig, loaderTagline: e.target.value } })}
+                        />
+                        <span className="text-xs text-slate-500 mt-1 block">Появляется под логотипом во время загрузочной анимации</span>
+                    </label>
+                </section>
+
+                <hr className="my-8" />
+
+                <section className="mb-8">
                     <h2 className="text-xl font-semibold mb-4">Site Images</h2>
                     <div className="grid gap-4">
                         <label className="block">

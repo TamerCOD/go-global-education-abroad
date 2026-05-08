@@ -11,6 +11,8 @@ type DataStore = {
     heroImage: string;
     aboutImage1: string;
     aboutImage2: string;
+    loaderTagline?: string;
+    partnerUniversities?: { name: string; highlighted?: boolean; highlightColor?: string }[];
   };
 };
 
@@ -22,7 +24,8 @@ const defaultSiteConfig = {
     { name: "Arizona State University", highlighted: true, highlightColor: "text-accent-500" },
     { name: "University of Canada West" },
     { name: "EU Business School" }
-  ]
+  ],
+  loaderTagline: "Образование за рубежом"
 };
 
 const DataContext = createContext<{data: DataStore, refresh: () => void}>({

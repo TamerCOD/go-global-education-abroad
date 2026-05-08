@@ -41,6 +41,7 @@ export interface SiteConfig {
   aboutImage1: string;
   aboutImage2: string;
   partnerUniversities: { name: string, highlighted?: boolean, highlightColor?: string }[];
+  loaderTagline?: string;
 }
 
 export interface ContactFormState {

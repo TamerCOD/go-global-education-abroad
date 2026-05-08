@@ -41,6 +41,7 @@ const fallbackDefaults = {
       { name: "University of Canada West" },
       { name: "EU Business School" },
     ],
+    loaderTagline: "Образование за рубежом",
   },
 };
 
