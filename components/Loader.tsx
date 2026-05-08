@@ -1,42 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const GMark: React.FC<{ className?: string }> = ({ className }) => (
-  <svg
-    viewBox="0 0 130 160"
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-    aria-hidden="true"
-  >
-    {/* Top П-shape: horizontal bar + two short downward legs */}
-    <rect x="10" y="6" width="92" height="10" fill="currentColor" />
-    <rect x="10" y="6" width="10" height="26" fill="currentColor" />
-    <rect x="92" y="6" width="10" height="26" fill="currentColor" />
-
-    {/* Top-right dot */}
-    <circle cx="120" cy="14" r="6" fill="currentColor" />
-
-    {/* Middle: full circle (bowl) */}
-    <circle
-      cx="56"
-      cy="73"
-      r="29"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="10"
-    />
-
-    {/* Bottom: U-shape (open at top, separate from the bowl) */}
-    <path
-      d="M 27 122 A 29 29 0 0 0 85 122"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="10"
-      strokeLinecap="round"
-    />
-  </svg>
-);
-
 interface LoaderProps {
   tagline: string;
   onDone: () => void;
@@ -72,7 +36,7 @@ export const Loader: React.FC<LoaderProps> = ({ tagline, onDone }) => {
       >
         <motion.div
           layout
-          className="text-brand-600 select-none"
+          className="select-none"
           initial={{ scale: 0, rotate: -180, opacity: 0 }}
           animate={{
             scale: [0, 1.4, 1.05, 1],
@@ -85,19 +49,28 @@ export const Loader: React.FC<LoaderProps> = ({ tagline, onDone }) => {
             ease: 'easeOut',
           }}
         >
-          <GMark className="w-20 h-24 md:w-28 md:h-32" />
+          <img
+            src="/ppp.png"
+            alt="Go Global"
+            className="h-24 md:h-36 w-auto"
+            draggable={false}
+          />
         </motion.div>
 
         <AnimatePresence>
           {showText && (
             <motion.div
               key="brand-text"
-              className="text-slate-900 font-extrabold tracking-tight leading-[0.92] select-none"
+              className="text-slate-900 tracking-tight leading-[0.95] select-none"
+              style={{ fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 700 }}
               initial={{ opacity: 0, x: -16 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5, ease: 'easeOut' }}
             >
-              <div className="text-4xl md:text-6xl">go</div>
+              <div className="text-4xl md:text-6xl flex items-center gap-3">
+                <span>go</span>
+                <span className="block w-6 md:w-9 h-[3px] md:h-[5px] bg-brand-600 rounded-sm" />
+              </div>
               <div className="text-4xl md:text-6xl">global</div>
             </motion.div>
           )}
