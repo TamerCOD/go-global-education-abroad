@@ -36,3 +36,6 @@ migrated_prompt_history/
 
 # Claude Code local config
 .claude/
+
+# Local uploads (in production this is a Railway volume)
+uploads/
