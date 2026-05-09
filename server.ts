@@ -13,6 +13,9 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const DATABASE_URL = process.env.DATABASE_URL;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+const VISITOR_SECRET = process.env.VISITOR_SECRET || ADMIN_PASSWORD;
 const UPLOADS_DIR =
   process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
 
@@ -28,6 +31,8 @@ const fallbackDefaults = {
     address: "г. Бишкек, ул Юнусалиева 80 (ololoPlanet)",
     addressLink: "https://go.2gis.com/EQmnC",
     instagram: "https://www.instagram.com/go_global_official/",
+    whatsappNumber: "996999530092",
+    whatsappMessage: "Добрый день! Пишу с сайта GoGlobal!",
   },
   siteConfig: {
     heroImage:
@@ -42,6 +47,20 @@ const fallbackDefaults = {
       { name: "EU Business School" },
     ],
     loaderTagline: "Образование за рубежом",
+    visibility: {
+      hero: true,
+      about: true,
+      destinations: true,
+      calculator: true,
+      testimonials: true,
+      faq: true,
+      contact: true,
+    },
+    regions: [
+      { id: "Asia", name: "Азия" },
+      { id: "Europe", name: "Европа" },
+      { id: "USA", name: "США" },
+    ],
   },
 };
 
@@ -56,10 +75,56 @@ async function loadSeedData() {
   }
 }
 
+// ----- Telegram helper -----
+async function sendTelegram(text: string): Promise<boolean> {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.warn("[telegram] Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID");
+    return false;
+  }
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: TELEGRAM_CHAT_ID,
+          text,
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.error("[telegram] sendMessage failed:", res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[telegram] error:", err);
+    return false;
+  }
+}
+
 // ----- Storage abstraction -----
 interface Storage {
   get(): Promise<any>;
   set(data: any): Promise<void>;
+  recordVisit(args: {
+    visitorId: string;
+    path: string;
+    ua?: string;
+    ref?: string;
+  }): Promise<void>;
+  analytics(): Promise<{
+    today: number;
+    last7Days: number;
+    last30Days: number;
+    uniqueToday: number;
+    uniqueLast7: number;
+    daily: { date: string; visits: number; unique: number }[];
+    topPaths: { path: string; visits: number }[];
+  }>;
 }
 
 class FileStorage implements Storage {
@@ -76,6 +141,22 @@ class FileStorage implements Storage {
 
   async set(data: any) {
     await fs.writeFile(storePath, JSON.stringify(data, null, 2));
+  }
+
+  async recordVisit() {
+    /* no-op for file storage */
+  }
+
+  async analytics() {
+    return {
+      today: 0,
+      last7Days: 0,
+      last30Days: 0,
+      uniqueToday: 0,
+      uniqueLast7: 0,
+      daily: [],
+      topPaths: [],
+    };
   }
 }
 
@@ -100,6 +181,23 @@ class PostgresStorage implements Storage {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS site_visits (
+        id BIGSERIAL PRIMARY KEY,
+        visited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        path TEXT NOT NULL,
+        visitor_id TEXT NOT NULL,
+        ua TEXT,
+        ref TEXT
+      );
+    `);
+    await this.pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_visits_visited_at ON site_visits (visited_at DESC);`
+    );
+    await this.pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_visits_visitor_id ON site_visits (visitor_id);`
+    );
+
     const { rows } = await this.pool.query(
       "SELECT 1 FROM site_data WHERE id = 1 LIMIT 1"
     );
@@ -133,6 +231,72 @@ class PostgresStorage implements Storage {
       [JSON.stringify(data)]
     );
   }
+
+  async recordVisit({
+    visitorId,
+    path,
+    ua,
+    ref,
+  }: {
+    visitorId: string;
+    path: string;
+    ua?: string;
+    ref?: string;
+  }) {
+    await this.ready;
+    await this.pool.query(
+      `INSERT INTO site_visits (visitor_id, path, ua, ref) VALUES ($1, $2, $3, $4)`,
+      [visitorId, path, ua || null, ref || null]
+    );
+  }
+
+  async analytics() {
+    await this.ready;
+    const todayQ = this.pool.query(
+      `SELECT COUNT(*)::int AS visits, COUNT(DISTINCT visitor_id)::int AS unique
+       FROM site_visits WHERE visited_at >= NOW() - INTERVAL '24 hours'`
+    );
+    const last7Q = this.pool.query(
+      `SELECT COUNT(*)::int AS visits, COUNT(DISTINCT visitor_id)::int AS unique
+       FROM site_visits WHERE visited_at >= NOW() - INTERVAL '7 days'`
+    );
+    const last30Q = this.pool.query(
+      `SELECT COUNT(*)::int AS visits FROM site_visits WHERE visited_at >= NOW() - INTERVAL '30 days'`
+    );
+    const dailyQ = this.pool.query(
+      `SELECT to_char(date_trunc('day', visited_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS date,
+              COUNT(*)::int AS visits,
+              COUNT(DISTINCT visitor_id)::int AS unique
+       FROM site_visits
+       WHERE visited_at >= NOW() - INTERVAL '30 days'
+       GROUP BY 1
+       ORDER BY 1 ASC`
+    );
+    const topPathsQ = this.pool.query(
+      `SELECT path, COUNT(*)::int AS visits
+       FROM site_visits
+       WHERE visited_at >= NOW() - INTERVAL '30 days'
+       GROUP BY path
+       ORDER BY visits DESC
+       LIMIT 10`
+    );
+    const [today, last7, last30, daily, topPaths] = await Promise.all([
+      todayQ,
+      last7Q,
+      last30Q,
+      dailyQ,
+      topPathsQ,
+    ]);
+    return {
+      today: today.rows[0]?.visits ?? 0,
+      uniqueToday: today.rows[0]?.unique ?? 0,
+      last7Days: last7.rows[0]?.visits ?? 0,
+      uniqueLast7: last7.rows[0]?.unique ?? 0,
+      last30Days: last30.rows[0]?.visits ?? 0,
+      daily: daily.rows,
+      topPaths: topPaths.rows,
+    };
+  }
 }
 
 const storage: Storage = DATABASE_URL
@@ -141,6 +305,9 @@ const storage: Storage = DATABASE_URL
 
 console.log(
   `[server] Storage: ${DATABASE_URL ? "PostgreSQL" : "JSON file (store.json)"}`
+);
+console.log(
+  `[server] Telegram: ${TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID ? "configured" : "DISABLED (missing token/chat)"}`
 );
 
 if (!existsSync(UPLOADS_DIR)) {
@@ -187,8 +354,17 @@ function requireAdmin(
   next();
 }
 
+function hashVisitor(ip: string, ua: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(`${ip}|${ua}|${VISITOR_SECRET}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
 async function startServer() {
   const app = express();
+  app.set("trust proxy", true);
   app.use(express.json({ limit: "5mb" }));
 
   app.get("/api/health", (_req, res) => {
@@ -231,6 +407,47 @@ async function startServer() {
     } else {
       res.status(401).json({ error: "Invalid credentials" });
     }
+  });
+
+  // Visit tracking — fire-and-forget from client
+  app.post("/api/visit", async (req, res) => {
+    try {
+      const ip =
+        (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0].trim() ||
+        req.socket.remoteAddress ||
+        "0.0.0.0";
+      const ua = (req.headers["user-agent"] as string) || "";
+      const ref = (req.headers["referer"] as string) || (req.body?.ref as string) || "";
+      const pathStr = typeof req.body?.path === "string" ? req.body.path.slice(0, 500) : "/";
+      const visitorId = hashVisitor(ip, ua);
+      // Do NOT count admin visits in analytics
+      if (pathStr.startsWith("/admin") || pathStr.startsWith("/lidy")) {
+        return res.json({ ok: true, ignored: true });
+      }
+      await storage.recordVisit({ visitorId, path: pathStr, ua, ref });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[api/visit]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.get("/api/analytics", requireAdmin, async (_req, res) => {
+    try {
+      const data = await storage.analytics();
+      res.json(data);
+    } catch (err) {
+      console.error("[api/analytics]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Telegram test endpoint (admin-only)
+  app.post("/api/telegram/test", requireAdmin, async (_req, res) => {
+    const ok = await sendTelegram(
+      `🧪 <b>Test message</b>\nGoGlobal admin → Telegram check at ${new Date().toISOString()}`
+    );
+    res.json({ ok });
   });
 
   app.post(

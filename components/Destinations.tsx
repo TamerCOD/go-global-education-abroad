@@ -75,8 +75,15 @@ const UniversityCard: React.FC<{ uni: any, delay: number }> = ({ uni, delay }) =
 export const Destinations: React.FC<DestinationsProps> = ({ onOpenModal }) => {
   const { data } = useData();
   const COUNTRIES = data.countries;
+  const REGIONS = data.siteConfig?.regions ?? [
+    { id: 'Asia', name: 'Азия' },
+    { id: 'Europe', name: 'Европа' },
+    { id: 'USA', name: 'США' },
+  ];
+  const regionMap = Object.fromEntries(REGIONS.map(r => [r.id, r.name]));
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeRegion, setActiveRegion] = useState<'All' | 'Asia' | 'Europe' | 'USA'>('All');
+  const [activeRegion, setActiveRegion] = useState<string>('All');
 
   const filteredCountries = activeRegion === 'All'
     ? COUNTRIES
@@ -84,11 +91,9 @@ export const Destinations: React.FC<DestinationsProps> = ({ onOpenModal }) => {
 
   const selectedCountry = COUNTRIES.find(c => c.id === selectedId);
 
-  const tabs = [
+  const tabs: { id: string; label: string }[] = [
     { id: 'All', label: 'Все направления' },
-    { id: 'Asia', label: 'Азия' },
-    { id: 'Europe', label: 'Европа' },
-    { id: 'USA', label: 'США' },
+    ...REGIONS.map(r => ({ id: r.id, label: r.name })),
   ];
 
   return (
@@ -143,7 +148,7 @@ export const Destinations: React.FC<DestinationsProps> = ({ onOpenModal }) => {
                 </div>
                 <div className="absolute bottom-6 left-6 text-white">
                     <div className="flex items-center gap-1 text-accent-400 mb-1 text-sm font-bold uppercase tracking-wider">
-                        <MapPin className="w-4 h-4" /> {country.region}
+                        <MapPin className="w-4 h-4" /> {regionMap[country.region] ?? country.region}
                     </div>
                     <motion.h3 layoutId={`title-${country.id}`} className="text-3xl font-extrabold">{country.name}</motion.h3>
                 </div>
@@ -198,7 +203,7 @@ export const Destinations: React.FC<DestinationsProps> = ({ onOpenModal }) => {
                 <div className="absolute bottom-8 left-8 text-white">
                   <motion.h2 layoutId={`title-${selectedId}`} className="text-4xl md:text-6xl font-extrabold mb-2">{selectedCountry.name}</motion.h2>
                   <div className="inline-block px-4 py-1.5 bg-accent-500 rounded-full text-sm font-bold text-white shadow-lg uppercase tracking-wide">
-                      {selectedCountry.region === 'USA' ? 'Америка' : selectedCountry.region === 'Asia' ? 'Азия' : 'Европа'}
+                      {regionMap[selectedCountry.region] ?? selectedCountry.region}
                   </div>
                 </div>
               </div>

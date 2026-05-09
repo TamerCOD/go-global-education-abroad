@@ -1,24 +1,24 @@
 export interface University {
   name: string;
   description: string;
-  images: string[]; // Changed from single image to array
+  images: string[];
 }
 
 export interface CostData {
-  tuition: { min: number; max: number }; // Annual in USD
-  living: { min: number; max: number }; // Annual in USD
+  tuition: { min: number; max: number };
+  living: { min: number; max: number };
 }
 
 export interface Country {
   id: string;
   name: string;
-  region: 'Asia' | 'Europe' | 'USA';
+  region: string;
   description: string;
-  fullDescription?: string; 
+  fullDescription?: string;
   image: string;
   universities: University[];
   costs: CostData;
-  coordinates: { top: string; left: string; };
+  coordinates: { top: string; left: string };
 }
 
 export interface Testimonial {
@@ -26,7 +26,7 @@ export interface Testimonial {
   name: string;
   university: string;
   countryId: string;
-  image: string;
+  image?: string;
   quote: string;
   story: string;
 }
@@ -36,12 +36,34 @@ export interface FAQItem {
   answer: string;
 }
 
+export interface VisibilityConfig {
+  hero: boolean;
+  about: boolean;
+  destinations: boolean;
+  calculator: boolean;
+  testimonials: boolean;
+  faq: boolean;
+  contact: boolean;
+}
+
+export interface ContactConfig {
+  phone: string;
+  email: string;
+  address: string;
+  addressLink: string;
+  instagram: string;
+  whatsappNumber?: string;
+  whatsappMessage?: string;
+}
+
 export interface SiteConfig {
   heroImage: string;
   aboutImage1: string;
   aboutImage2: string;
-  partnerUniversities: { name: string, highlighted?: boolean, highlightColor?: string }[];
+  partnerUniversities: { name: string; highlighted?: boolean; highlightColor?: string }[];
   loaderTagline?: string;
+  visibility?: VisibilityConfig;
+  regions?: { id: string; name: string }[];
 }
 
 export interface ContactFormState {
@@ -51,3 +73,19 @@ export interface ContactFormState {
   country: string;
   comment: string;
 }
+
+export const DEFAULT_VISIBILITY: VisibilityConfig = {
+  hero: true,
+  about: true,
+  destinations: true,
+  calculator: true,
+  testimonials: true,
+  faq: true,
+  contact: true,
+};
+
+export const DEFAULT_REGIONS = [
+  { id: 'Asia', name: 'Азия' },
+  { id: 'Europe', name: 'Европа' },
+  { id: 'USA', name: 'США' },
+];
