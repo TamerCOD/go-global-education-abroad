@@ -17,6 +17,11 @@ import AdminPanel from './AdminPanel';
 import { useData } from './DataContext';
 
 function MainSite() {
+  const { data } = useData();
+  const v = data.siteConfig?.visibility ?? {
+    hero: true, about: true, destinations: true,
+    calculator: true, testimonials: true, faq: true, contact: true,
+  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const handleOpenModal = () => setIsModalOpen(true);
 
@@ -24,13 +29,13 @@ function MainSite() {
     <>
       <Navbar onOpenModal={handleOpenModal} />
       <main className="relative z-10">
-        <Hero />
-        <About onOpenModal={handleOpenModal} />
-        <Destinations onOpenModal={handleOpenModal} />
-        <CostCalculator />
-        <Testimonials />
-        <FAQ />
-        <ContactForm />
+        {v.hero && <Hero />}
+        {v.about && <About onOpenModal={handleOpenModal} />}
+        {v.destinations && <Destinations onOpenModal={handleOpenModal} />}
+        {v.calculator && <CostCalculator />}
+        {v.testimonials && <Testimonials />}
+        {v.faq && <FAQ />}
+        {v.contact && <ContactForm />}
       </main>
       <Footer />
       <WhatsAppBtn />
@@ -43,11 +48,25 @@ function App() {
   const { data } = useData();
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
-  const [showLoader, setShowLoader] = useState(!isAdminRoute);
+  const isLidyRoute = location.pathname.startsWith('/lidy');
+  const isUtilityRoute = isAdminRoute || isLidyRoute;
+  const [showLoader, setShowLoader] = useState(!isUtilityRoute);
 
   useEffect(() => {
-    if (isAdminRoute) setShowLoader(false);
-  }, [isAdminRoute]);
+    if (isUtilityRoute) setShowLoader(false);
+  }, [isUtilityRoute]);
+
+  // Visit tracking — fire-and-forget on initial load and on every route change
+  useEffect(() => {
+    if (isUtilityRoute) return;
+    const path = location.pathname + (location.hash || '');
+    fetch('/api/visit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, ref: document.referrer || '' }),
+      keepalive: true,
+    }).catch(() => {});
+  }, [location.pathname, location.hash, isUtilityRoute]);
 
   const tagline =
     data.siteConfig?.loaderTagline?.trim() || 'Образование за рубежом';

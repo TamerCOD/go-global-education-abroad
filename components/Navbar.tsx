@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useData } from '../DataContext';
 
 interface NavbarProps {
   onOpenModal: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onOpenModal }) => {
+  const { data } = useData();
+  const visibility = data.siteConfig?.visibility ?? {
+    hero: true, about: true, destinations: true,
+    calculator: true, testimonials: true, faq: true, contact: true,
+  };
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -36,12 +42,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenModal }) => {
       }
   };
 
-  const navLinks = [
-    { name: 'О нас', href: '#about' },
-    { name: 'Направления', href: '#destinations' },
-    { name: 'Отзывы', href: '#testimonials' },
-    { name: 'Контакты', href: '#contact' },
+  const allLinks = [
+    { name: 'О нас', href: '#about', visible: visibility.about },
+    { name: 'Направления', href: '#destinations', visible: visibility.destinations },
+    { name: 'Калькулятор', href: '#calculator', visible: visibility.calculator },
+    { name: 'Отзывы', href: '#testimonials', visible: visibility.testimonials },
+    { name: 'FAQ', href: '#faq', visible: visibility.faq },
+    { name: 'Контакты', href: '#contact', visible: visibility.contact },
   ];
+  const navLinks = allLinks.filter(l => l.visible);
+  // Split links roughly in half for left/right desktop layout
+  const leftHalf = navLinks.slice(0, Math.ceil(navLinks.length / 2));
+  const rightHalf = navLinks.slice(Math.ceil(navLinks.length / 2));
 
   return (
     <nav className={`fixed w-full z-50 transition-all duration-300 ${scrolled ? 'bg-white/95 backdrop-blur-md shadow-md py-2' : 'bg-transparent py-4'}`}>
@@ -60,7 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenModal }) => {
 
             {/* Desktop: Left Links */}
             <div className="hidden md:flex space-x-8 w-1/3 justify-start z-20">
-                {navLinks.slice(0, 2).map((link) => (
+                {leftHalf.map((link) => (
                 <a
                     key={link.name}
                     href={link.href}
@@ -95,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenModal }) => {
 
             {/* Desktop: Right Links */}
             <div className="hidden md:flex space-x-8 w-1/3 justify-end items-center z-20">
-                 {navLinks.slice(2, 4).map((link) => (
+                 {rightHalf.map((link) => (
                 <a
                     key={link.name}
                     href={link.href}
