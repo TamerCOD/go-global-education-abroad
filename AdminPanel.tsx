@@ -315,6 +315,380 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
 };
 
 // =====================================================================
+// CRM widgets (managers, statuses, leads view)
+// =====================================================================
+
+interface ManagerRec {
+    id: number;
+    login: string;
+    full_name: string;
+    telegram_tag?: string | null;
+    active: boolean;
+    last_assigned_at?: string | null;
+    created_at: string;
+}
+
+interface LeadStatusRec {
+    code: string;
+    label: string;
+    color?: string;
+    is_terminal: boolean;
+    sort: number;
+}
+
+interface LeadRec {
+    id: number;
+    received_at: string;
+    name: string;
+    phone: string;
+    email: string;
+    country: string;
+    comment: string;
+    source: string;
+    status_code: string;
+    status_label?: string;
+    status_color?: string;
+    notes?: string | null;
+    sla_deadline_at: string;
+    processed_at?: string | null;
+    manager_name?: string | null;
+    manager_login?: string | null;
+}
+
+const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
+    const [managers, setManagers] = useState<ManagerRec[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [draft, setDraft] = useState({ login: '', password: '', full_name: '', telegram_tag: '' });
+    const [editing, setEditing] = useState<Record<number, Partial<ManagerRec> & { password?: string }>>({});
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch('/api/admin/managers', { headers: { 'X-Admin-Password': password } });
+            const j = await res.json();
+            setManagers(j.managers || []);
+        } finally { setLoading(false); }
+    };
+    useEffect(() => { load(); }, []);
+
+    const create = async () => {
+        if (!draft.login || !draft.password || !draft.full_name) {
+            alert('Логин, пароль, имя обязательны'); return;
+        }
+        const res = await fetch('/api/admin/managers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(draft),
+        });
+        if (res.ok) {
+            setDraft({ login: '', password: '', full_name: '', telegram_tag: '' });
+            await load();
+        } else {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        }
+    };
+
+    const update = async (id: number) => {
+        const patch = editing[id];
+        if (!patch) return;
+        const res = await fetch(`/api/admin/managers/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(patch),
+        });
+        if (res.ok) {
+            setEditing(prev => { const n = { ...prev }; delete n[id]; return n; });
+            await load();
+        } else {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        }
+    };
+
+    const remove = async (id: number, name: string) => {
+        if (!confirm(`Удалить менеджера ${name}?`)) return;
+        await fetch(`/api/admin/managers/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        await load();
+    };
+
+    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+
+    return (
+        <div className="space-y-4">
+            <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 grid md:grid-cols-4 gap-2 items-end">
+                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Логин (англ., в нижнем регистре)"
+                    value={draft.login} onChange={e => setDraft({ ...draft, login: e.target.value.toLowerCase().replace(/\s/g, '') })} />
+                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Пароль" type="password"
+                    value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} />
+                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="ФИО"
+                    value={draft.full_name} onChange={e => setDraft({ ...draft, full_name: e.target.value })} />
+                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Telegram (например @ivan_tg)"
+                    value={draft.telegram_tag} onChange={e => setDraft({ ...draft, telegram_tag: e.target.value })} />
+                <button onClick={create} className="md:col-span-4 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded font-medium">+ Создать менеджера</button>
+            </div>
+
+            {managers.length === 0 ? (
+                <p className="text-slate-500 text-sm">Менеджеров пока нет — создайте первого выше.</p>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="text-left border-b border-slate-200">
+                                <th className="py-2 px-2">ID</th>
+                                <th className="py-2 px-2">Логин</th>
+                                <th className="py-2 px-2">ФИО</th>
+                                <th className="py-2 px-2">Telegram</th>
+                                <th className="py-2 px-2">Активен</th>
+                                <th className="py-2 px-2">Новый пароль</th>
+                                <th className="py-2 px-2"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {managers.map(m => {
+                                const e = editing[m.id] || {};
+                                return (
+                                    <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                        <td className="py-2 px-2 text-slate-400">#{m.id}</td>
+                                        <td className="py-2 px-2 font-mono">{m.login}</td>
+                                        <td className="py-2 px-2">
+                                            <input className="border border-slate-300 p-1 rounded text-sm w-full"
+                                                value={(e.full_name ?? m.full_name) as string}
+                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], full_name: ev.target.value } }))} />
+                                        </td>
+                                        <td className="py-2 px-2">
+                                            <input className="border border-slate-300 p-1 rounded text-sm w-full"
+                                                value={(e.telegram_tag ?? m.telegram_tag ?? '') as string}
+                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], telegram_tag: ev.target.value } }))} />
+                                        </td>
+                                        <td className="py-2 px-2 text-center">
+                                            <input type="checkbox" className="w-4 h-4 accent-brand-600"
+                                                checked={(e.active ?? m.active) as boolean}
+                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], active: ev.target.checked } }))} />
+                                        </td>
+                                        <td className="py-2 px-2">
+                                            <input className="border border-slate-300 p-1 rounded text-sm w-full" type="password" placeholder="—"
+                                                value={e.password ?? ''}
+                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], password: ev.target.value } }))} />
+                                        </td>
+                                        <td className="py-2 px-2 whitespace-nowrap">
+                                            <button onClick={() => update(m.id)} disabled={!editing[m.id]} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-30 text-white text-xs px-3 py-1 rounded mr-1">Сохранить</button>
+                                            <button onClick={() => remove(m.id, m.full_name)} className="bg-red-100 hover:bg-red-200 text-red-700 text-xs px-3 py-1 rounded">Удалить</button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
+    const [statuses, setStatuses] = useState<LeadStatusRec[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [draft, setDraft] = useState<LeadStatusRec>({ code: '', label: '', color: '#3b82f6', is_terminal: false, sort: 50 });
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch('/api/admin/lead-statuses', { headers: { 'X-Admin-Password': password } });
+            const j = await res.json();
+            setStatuses(j.statuses || []);
+        } finally { setLoading(false); }
+    };
+    useEffect(() => { load(); }, []);
+
+    const upsert = async (s: LeadStatusRec) => {
+        await fetch('/api/admin/lead-statuses', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(s),
+        });
+        await load();
+    };
+
+    const remove = async (code: string) => {
+        if (!confirm(`Удалить статус "${code}"?`)) return;
+        const res = await fetch(`/api/admin/lead-statuses/${encodeURIComponent(code)}`, {
+            method: 'DELETE', headers: { 'X-Admin-Password': password }
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            alert(j.error || 'Ошибка');
+        }
+        await load();
+    };
+
+    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-500">«Терминальные» статусы (закрыт / отказ) автоматически фиксируют время обработки и снимают лид с SLA-таймера.</p>
+            {statuses.map(s => (
+                <div key={s.code} className="grid md:grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded border border-slate-200">
+                    <code className="md:col-span-2 text-xs font-mono">{s.code}</code>
+                    <input className="md:col-span-4 border border-slate-300 p-1.5 rounded text-sm"
+                        value={s.label}
+                        onChange={e => upsert({ ...s, label: e.target.value })} />
+                    <input type="color" className="md:col-span-1 h-8 w-full border border-slate-300 rounded"
+                        value={s.color || '#3b82f6'}
+                        onChange={e => upsert({ ...s, color: e.target.value })} />
+                    <input type="number" className="md:col-span-1 border border-slate-300 p-1.5 rounded text-sm"
+                        value={s.sort}
+                        onChange={e => upsert({ ...s, sort: parseInt(e.target.value) || 0 })} />
+                    <label className="md:col-span-2 text-xs flex items-center gap-1">
+                        <input type="checkbox" className="accent-brand-600"
+                            checked={s.is_terminal}
+                            onChange={e => upsert({ ...s, is_terminal: e.target.checked })} />
+                        терминальный
+                    </label>
+                    <button onClick={() => remove(s.code)} disabled={s.code === 'new'}
+                        className="md:col-span-2 text-xs bg-red-50 hover:bg-red-100 disabled:opacity-30 text-red-700 px-2 py-1 rounded">
+                        Удалить
+                    </button>
+                </div>
+            ))}
+            <hr />
+            <div className="grid md:grid-cols-12 gap-2 items-center bg-emerald-50 p-2 rounded border border-emerald-200">
+                <input className="md:col-span-2 border border-slate-300 p-1.5 rounded text-sm font-mono"
+                    placeholder="code (англ.)"
+                    value={draft.code}
+                    onChange={e => setDraft({ ...draft, code: e.target.value.toLowerCase().replace(/\s/g, '_') })} />
+                <input className="md:col-span-4 border border-slate-300 p-1.5 rounded text-sm"
+                    placeholder="Метка для UI"
+                    value={draft.label}
+                    onChange={e => setDraft({ ...draft, label: e.target.value })} />
+                <input type="color" className="md:col-span-1 h-8 w-full border border-slate-300 rounded"
+                    value={draft.color || '#3b82f6'}
+                    onChange={e => setDraft({ ...draft, color: e.target.value })} />
+                <input type="number" className="md:col-span-1 border border-slate-300 p-1.5 rounded text-sm"
+                    value={draft.sort}
+                    onChange={e => setDraft({ ...draft, sort: parseInt(e.target.value) || 0 })} />
+                <label className="md:col-span-2 text-xs flex items-center gap-1">
+                    <input type="checkbox" className="accent-brand-600"
+                        checked={draft.is_terminal}
+                        onChange={e => setDraft({ ...draft, is_terminal: e.target.checked })} />
+                    терминальный
+                </label>
+                <button onClick={async () => {
+                    if (!draft.code || !draft.label) { alert('code и label обязательны'); return; }
+                    await upsert(draft);
+                    setDraft({ code: '', label: '', color: '#3b82f6', is_terminal: false, sort: 50 });
+                }} className="md:col-span-2 text-xs bg-brand-600 hover:bg-brand-700 text-white px-2 py-1 rounded">+ Добавить</button>
+            </div>
+        </div>
+    );
+};
+
+const LeadsView: React.FC<{ password: string }> = ({ password }) => {
+    const [leads, setLeads] = useState<LeadRec[]>([]);
+    const [stats, setStats] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const [l, s] = await Promise.all([
+                fetch('/api/admin/leads', { headers: { 'X-Admin-Password': password } }).then(r => r.json()),
+                fetch('/api/admin/leads/stats', { headers: { 'X-Admin-Password': password } }).then(r => r.json()),
+            ]);
+            setLeads(l.leads || []);
+            setStats(s);
+        } finally { setLoading(false); }
+    };
+    useEffect(() => { load(); }, []);
+
+    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+
+    return (
+        <div className="space-y-4">
+            {stats && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                        <div className="text-xs text-slate-600 uppercase">Всего лидов</div>
+                        <div className="text-2xl font-bold text-slate-900">{stats.total}</div>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        <div className="text-xs text-amber-700 uppercase">Открытых</div>
+                        <div className="text-2xl font-bold text-amber-700">{stats.open}</div>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <div className="text-xs text-red-700 uppercase">SLA просрочен</div>
+                        <div className="text-2xl font-bold text-red-700">{stats.slaBreached}</div>
+                    </div>
+                    <button onClick={load} className="bg-brand-50 border border-brand-200 rounded-lg p-3 text-sm text-brand-700 font-medium">↻ Обновить</button>
+                </div>
+            )}
+
+            {stats?.byManager?.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-500 mb-2">По менеджерам</div>
+                    <table className="w-full text-sm">
+                        <thead className="border-b border-slate-200">
+                            <tr><th className="text-left py-1">Менеджер</th><th className="text-right">Всего</th><th className="text-right">Открыто</th><th className="text-right">Закрыто</th></tr>
+                        </thead>
+                        <tbody>
+                            {stats.byManager.map((m: any) => (
+                                <tr key={m.id} className="border-b border-slate-100">
+                                    <td className="py-1">{m.full_name} <span className="text-slate-400">({m.login})</span></td>
+                                    <td className="text-right">{m.total}</td>
+                                    <td className="text-right">{m.open}</td>
+                                    <td className="text-right">{m.closed}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                    <thead className="bg-slate-100">
+                        <tr className="text-left">
+                            <th className="px-2 py-2">ID</th>
+                            <th className="px-2 py-2">Когда</th>
+                            <th className="px-2 py-2">Имя</th>
+                            <th className="px-2 py-2">Контакты</th>
+                            <th className="px-2 py-2">Страна</th>
+                            <th className="px-2 py-2">Менеджер</th>
+                            <th className="px-2 py-2">Статус</th>
+                            <th className="px-2 py-2">SLA</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {leads.map(l => {
+                            const sla = l.processed_at ? '✓ обработан'
+                                : new Date(l.sla_deadline_at).getTime() < Date.now() ? '⚠ просрочен'
+                                    : 'в работе';
+                            return (
+                                <tr key={l.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                    <td className="px-2 py-2 text-slate-400 font-mono text-xs">#{l.id}</td>
+                                    <td className="px-2 py-2 text-xs text-slate-600">{new Date(l.received_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                                    <td className="px-2 py-2 font-medium">{l.name || '—'}</td>
+                                    <td className="px-2 py-2 text-xs">
+                                        {l.phone && <div>📞 {l.phone}</div>}
+                                        {l.email && <div className="text-slate-500">{l.email}</div>}
+                                    </td>
+                                    <td className="px-2 py-2 text-xs">{l.country}</td>
+                                    <td className="px-2 py-2 text-xs">{l.manager_name || <em className="text-slate-400">не назначен</em>}</td>
+                                    <td className="px-2 py-2">
+                                        <span className="text-xs px-2 py-0.5 rounded text-white font-medium" style={{ backgroundColor: l.status_color || '#94a3b8' }}>{l.status_label || l.status_code}</span>
+                                    </td>
+                                    <td className="px-2 py-2 text-xs">{sla}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// =====================================================================
 // Main panel
 // =====================================================================
 
@@ -431,6 +805,18 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="📊 Статистика посещений" subtitle="Только публичный сайт (без админки)" defaultOpen>
                     <AnalyticsWidget password={password} />
+                </Section>
+
+                <Section title="🧑‍💼 Менеджеры по продажам (CRM)" subtitle="Логин/пароль для входа на /lidy" badge="CRM" defaultOpen>
+                    <ManagersSection password={password} />
+                </Section>
+
+                <Section title="🎯 Статусы лидов" subtitle="Что менеджер выбирает в карточке лида" badge="CRM">
+                    <StatusesSection password={password} />
+                </Section>
+
+                <Section title="📋 Все лиды (обзор)" subtitle="Полный список лидов и статистика по менеджерам" badge="CRM">
+                    <LeadsView password={password} />
                 </Section>
 
                 <Section

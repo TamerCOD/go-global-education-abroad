@@ -31,23 +31,29 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) =
     setIsSubmitting(true);
     
     try {
-      const webhookUrl = 'https://script.google.com/macros/s/AKfycbyE6z9ZrOa2YUL8zUNGrEFcEYRTXLFGcPZewFjQP_wP9a6WlEP1RBtRDqjRz6JYtEhr/exec';
-      
-      if (webhookUrl) {
+      const payload = { ...formData, timestamp: new Date().toISOString(), source: 'website-modal' };
+
+      // 1) Save to our CRM (assigns to manager + Telegram notification)
+      try {
+        await fetch('/api/leads/website', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) { console.error('CRM intake failed', e); }
+
+      // 2) Also push to existing Google Sheets webhook (legacy/backup)
+      try {
+        const webhookUrl = 'https://script.google.com/macros/s/AKfycbyE6z9ZrOa2YUL8zUNGrEFcEYRTXLFGcPZewFjQP_wP9a6WlEP1RBtRDqjRz6JYtEhr/exec';
         const formBody = new FormData();
         formBody.append('name', formData.name);
         formBody.append('phone', formData.phone);
         formBody.append('email', formData.email);
         formBody.append('country', formData.country);
         formBody.append('comment', formData.comment);
-        formBody.append('timestamp', new Date().toISOString());
-
-        await fetch(webhookUrl, {
-          method: 'POST',
-          body: formBody,
-          mode: 'no-cors'
-        });
-      }
+        formBody.append('timestamp', payload.timestamp);
+        await fetch(webhookUrl, { method: 'POST', body: formBody, mode: 'no-cors' });
+      } catch (e) { console.error('Sheets webhook failed', e); }
     } catch(e) {
       console.error(e);
     } finally {

@@ -14,6 +14,7 @@ import { WhatsAppBtn } from './components/WhatsAppBtn';
 import { ContactModal } from './components/ContactModal';
 import { Loader } from './components/Loader';
 import AdminPanel from './AdminPanel';
+import LidyApp from './lidy/LidyApp';
 import { useData } from './DataContext';
 
 function MainSite() {
@@ -91,6 +92,8 @@ function App() {
       <Routes>
         <Route path="/" element={<MainSite />} />
         <Route path="/admin" element={<AdminPanel />} />
+        <Route path="/lidy" element={<LidyApp />} />
+        <Route path="/lidy/*" element={<LidyApp />} />
       </Routes>
     </div>
   );
