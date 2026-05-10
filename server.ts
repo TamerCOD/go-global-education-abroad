@@ -832,7 +832,11 @@ async function startServer() {
         return res.status(429).json({ error: "Too many requests" });
       }
 
-      const result = await ingestLead(req.body || {}, "website");
+      // Honor source field from body if it's a known channel (apply-*, whatsapp, instagram, email)
+      const bodySource = (req.body?.source || "").toString().toLowerCase();
+      const allowFromBody = /^(apply-|whatsapp|instagram|email|website-)/.test(bodySource);
+      const source = allowFromBody ? bodySource : "website";
+      const result = await ingestLead(req.body || {}, source);
       res.json({ ok: true, ...result });
     } catch (err: any) {
       const msg = err?.message || "Server error";
