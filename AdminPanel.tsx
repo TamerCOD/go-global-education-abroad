@@ -1203,6 +1203,7 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
     const [leads, setLeads] = useState<LeadRec[]>([]);
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [editing, setEditing] = useState<LeadRec | null>(null);
 
     const load = async () => {
         setLoading(true);
@@ -1216,6 +1217,39 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
         } finally { setLoading(false); }
     };
     useEffect(() => { load(); }, []);
+
+    const removeLead = async (id: number, name: string) => {
+        if (!confirm(`⚠️ Удалить лид #${id} (${name || 'без имени'})?\n\nКомментарии и история тоже будут удалены. Действие НЕОБРАТИМО.`)) return;
+        const r = await fetch(`/api/admin/leads/${id}`, {
+            method: 'DELETE', headers: { 'X-Admin-Password': password }
+        });
+        if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || r.status));
+        } else await load();
+    };
+
+    const saveEdit = async () => {
+        if (!editing) return;
+        const e: any = editing;
+        const payload: any = {
+            name: e.name, phone: e.phone, email: e.email, country: e.country,
+            comment: e.comment, source: e.source,
+            desired_university: e.desired_university || '', notes: e.notes || '',
+        };
+        const r = await fetch(`/api/admin/leads/${editing.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(payload),
+        });
+        if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || r.status));
+        } else {
+            setEditing(null);
+            await load();
+        }
+    };
 
     if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
 
@@ -1260,6 +1294,85 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                 </div>
             )}
 
+            {editing && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+                    onClick={() => setEditing(null)}>
+                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full my-8"
+                        onClick={e => e.stopPropagation()}>
+                        <div className="border-b border-slate-200 p-4 flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-slate-900">✎ Редактировать лид #{editing.id}</h3>
+                            <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
+                        </div>
+                        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                            <label className="block">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Имя</span>
+                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                    value={editing.name || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, name: e.target.value } : prev)} />
+                            </label>
+                            <label className="block">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Телефон</span>
+                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono"
+                                    value={editing.phone || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, phone: e.target.value } : prev)} />
+                            </label>
+                            <label className="block">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Email</span>
+                                <input type="email" className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                    value={editing.email || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, email: e.target.value } : prev)} />
+                            </label>
+                            <label className="block">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Страна</span>
+                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                    value={editing.country || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, country: e.target.value } : prev)} />
+                            </label>
+                            <label className="block md:col-span-2">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Желаемый университет</span>
+                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                    value={(editing as any).desired_university || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, desired_university: e.target.value } as any : prev)} />
+                            </label>
+                            <label className="block">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Источник</span>
+                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                    value={editing.source || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, source: e.target.value } : prev)} />
+                            </label>
+                            <label className="block">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Status code</span>
+                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono"
+                                    value={editing.status_code || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, status_code: e.target.value } : prev)} />
+                            </label>
+                            <label className="block md:col-span-2">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Комментарий клиента</span>
+                                <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                    value={editing.comment || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, comment: e.target.value } : prev)} />
+                            </label>
+                            <label className="block md:col-span-2">
+                                <span className="block text-xs font-medium text-slate-700 mb-1">Заметка менеджера</span>
+                                <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                    value={editing.notes || ''}
+                                    onChange={e => setEditing(prev => prev ? { ...prev, notes: e.target.value } : prev)} />
+                            </label>
+                        </div>
+                        <div className="border-t border-slate-200 p-4 flex justify-end gap-2">
+                            <button onClick={() => setEditing(null)}
+                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium">
+                                Отмена
+                            </button>
+                            <button onClick={saveEdit}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                                💾 Сохранить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                     <thead className="bg-slate-100">
@@ -1273,6 +1386,7 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                             <th className="px-2 py-2">Менеджер</th>
                             <th className="px-2 py-2">Статус</th>
                             <th className="px-2 py-2">SLA</th>
+                            <th className="px-2 py-2">Действия</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1305,6 +1419,12 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                                         <span className="text-xs px-2 py-0.5 rounded text-white font-medium" style={{ backgroundColor: l.status_color || '#94a3b8' }}>{l.status_label || l.status_code}</span>
                                     </td>
                                     <td className="px-2 py-2 text-xs">{sla}</td>
+                                    <td className="px-2 py-2 whitespace-nowrap">
+                                        <button onClick={() => setEditing(l)}
+                                            className="text-xs bg-brand-50 hover:bg-brand-100 text-brand-700 px-2 py-1 rounded mr-1" title="Редактировать">✎</button>
+                                        <button onClick={() => removeLead(l.id, l.name)}
+                                            className="text-xs bg-red-50 hover:bg-red-100 text-red-700 px-2 py-1 rounded" title="Удалить">🗑</button>
+                                    </td>
                                 </tr>
                             );
                         })}

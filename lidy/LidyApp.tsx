@@ -355,8 +355,9 @@ const LeadCard: React.FC<{
     onTransfer: (leadId: number, newManagerId: number) => Promise<void>;
     onTransferAccept: (leadId: number) => Promise<void>;
     onTransferReject: (leadId: number) => Promise<void>;
+    onDelete: (leadId: number) => Promise<void>;
     waMessage: string;
-}> = ({ lead, statuses, me, onChangeStatus, onChangeSource, roster, sourceOptions, onReassign, onTransfer, onTransferAccept, onTransferReject, waMessage }) => {
+}> = ({ lead, statuses, me, onChangeStatus, onChangeSource, roster, sourceOptions, onReassign, onTransfer, onTransferAccept, onTransferReject, onDelete, waMessage }) => {
     const [open, setOpen] = useState(false);
     const [note, setNote] = useState(lead.notes || '');
     const [pendingStatus, setPendingStatus] = useState<string | null>(null);
@@ -369,6 +370,11 @@ const LeadCard: React.FC<{
     const [postingComment, setPostingComment] = useState(false);
     const [editFields, setEditFields] = useState(false);
     const [draftFields, setDraftFields] = useState({
+        name: lead.name || '',
+        phone: lead.phone || '',
+        email: lead.email || '',
+        country: lead.country || '',
+        comment: lead.comment || '',
         desired_university: lead.desired_university || '',
         study_level: lead.study_level || '',
         intake_term: lead.intake_term || '',
@@ -635,6 +641,37 @@ const LeadCard: React.FC<{
 
                         {editFields ? (
                             <div className={`${BORDER} rounded-xl bg-white p-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm`}>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Имя</span>
+                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        value={draftFields.name}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, name: e.target.value }))} />
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Телефон</span>
+                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white font-mono"
+                                        value={draftFields.phone}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, phone: e.target.value }))} />
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Email</span>
+                                    <input type="email" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        value={draftFields.email}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, email: e.target.value }))} />
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Страна для обучения</span>
+                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        value={draftFields.country}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, country: e.target.value }))} />
+                                </label>
+                                <label className="md:col-span-2">
+                                    <span className="block text-xs text-slate-500 mb-1">Комментарий клиента</span>
+                                    <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        value={draftFields.comment}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, comment: e.target.value }))} />
+                                </label>
+                                <hr className="md:col-span-2" />
                                 <label className="md:col-span-2">
                                     <span className="block text-xs text-slate-500 mb-1">Желаемый университет</span>
                                     <UniversityPicker
@@ -863,6 +900,23 @@ const LeadCard: React.FC<{
                         </div>
                     )}
 
+                    {/* Teamlead-only: delete */}
+                    {isTeamlead && (
+                        <div className="border-t border-dashed border-slate-300 pt-3">
+                            <Tooltip text="Полное удаление лида и всех комментариев. Действие необратимо!">
+                                <button type="button"
+                                    onClick={() => {
+                                        if (confirm(`⚠️ Удалить лид #${lead.id} (${lead.name || 'без имени'})?\n\nКомментарии и история тоже будут удалены. Действие НЕОБРАТИМО.`)) {
+                                            onDelete(lead.id);
+                                        }
+                                    }}
+                                    className={`${BTN} bg-red-600 hover:bg-red-700 text-white`}>
+                                    🗑 Удалить лид
+                                </button>
+                            </Tooltip>
+                        </div>
+                    )}
+
                     {/* Teamlead-only: hard reassign */}
                     {isTeamlead && (
                         <div className="border-t border-dashed border-slate-300 pt-3">
@@ -1014,6 +1068,16 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         const res = await fetch(`/api/lidy/leads/${id}/source`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             credentials: 'include', body: JSON.stringify({ source }),
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        } else await load();
+    };
+
+    const onDelete = async (id: number) => {
+        const res = await fetch(`/api/lidy/leads/${id}`, {
+            method: 'DELETE', credentials: 'include',
         });
         if (!res.ok) {
             const j = await res.json().catch(() => ({}));
@@ -1241,6 +1305,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                 onTransfer={onTransfer}
                                 onTransferAccept={onTransferAccept}
                                 onTransferReject={onTransferReject}
+                                onDelete={onDelete}
                                 waMessage={waMessage} />
                         ))}
                     </div>

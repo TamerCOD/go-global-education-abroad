@@ -1387,6 +1387,69 @@ async function startServer() {
     }
   });
 
+  // Teamlead can delete a lead from /lidy
+  app.delete("/api/lidy/leads/:id", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const leadId = Number(req.params.id);
+      const r = await pq().query(`DELETE FROM leads WHERE id = $1 RETURNING id`, [leadId]);
+      if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
+      sendTelegram(`🗑 Лид #${leadId} удалён тимлидом ${escapeHtml(me.full_name)}`).catch(() => {});
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[lidy/lead DELETE]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Admin: delete + patch any lead from the admin panel
+  app.delete("/api/admin/leads/:id", requireAdmin, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      const r = await pq().query(`DELETE FROM leads WHERE id = $1 RETURNING id`, [leadId]);
+      if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
+      sendTelegram(`🗑 Лид #${leadId} удалён админом`).catch(() => {});
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[admin/lead DELETE]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.patch("/api/admin/leads/:id", requireAdmin, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      const sets: string[] = [];
+      const params: any[] = [];
+      for (const [k, v] of Object.entries(req.body || {})) {
+        if (!ALLOWED_LEAD_FIELDS.has(k)) continue;
+        sets.push(`${k} = $${params.length + 1}`);
+        params.push(v === "" ? null : v);
+      }
+      // Admin can also update notes / source / status_code / rejection_reason directly
+      const ADMIN_EXTRA = new Set(["notes", "source", "status_code", "rejection_reason"]);
+      for (const [k, v] of Object.entries(req.body || {})) {
+        if (!ADMIN_EXTRA.has(k)) continue;
+        sets.push(`${k} = $${params.length + 1}`);
+        params.push(v === "" ? null : v);
+      }
+      if (sets.length === 0) return res.status(400).json({ error: "Nothing to update" });
+      params.push(leadId);
+      const { rows } = await pq().query(
+        `UPDATE leads SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $${params.length} RETURNING *`,
+        params
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true, lead: rows[0] });
+    } catch (err) {
+      console.error("[admin/lead PATCH]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
   // Manager can change the source on a lead (correct attribution)
   app.put("/api/lidy/leads/:id/source", requireManager, async (req, res) => {
     try {
