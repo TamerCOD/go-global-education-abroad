@@ -22,8 +22,8 @@ export const Footer: React.FC = () => {
             <div className="flex items-center gap-3 mb-4">
               <img src="/ppp.png" alt="Go Global" className="h-8 w-auto object-contain" />
               <span
-                className="text-white font-light text-2xl"
-                style={{ fontFamily: '"Century Gothic", sans-serif' }}
+                className="text-white text-2xl"
+                style={{ fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 700, letterSpacing: '-0.02em' }}
               >
                 Go Global
               </span>

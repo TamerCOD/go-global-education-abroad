@@ -257,6 +257,8 @@ interface AnalyticsData {
     uniqueLast7: number;
     daily: { date: string; visits: number; unique: number }[];
     topPaths: { path: string; visits: number }[];
+    hourly?: { hour: number; visits: number }[];
+    topRefs?: { source: string; visits: number }[];
 }
 
 const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
@@ -329,16 +331,57 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
                 </div>
             )}
 
-            {data.topPaths.length > 0 && (
+            <div className="grid md:grid-cols-2 gap-4">
+                {data.topPaths.length > 0 && (
+                    <div>
+                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">📄 Популярные страницы (30д)</div>
+                        <div className="space-y-1">
+                            {data.topPaths.map(p => (
+                                <div key={p.path} className="flex justify-between text-sm py-1 border-b border-slate-100">
+                                    <span className="text-slate-700 font-mono text-xs truncate max-w-[70%]" title={p.path}>{p.path}</span>
+                                    <span className="text-slate-500 font-medium">{p.visits}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {data.topRefs && data.topRefs.length > 0 && (
+                    <div>
+                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">🌐 Откуда пришли (30д)</div>
+                        <div className="space-y-1">
+                            {data.topRefs.map(r => (
+                                <div key={r.source} className="flex justify-between text-sm py-1 border-b border-slate-100">
+                                    <span className="text-slate-700 text-xs truncate max-w-[70%]" title={r.source}>{r.source}</span>
+                                    <span className="text-slate-500 font-medium">{r.visits}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {data.hourly && data.hourly.length > 0 && (
                 <div>
-                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">Популярные страницы (30д)</div>
-                    <div className="space-y-1">
-                        {data.topPaths.map(p => (
-                            <div key={p.path} className="flex justify-between text-sm py-1 border-b border-slate-100">
-                                <span className="text-slate-700 font-mono text-xs">{p.path}</span>
-                                <span className="text-slate-500 font-medium">{p.visits}</span>
-                            </div>
-                        ))}
+                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">⏰ Активность по часам (7д, Asia/Bishkek)</div>
+                    <div className="flex items-end gap-0.5 h-24 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                        {Array.from({ length: 24 }).map((_, h) => {
+                            const item = data.hourly!.find(x => x.hour === h);
+                            const v = item?.visits || 0;
+                            const maxV = Math.max(1, ...data.hourly!.map(x => x.visits));
+                            return (
+                                <div key={h} className="flex-1 group relative flex flex-col items-center justify-end">
+                                    <div className="w-full bg-cyan-500 hover:bg-cyan-600 rounded-t transition-colors"
+                                        style={{ height: `${(v / maxV) * 100}%`, minHeight: v > 0 ? '2px' : '0' }} />
+                                    <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+                                        {String(h).padStart(2, '0')}:00 — {v} визитов
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="flex justify-between text-[10px] font-mono text-slate-400 mt-1 px-2">
+                        <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
                     </div>
                 </div>
             )}
@@ -536,6 +579,88 @@ const EventsSection: React.FC<{ password: string }> = ({ password }) => {
                     })}
                 </div>
             )}
+        </div>
+    );
+};
+
+// Cost calculator config (texts + checklist + company services price)
+const CalculatorConfigSection: React.FC<{ sc: any; setSC: (patch: any) => void }> = ({ sc, setSC }) => {
+    const cfg = sc.calculatorConfig || {};
+    const setCfg = (patch: any) => setSC({ calculatorConfig: { ...cfg, ...patch } });
+    const items: string[] = Array.isArray(cfg.checklistItems) ? cfg.checklistItems : [];
+    const [draftItem, setDraftItem] = useState('');
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+                Цена в калькуляторе считается так: <strong>минимальная стоимость обучения</strong> из университетов выбранной страны
+                <strong> + минимальная стоимость проживания</strong> для страны
+                <strong> + услуги GoGlobal</strong>. Если у университета не задано «Стоимость обучения / год», используется значение страны (поле «Tuition Min» внизу).
+            </p>
+
+            <div className="grid md:grid-cols-2 gap-3">
+                <label className="block text-sm">
+                    <span className="block font-medium text-slate-700 mb-1">Заголовок секции</span>
+                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.title || ''}
+                        onChange={e => setCfg({ title: e.target.value })} placeholder="Планируйте бюджет" />
+                </label>
+                <label className="block text-sm">
+                    <span className="block font-medium text-slate-700 mb-1">Подзаголовок</span>
+                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.subtitle || ''}
+                        onChange={e => setCfg({ subtitle: e.target.value })} placeholder="Узнайте примерную..." />
+                </label>
+                <label className="block text-sm">
+                    <span className="block font-medium text-slate-700 mb-1">💵 Стоимость услуг GoGlobal / год ($)</span>
+                    <input type="number" className="w-full border border-slate-300 rounded-lg p-2 font-mono"
+                        value={cfg.companyServicesCost ?? 0}
+                        onChange={e => setCfg({ companyServicesCost: Math.max(0, parseInt(e.target.value) || 0) })} />
+                    <span className="text-xs text-slate-500 block mt-1">Прибавляется к итогу. 0 — не учитывать.</span>
+                </label>
+                <label className="block text-sm md:col-span-1">
+                    <span className="block font-medium text-slate-700 mb-1">Подпись чекбокса «гранты»</span>
+                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.grantToggleLabel || ''}
+                        onChange={e => setCfg({ grantToggleLabel: e.target.value })} placeholder="Рассматриваю гранты / Бюджет" />
+                </label>
+                <label className="block text-sm md:col-span-2">
+                    <span className="block font-medium text-slate-700 mb-1">Подсказка под чекбоксом «гранты»</span>
+                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.grantToggleHint || ''}
+                        onChange={e => setCfg({ grantToggleHint: e.target.value })} placeholder="Учитывать возможность бесплатного обучения..." />
+                </label>
+                <label className="block text-sm md:col-span-2">
+                    <span className="block font-medium text-slate-700 mb-1">Дисклеймер внизу</span>
+                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.disclaimer || ''}
+                        onChange={e => setCfg({ disclaimer: e.target.value })} placeholder="*Не является публичной офертой..." />
+                </label>
+            </div>
+
+            <div>
+                <div className="text-sm font-medium text-slate-700 mb-2">✓ Чек-лист «что входит» (отображается под ценой)</div>
+                <div className="space-y-2">
+                    {items.map((it, i) => (
+                        <div key={i} className="flex gap-2 items-center">
+                            <span className="text-emerald-600 text-lg">✓</span>
+                            <input className="flex-grow border border-slate-300 rounded-lg p-2 text-sm" value={it}
+                                onChange={e => {
+                                    const next = [...items]; next[i] = e.target.value;
+                                    setCfg({ checklistItems: next });
+                                }} />
+                            <button className="text-red-500 text-sm px-2"
+                                onClick={() => {
+                                    const next = [...items]; next.splice(i, 1);
+                                    setCfg({ checklistItems: next });
+                                }}>✕</button>
+                        </div>
+                    ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                    <input className="flex-grow border border-slate-300 rounded-lg p-2 text-sm"
+                        placeholder="Например: Сопровождение от подачи до прилёта"
+                        value={draftItem} onChange={e => setDraftItem(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (draftItem.trim()) { setCfg({ checklistItems: [...items, draftItem.trim()] }); setDraftItem(''); } } }} />
+                    <button className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                        onClick={() => { if (draftItem.trim()) { setCfg({ checklistItems: [...items, draftItem.trim()] }); setDraftItem(''); } }}>+ Добавить пункт</button>
+                </div>
+            </div>
         </div>
     );
 };
@@ -1180,6 +1305,83 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                 </div>
             )}
 
+            {/* Country / University / Event / Study Level breakdowns */}
+            <div className="grid md:grid-cols-2 gap-4">
+                {data.byCountry && data.byCountry.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <div className="text-xs uppercase text-slate-500 mb-2">🌍 По странам</div>
+                        <table className="w-full text-xs">
+                            <thead className="text-left text-slate-400">
+                                <tr><th>Страна</th><th className="text-right">Всего</th><th className="text-right">Won</th></tr>
+                            </thead>
+                            <tbody>
+                                {data.byCountry.map((c: any) => (
+                                    <tr key={c.country} className="border-t border-slate-100">
+                                        <td className="py-1 truncate max-w-[50%]">{c.country}</td>
+                                        <td className="text-right font-mono">{c.total}</td>
+                                        <td className="text-right font-mono text-emerald-700">{c.won}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {data.byUniversity && data.byUniversity.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <div className="text-xs uppercase text-slate-500 mb-2">🎓 По университетам</div>
+                        <table className="w-full text-xs">
+                            <thead className="text-left text-slate-400">
+                                <tr><th>Университет</th><th className="text-right">Всего</th><th className="text-right">Won</th></tr>
+                            </thead>
+                            <tbody>
+                                {data.byUniversity.map((u: any) => (
+                                    <tr key={u.university} className="border-t border-slate-100">
+                                        <td className="py-1 truncate max-w-[60%]" title={u.university}>{u.university}</td>
+                                        <td className="text-right font-mono">{u.total}</td>
+                                        <td className="text-right font-mono text-emerald-700">{u.won}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {data.byStudyLevel && data.byStudyLevel.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <div className="text-xs uppercase text-slate-500 mb-2">📚 По уровню программы</div>
+                        <div className="space-y-1">
+                            {data.byStudyLevel.map((l: any) => (
+                                <div key={l.level} className="flex justify-between text-xs py-1 border-t border-slate-100">
+                                    <span>{l.level}</span>
+                                    <span className="font-mono">{l.total}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {data.byEvent && data.byEvent.length > 0 && (
+                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                        <div className="text-xs uppercase text-slate-500 mb-2">🎟 По событиям</div>
+                        <table className="w-full text-xs">
+                            <thead className="text-left text-slate-400">
+                                <tr><th>Событие</th><th className="text-right">Всего</th><th className="text-right">Won</th></tr>
+                            </thead>
+                            <tbody>
+                                {data.byEvent.map((e: any) => (
+                                    <tr key={e.event} className="border-t border-slate-100">
+                                        <td className="py-1 truncate max-w-[60%]">{e.event}</td>
+                                        <td className="text-right font-mono">{e.total}</td>
+                                        <td className="text-right font-mono text-emerald-700">{e.won}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
             <div className="border-t border-slate-200 pt-3 mt-3">
                 <div className="text-xs uppercase text-slate-500 mb-2">Экспорт CSV</div>
                 <div className="flex flex-wrap gap-2 items-center">
@@ -1714,6 +1916,10 @@ const AdminPanel: React.FC = () => {
                     </label>
                 </Section>
 
+                <Section title="🧮 Калькулятор стоимости обучения" subtitle="Заголовок, чек-лист, услуги и базовые тексты — отображаются на главной" accent="amber">
+                    <CalculatorConfigSection sc={sc} setSC={setSC} />
+                </Section>
+
                 <Section title="🖼 Изображения сайта" subtitle="Hero и About">
                     <div className="space-y-4">
                         <label className="block text-sm">
@@ -1937,6 +2143,42 @@ const AdminPanel: React.FC = () => {
                                                 setLocalData({ ...localData, countries: list });
                                             }}
                                         />
+                                        <div className="grid grid-cols-2 gap-2 mb-2">
+                                            <label className="text-sm">
+                                                <span className="block text-xs text-slate-500 mb-1">💵 Стоимость обучения / год ($)</span>
+                                                <input type="number" className="border border-slate-300 p-1.5 w-full rounded text-sm"
+                                                    placeholder="20000"
+                                                    value={uni.tuition ?? ''}
+                                                    onChange={e => {
+                                                        const list = [...localData.countries];
+                                                        const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value) || 0);
+                                                        list[cIndex].universities[uIndex].tuition = v;
+                                                        setLocalData({ ...localData, countries: list });
+                                                    }} />
+                                            </label>
+                                            <label className="text-sm flex items-center gap-2 pl-2">
+                                                <input type="checkbox" className="accent-emerald-600 w-4 h-4"
+                                                    checked={!!uni.grantAvailable}
+                                                    onChange={e => {
+                                                        const list = [...localData.countries];
+                                                        list[cIndex].universities[uIndex].grantAvailable = e.target.checked;
+                                                        setLocalData({ ...localData, countries: list });
+                                                    }} />
+                                                <span className="text-xs">🎁 Есть грант / стипендия</span>
+                                            </label>
+                                        </div>
+                                        {uni.grantAvailable && (
+                                            <input
+                                                className="border border-slate-300 p-1 w-full text-xs mb-2 rounded"
+                                                placeholder="Описание гранта (необязательно)"
+                                                value={uni.grantNote || ''}
+                                                onChange={e => {
+                                                    const list = [...localData.countries];
+                                                    list[cIndex].universities[uIndex].grantNote = e.target.value;
+                                                    setLocalData({ ...localData, countries: list });
+                                                }}
+                                            />
+                                        )}
                                         <div className="text-xs font-medium text-slate-700 mb-1">Картинки</div>
                                         <ImageListInput
                                             values={uni.images || []}

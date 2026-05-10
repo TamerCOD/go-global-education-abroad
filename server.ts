@@ -81,6 +81,20 @@ const fallbackDefaults = {
       "Поиск Google",
       "Другое",
     ],
+    calculatorConfig: {
+      title: "Планируйте бюджет",
+      subtitle: "Узнайте примерную минимальную стоимость года обучения и проживания.",
+      companyServicesCost: 1000,
+      checklistItems: [
+        "Включает проживание и питание",
+        "Включает минимальную стоимость контракта",
+        "Страховка и учебные материалы",
+        "Сопровождение GoGlobal",
+      ],
+      disclaimer: "*Не является публичной офертой. Точный расчёт возможен только после консультации.",
+      grantToggleLabel: "Рассматриваю гранты / Бюджет",
+      grantToggleHint: "Учитывать возможность бесплатного обучения (только проживание + услуги)",
+    },
   },
 };
 
@@ -380,6 +394,32 @@ async function getAnalytics() {
      WHERE visited_at >= NOW() - INTERVAL '30 days'
      GROUP BY path ORDER BY visits DESC LIMIT 10`
   );
+  // Hourly distribution over the last 7 days (when do visitors come?)
+  const hourly = await pool.query(
+    `SELECT EXTRACT(hour FROM (visited_at AT TIME ZONE 'Asia/Bishkek'))::int AS hour,
+            COUNT(*)::int AS visits
+     FROM site_visits
+     WHERE visited_at >= NOW() - INTERVAL '7 days'
+     GROUP BY 1
+     ORDER BY 1`
+  );
+  // Top referrer domains (where do visitors come from?)
+  const topRefs = await pool.query(
+    `SELECT
+       CASE
+         WHEN ref IS NULL OR ref = '' THEN '(прямой заход)'
+         ELSE COALESCE(
+           NULLIF((regexp_match(ref, '^https?://([^/]+)'))[1], ''),
+           'прочее'
+         )
+       END AS source,
+       COUNT(*)::int AS visits
+     FROM site_visits
+     WHERE visited_at >= NOW() - INTERVAL '30 days'
+     GROUP BY 1
+     ORDER BY visits DESC
+     LIMIT 10`
+  );
   return {
     today: today.rows[0]?.visits ?? 0,
     uniqueToday: today.rows[0]?.unique ?? 0,
@@ -388,6 +428,8 @@ async function getAnalytics() {
     last30Days: last30.rows[0]?.visits ?? 0,
     daily: daily.rows,
     topPaths: topPaths.rows,
+    hourly: hourly.rows,
+    topRefs: topRefs.rows,
   };
 }
 
@@ -1387,6 +1429,97 @@ async function startServer() {
     }
   });
 
+  // Manager/teamlead manually creates a lead (e.g. client called).
+  // Assigned to the creator (or to chosen manager if teamlead specifies assigned_manager_id).
+  app.post("/api/lidy/leads", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const b = req.body || {};
+      const name = (b.name || "").toString().slice(0, 200);
+      const phone = (b.phone || "").toString().slice(0, 50);
+      const email = (b.email || "").toString().slice(0, 200);
+      if (!name && !phone && !email) {
+        return res.status(400).json({ error: "Нужно хотя бы имя, телефон или email" });
+      }
+      const source = (b.source || "").toString().trim().slice(0, 80);
+      if (!source) return res.status(400).json({ error: "Укажите источник лида" });
+
+      const country = (b.country || "").toString().slice(0, 100);
+      const comment = (b.comment || "").toString().slice(0, 2000);
+      const desired_university = (b.desired_university || "").toString().slice(0, 200);
+      const study_level = (b.study_level || "").toString().slice(0, 80);
+      const intake_term = (b.intake_term || "").toString().slice(0, 80);
+      const budget = (b.budget || "").toString().slice(0, 80);
+      const english_level = (b.english_level || "").toString().slice(0, 40);
+      const birth_year = b.birth_year ? Number(b.birth_year) || null : null;
+      const current_education = (b.current_education || "").toString().slice(0, 120);
+
+      // Choose assignee: teamlead may pass assigned_manager_id; otherwise default to self
+      let assigneeId: number = me.id;
+      if (me.role === "teamlead" && b.assigned_manager_id) {
+        const target = await loadManager(Number(b.assigned_manager_id));
+        if (!target || target.archived_at || !target.active) {
+          return res.status(400).json({ error: "Invalid assigned_manager_id" });
+        }
+        assigneeId = target.id;
+      }
+      const assignee = await loadManager(assigneeId);
+      const slaDeadline = computeSlaDeadline(
+        new Date(),
+        (assignee?.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE
+      );
+
+      // Optionally link to event
+      let eventId: number | null = null;
+      let eventNameSnapshot: string | null = null;
+      if (b.event_id) {
+        const ev = await pq().query(`SELECT id, name FROM events WHERE id = $1`, [Number(b.event_id)]);
+        if (ev.rows.length > 0) { eventId = ev.rows[0].id; eventNameSnapshot = ev.rows[0].name; }
+      }
+
+      const insert = await pq().query(
+        `INSERT INTO leads (name, phone, email, country, comment, source, raw,
+                            assigned_manager_id, status_code, sla_deadline_at,
+                            event_id, event_name_snapshot, desired_university, study_level,
+                            intake_term, budget, english_level, birth_year, current_education)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'new',$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING id, received_at`,
+        [name, phone, email, country, comment, source, JSON.stringify({ ...b, _manual: true, _created_by: me.login }),
+          assigneeId, slaDeadline, eventId, eventNameSnapshot, desired_university || null, study_level || null,
+          intake_term || null, budget || null, english_level || null, birth_year, current_education || null]
+      );
+      const leadId = insert.rows[0].id;
+
+      // First comment: who created it
+      await pq().query(
+        `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [leadId, me.id, me.full_name, me.role || "manager", `📞 Лид создан вручную (${escapeHtml(source)})`]
+      );
+
+      const wa = phone ? whatsappLink(phone) : null;
+      const tag = assignee?.telegram_tag ? (assignee.telegram_tag.startsWith("@") ? assignee.telegram_tag : `@${assignee.telegram_tag}`) : "";
+      sendTelegram([
+        `📞 <b>Лид #${leadId} создан вручную</b> · ${sourceBadge(source)}`,
+        `Кем: ${escapeHtml(me.full_name)} (${escapeHtml(me.login)})`,
+        name ? `👤 ${escapeHtml(name)}` : "",
+        phone ? `📞 ${escapeHtml(phone)}${wa ? ` · <a href="${wa}">WhatsApp</a>` : ""}` : "",
+        email ? `✉️ <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>` : "",
+        country ? `🌍 ${escapeHtml(country)}` : "",
+        comment ? `💬 ${escapeHtml(comment)}` : "",
+        assignee ? `👨‍💼 Назначен: <b>${escapeHtml(assignee.full_name)}</b> ${tag}`.trim() : "",
+        `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+      ].filter(Boolean).join("\n")).catch(() => {});
+
+      res.json({ ok: true, leadId, assigned: assigneeId });
+    } catch (err) {
+      console.error("[lidy/lead POST]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
   // Teamlead can delete a lead from /lidy
   app.delete("/api/lidy/leads/:id", requireManager, async (req, res) => {
     try {
@@ -1926,6 +2059,48 @@ async function startServer() {
         ORDER BY total DESC
       `);
 
+      const byCountryQ = await pq().query(`
+        SELECT COALESCE(NULLIF(country, ''), 'Не указано') AS country,
+               COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won
+        FROM leads
+        WHERE received_at >= ${since}
+        GROUP BY 1
+        ORDER BY total DESC
+        LIMIT 20
+      `);
+
+      const byUniversityQ = await pq().query(`
+        SELECT COALESCE(NULLIF(desired_university, ''), 'Не указан') AS university,
+               COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won
+        FROM leads
+        WHERE received_at >= ${since}
+        GROUP BY 1
+        ORDER BY total DESC
+        LIMIT 20
+      `);
+
+      const byStudyLevelQ = await pq().query(`
+        SELECT COALESCE(NULLIF(study_level, ''), 'Не указан') AS level,
+               COUNT(*)::int AS total
+        FROM leads
+        WHERE received_at >= ${since}
+        GROUP BY 1
+        ORDER BY total DESC
+      `);
+
+      const byEventQ = await pq().query(`
+        SELECT COALESCE(NULLIF(event_name_snapshot, ''), '— без события —') AS event,
+               COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won
+        FROM leads
+        WHERE received_at >= ${since}
+        GROUP BY 1
+        ORDER BY total DESC
+        LIMIT 10
+      `);
+
       const byManagerQ = await pq().query(`
         SELECT m.id, m.full_name, m.login, m.active,
                COUNT(l.*)::int AS total,
@@ -1967,6 +2142,10 @@ async function startServer() {
         byStatus: byStatusQ.rows,
         byManager: byManagerQ.rows,
         bySource: bySourceQ.rows,
+        byCountry: byCountryQ.rows,
+        byUniversity: byUniversityQ.rows,
+        byStudyLevel: byStudyLevelQ.rows,
+        byEvent: byEventQ.rows,
       });
     } catch (err) {
       console.error("[admin/dashboard]", err);

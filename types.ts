@@ -2,6 +2,9 @@ export interface University {
   name: string;
   description: string;
   images: string[];
+  tuition?: number | null;    // Per-university yearly tuition in USD
+  grantAvailable?: boolean;   // Whether this university offers grants/scholarships
+  grantNote?: string;         // Free-form note about grants
 }
 
 export interface CostData {
@@ -56,6 +59,16 @@ export interface ContactConfig {
   whatsappMessage?: string;
 }
 
+export interface CalculatorConfig {
+  title?: string;
+  subtitle?: string;
+  companyServicesCost?: number;   // Approximate price of our company's services per year (USD)
+  checklistItems?: string[];      // Bullet items shown below the price
+  disclaimer?: string;
+  grantToggleLabel?: string;
+  grantToggleHint?: string;
+}
+
 export interface SiteConfig {
   heroImage: string;
   aboutImage1: string;
@@ -64,6 +77,7 @@ export interface SiteConfig {
   loaderTagline?: string;
   visibility?: VisibilityConfig;
   regions?: { id: string; name: string }[];
+  calculatorConfig?: CalculatorConfig;
 }
 
 export interface ContactFormState {

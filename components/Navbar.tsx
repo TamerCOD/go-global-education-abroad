@@ -96,9 +96,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenModal }) => {
                       alt="Go Global Logo" 
                       className="h-6 w-6 md:h-8 md:w-8 object-contain hover:scale-105 transition-transform duration-300 relative top-[-2px] md:top-[-4px]" 
                     />
-                    <span 
-                        className={`text-3xl md:text-5xl font-light tracking-tighter transition-colors duration-300 ${scrolled ? 'text-slate-900' : 'text-white'}`}
-                        style={{ fontFamily: '"Century Gothic", sans-serif' }}
+                    <span
+                        className={`text-3xl md:text-5xl font-bold tracking-tight transition-colors duration-300 ${scrolled ? 'text-slate-900' : 'text-white'}`}
+                        style={{ fontFamily: "'Montserrat', system-ui, sans-serif", fontWeight: 700, letterSpacing: '-0.02em' }}
                     >
                     Go Global
                     </span>

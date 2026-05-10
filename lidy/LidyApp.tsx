@@ -341,6 +341,148 @@ const UniversityPicker: React.FC<{ value: string; onChange: (v: string) => void 
 };
 
 // ─────────────────────────────────────────────────────────────────────
+// Manual create-lead modal
+// ─────────────────────────────────────────────────────────────────────
+const CreateLeadModal: React.FC<{
+    onClose: () => void;
+    onCreated: () => void;
+    sourceOptions: string[];
+    roster: RosterManager[];
+    isTeamlead: boolean;
+}> = ({ onClose, onCreated, sourceOptions, roster, isTeamlead }) => {
+    const [form, setForm] = useState({
+        name: '', phone: '', email: '', country: '', comment: '',
+        source: '', desired_university: '', study_level: '', intake_term: '',
+        budget: '', english_level: '', birth_year: '', current_education: '',
+        assigned_manager_id: '',
+    });
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const set = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
+
+    const submit = async () => {
+        if (!form.source) { setError('Укажите источник лида'); return; }
+        if (!form.name && !form.phone && !form.email) { setError('Нужно хотя бы имя, телефон или email'); return; }
+        setSaving(true); setError(null);
+        try {
+            const payload: any = { ...form };
+            payload.birth_year = form.birth_year ? Number(form.birth_year) : undefined;
+            if (!form.assigned_manager_id) delete payload.assigned_manager_id;
+            const r = await fetch('/api/lidy/leads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) { setError(j.error || 'Ошибка'); return; }
+            onCreated();
+            onClose();
+        } finally { setSaving(false); }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
+            onClick={onClose}>
+            <div className={`${CARD} max-w-2xl w-full my-8`} onClick={e => e.stopPropagation()}>
+                <div className="border-b border-slate-200 p-4 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-900">📞 Создать лид вручную</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
+                </div>
+                <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <p className="md:col-span-2 text-xs text-slate-500">Используй для звонков, WhatsApp-переписок или личных встреч, где клиент не заполнял онлайн-форму.</p>
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Имя</span>
+                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            value={form.name} onChange={e => set('name', e.target.value)} placeholder="Айбек" />
+                    </label>
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Телефон</span>
+                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono"
+                            value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+996 ..." />
+                    </label>
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Email</span>
+                        <input type="email" className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            value={form.email} onChange={e => set('email', e.target.value)} />
+                    </label>
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Страна для обучения</span>
+                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            value={form.country} onChange={e => set('country', e.target.value)} placeholder="США / Германия..." />
+                    </label>
+                    <label className="md:col-span-2">
+                        <span className="block text-xs text-slate-500 mb-1">Желаемый университет</span>
+                        <UniversityPicker value={form.desired_university}
+                            onChange={v => set('desired_university', v)} />
+                    </label>
+                    <label className="md:col-span-2">
+                        <span className="block text-xs text-slate-500 mb-1">Источник <span className="text-red-500">*</span></span>
+                        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                            value={form.source} onChange={e => set('source', e.target.value)}>
+                            <option value="">— выберите —</option>
+                            {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    </label>
+                    {isTeamlead && (
+                        <label className="md:col-span-2">
+                            <span className="block text-xs text-slate-500 mb-1">Назначить менеджеру (по умолчанию — себе)</span>
+                            <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                                value={form.assigned_manager_id} onChange={e => set('assigned_manager_id', e.target.value)}>
+                                <option value="">— себе —</option>
+                                {roster.filter(m => m.role === 'manager' && m.active && !m.archived_at).map(m => (
+                                    <option key={m.id} value={m.id}>{m.full_name} {m.is_online ? '🟢' : '⚪'}</option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Уровень программы</span>
+                        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                            value={form.study_level} onChange={e => set('study_level', e.target.value)}>
+                            <option value="">—</option>
+                            {STUDY_LEVELS.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Когда поступает</span>
+                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            placeholder="Осень 2026" value={form.intake_term}
+                            onChange={e => set('intake_term', e.target.value)} />
+                    </label>
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Бюджет</span>
+                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            placeholder="$15k–$30k / год" value={form.budget}
+                            onChange={e => set('budget', e.target.value)} />
+                    </label>
+                    <label>
+                        <span className="block text-xs text-slate-500 mb-1">Английский</span>
+                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            placeholder="B2 / IELTS 6.5" value={form.english_level}
+                            onChange={e => set('english_level', e.target.value)} />
+                    </label>
+                    <label className="md:col-span-2">
+                        <span className="block text-xs text-slate-500 mb-1">Комментарий клиента</span>
+                        <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            value={form.comment} onChange={e => set('comment', e.target.value)} />
+                    </label>
+                    {error && <div className="md:col-span-2 bg-red-50 border border-red-200 text-red-700 p-2 rounded-lg text-sm">⚠ {error}</div>}
+                </div>
+                <div className="border-t border-slate-200 p-4 flex justify-end gap-2">
+                    <button onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium">Отмена</button>
+                    <button onClick={submit} disabled={saving}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
+                        {saving ? '💾 ...' : '💾 Создать лид'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────────────────────────────────────────────────
 // Lead card — material + bento
 // ─────────────────────────────────────────────────────────────────────
 const LeadCard: React.FC<{
@@ -1014,6 +1156,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [togglingOnline, setTogglingOnline] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(false);
     const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
+    const [showCreateLead, setShowCreateLead] = useState(false);
     const isOnline = manager.is_online !== false;
 
     const load = async () => {
@@ -1192,6 +1335,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         <Tooltip text="Обновить список вручную">
                             <button onClick={() => { load().then(() => setLastRefreshAt(Date.now())); }} className={`${BTN} bg-cyan-300 text-black`}>↻ ОБНОВИТЬ</button>
                         </Tooltip>
+                        <Tooltip text="Создать лид вручную (для звонков, личных встреч, и т.д.)">
+                            <button onClick={() => setShowCreateLead(true)} className={`${BTN} bg-emerald-300 text-black`}>+ ЛИД</button>
+                        </Tooltip>
                         <Tooltip text="Выйти из аккаунта">
                             <button onClick={async () => {
                                 await fetch('/api/lidy/logout', { method: 'POST', credentials: 'include' });
@@ -1276,6 +1422,16 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                 {/* Roster panel for teamlead */}
                 {isTeamlead && roster.length > 0 && <RosterPanel roster={roster} />}
+
+                {showCreateLead && (
+                    <CreateLeadModal
+                        onClose={() => setShowCreateLead(false)}
+                        onCreated={() => load().then(() => setLastRefreshAt(Date.now()))}
+                        sourceOptions={sourceOptions}
+                        roster={roster}
+                        isTeamlead={isTeamlead}
+                    />
+                )}
 
                 {error && (
                     <div className={`${CARD} bg-red-400 text-black p-3 font-mono text-sm`}>⚠ {error}</div>
