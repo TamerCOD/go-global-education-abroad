@@ -397,6 +397,8 @@ interface ManagerRec {
     full_name: string;
     telegram_tag?: string | null;
     active: boolean;
+    role?: 'manager' | 'teamlead';
+    is_online?: boolean;
     last_assigned_at?: string | null;
     working_hours?: WorkingSchedule | null;
     created_at: string;
@@ -432,7 +434,9 @@ interface LeadRec {
 const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
     const [managers, setManagers] = useState<ManagerRec[]>([]);
     const [loading, setLoading] = useState(true);
-    const [draft, setDraft] = useState({ login: '', password: '', full_name: '', telegram_tag: '' });
+    const [draft, setDraft] = useState<{ login: string; password: string; full_name: string; telegram_tag: string; role: 'manager' | 'teamlead' }>({
+        login: '', password: '', full_name: '', telegram_tag: '', role: 'manager',
+    });
     const [editing, setEditing] = useState<Record<number, Partial<ManagerRec> & { password?: string }>>({});
     const [openSchedule, setOpenSchedule] = useState<Record<number, boolean>>({});
 
@@ -456,7 +460,7 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
             body: JSON.stringify(draft),
         });
         if (res.ok) {
-            setDraft({ login: '', password: '', full_name: '', telegram_tag: '' });
+            setDraft({ login: '', password: '', full_name: '', telegram_tag: '', role: 'manager' });
             await load();
         } else {
             const j = await res.json().catch(() => ({}));
@@ -491,16 +495,21 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
 
     return (
         <div className="space-y-4">
-            <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 grid md:grid-cols-4 gap-2 items-end">
+            <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 grid md:grid-cols-5 gap-2 items-end">
                 <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Логин (англ., в нижнем регистре)"
                     value={draft.login} onChange={e => setDraft({ ...draft, login: e.target.value.toLowerCase().replace(/\s/g, '') })} />
                 <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Пароль" type="password"
                     value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} />
                 <input className="border border-slate-300 p-2 rounded text-sm" placeholder="ФИО"
                     value={draft.full_name} onChange={e => setDraft({ ...draft, full_name: e.target.value })} />
-                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Telegram (например @ivan_tg)"
+                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Telegram (@ivan_tg)"
                     value={draft.telegram_tag} onChange={e => setDraft({ ...draft, telegram_tag: e.target.value })} />
-                <button onClick={create} className="md:col-span-4 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded font-medium">+ Создать менеджера</button>
+                <select className="border border-slate-300 p-2 rounded text-sm bg-white"
+                    value={draft.role} onChange={e => setDraft({ ...draft, role: e.target.value as 'manager' | 'teamlead' })}>
+                    <option value="manager">Менеджер</option>
+                    <option value="teamlead">Тимлид</option>
+                </select>
+                <button onClick={create} className="md:col-span-5 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded font-medium">+ Создать пользователя</button>
             </div>
 
             {managers.length === 0 ? (
@@ -514,7 +523,9 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                 <th className="py-2 px-2">Логин</th>
                                 <th className="py-2 px-2">ФИО</th>
                                 <th className="py-2 px-2">Telegram</th>
-                                <th className="py-2 px-2">Активен</th>
+                                <th className="py-2 px-2">Роль</th>
+                                <th className="py-2 px-2 text-center">Онлайн</th>
+                                <th className="py-2 px-2 text-center">Активен</th>
                                 <th className="py-2 px-2">Новый пароль</th>
                                 <th className="py-2 px-2"></th>
                             </tr>
@@ -540,6 +551,21 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                                     value={(e.telegram_tag ?? m.telegram_tag ?? '') as string}
                                                     onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], telegram_tag: ev.target.value } }))} />
                                             </td>
+                                            <td className="py-2 px-2">
+                                                <select className="border border-slate-300 p-1 rounded text-sm w-full bg-white"
+                                                    value={(e.role ?? m.role ?? 'manager') as string}
+                                                    onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], role: ev.target.value as 'manager' | 'teamlead' } }))}>
+                                                    <option value="manager">Менеджер</option>
+                                                    <option value="teamlead">Тимлид</option>
+                                                </select>
+                                            </td>
+                                            <td className="py-2 px-2 text-center">
+                                                {m.is_online ? (
+                                                    <span className="inline-flex items-center gap-1 text-emerald-700 text-xs"><span className="w-2 h-2 rounded-full bg-emerald-500" /> в сети</span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 text-slate-500 text-xs"><span className="w-2 h-2 rounded-full bg-slate-300" /> офлайн</span>
+                                                )}
+                                            </td>
                                             <td className="py-2 px-2 text-center">
                                                 <input type="checkbox" className="w-4 h-4 accent-brand-600"
                                                     checked={(e.active ?? m.active) as boolean}
@@ -561,7 +587,7 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                         </tr>
                                         {isScheduleOpen && (
                                             <tr className="border-b border-slate-100 bg-slate-50">
-                                                <td colSpan={7} className="px-4 py-3">
+                                                <td colSpan={9} className="px-4 py-3">
                                                     <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Рабочие часы (Asia/Bishkek, UTC+6)</div>
                                                     <WorkingHoursEditor
                                                         value={currentSchedule}

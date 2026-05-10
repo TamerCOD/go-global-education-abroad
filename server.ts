@@ -170,11 +170,15 @@ if (DATABASE_URL) {
         active BOOLEAN NOT NULL DEFAULT TRUE,
         last_assigned_at TIMESTAMPTZ,
         working_hours JSONB,
+        role TEXT NOT NULL DEFAULT 'manager',
+        is_online BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
-    // Migration for existing rows: add column if missing
+    // Idempotent column migrations (existing DBs)
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS working_hours JSONB;`);
+    await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'manager';`);
+    await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS is_online BOOLEAN NOT NULL DEFAULT TRUE;`);
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_statuses (
         code TEXT PRIMARY KEY,
@@ -417,9 +421,10 @@ async function pickNextManager(): Promise<{
   login: string; working_hours: WorkingSchedule | null;
 } | null> {
   if (!pool) return null;
+  // Only active AND online managers can receive leads
   const { rows } = await pool.query(
     `SELECT id, full_name, telegram_tag, login, working_hours
-     FROM managers WHERE active = TRUE
+     FROM managers WHERE active = TRUE AND is_online = TRUE
      ORDER BY last_assigned_at NULLS FIRST, id ASC
      LIMIT 1`
   );
@@ -430,6 +435,48 @@ async function pickNextManager(): Promise<{
 
 function computeSlaDeadline(receivedAt: Date, schedule: WorkingSchedule | null = null): Date {
   return computeSlaDeadlineForSchedule(receivedAt, schedule, LEAD_SLA_HOURS * 60);
+}
+
+async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned: number; details: any[] }> {
+  if (!pool) return { assigned: 0, details: [] };
+  await dbReady!;
+  const { rows: pending } = await pool.query(
+    `SELECT id, name, phone, email, country, comment, received_at
+     FROM leads
+     WHERE assigned_manager_id IS NULL AND processed_at IS NULL
+     ORDER BY received_at ASC
+     LIMIT 100`
+  );
+  const details: any[] = [];
+  for (const lead of pending) {
+    const mgr = await pickNextManager();
+    if (!mgr) break;
+    const sla = computeSlaDeadline(new Date(), mgr.working_hours ?? DEFAULT_SCHEDULE);
+    await pool.query(
+      `UPDATE leads SET assigned_manager_id = $1, sla_deadline_at = $2, sla_warned = FALSE, updated_at = NOW() WHERE id = $3`,
+      [mgr.id, sla, lead.id]
+    );
+    details.push({ leadId: lead.id, manager: mgr, lead });
+  }
+  if (details.length > 0) {
+    const tagOf = (m: any) =>
+      m.telegram_tag ? (m.telegram_tag.startsWith("@") ? m.telegram_tag : `@${m.telegram_tag}`) : "";
+    const lines = [
+      `✅ <b>Распределены ожидавшие лиды</b>${triggeredByLogin ? ` (после выхода в сеть: ${escapeHtml(triggeredByLogin)})` : ""}`,
+      ...details.map(d =>
+        `• #${d.leadId} ${escapeHtml(d.lead.name || "—")} → <b>${escapeHtml(d.manager.full_name)}</b> ${tagOf(d.manager)}`.trim()
+      ),
+      `🔗 ${PUBLIC_BASE_URL}/lidy`,
+    ];
+    sendTelegram(lines.join("\n")).catch(() => {});
+  }
+  return { assigned: details.length, details };
+}
+
+function whatsappLink(phone: string, msg?: string): string | null {
+  const digits = (phone || "").replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return null;
+  return `https://wa.me/${digits}${msg ? `?text=${encodeURIComponent(msg)}` : ""}`;
 }
 
 function signSession(payload: { mid: number; login: string }) {
@@ -662,10 +709,10 @@ async function startServer() {
     }
 
     const manager = await pickNextManager();
-    const slaDeadline = computeSlaDeadline(
-      new Date(),
-      (manager?.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE
-    );
+    // If no manager online: store unassigned, sla_deadline_at NULL (will be set when assigned)
+    const slaDeadline = manager
+      ? computeSlaDeadline(new Date(), (manager.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE)
+      : null;
 
     const insert = await pq().query(
       `INSERT INTO leads (name, phone, email, country, comment, source, raw,
@@ -679,17 +726,18 @@ async function startServer() {
     const tag = manager?.telegram_tag
       ? (manager.telegram_tag.startsWith("@") ? manager.telegram_tag : `@${manager.telegram_tag}`)
       : "";
+    const wa = phone ? whatsappLink(phone) : null;
     const lines = [
       `🆕 <b>Новый лид #${leadId}</b>`,
       name ? `👤 ${escapeHtml(name)}` : "",
-      phone ? `📞 ${escapeHtml(phone)}` : "",
+      phone ? `📞 ${escapeHtml(phone)}${wa ? ` · <a href="${wa}">WhatsApp</a>` : ""}` : "",
       email ? `✉️ ${escapeHtml(email)}` : "",
       country ? `🌍 ${escapeHtml(country)}` : "",
       comment ? `💬 ${escapeHtml(comment)}` : "",
       manager
         ? `👨‍💼 Назначен: <b>${escapeHtml(manager.full_name)}</b> (${escapeHtml(manager.login)}) ${tag}`.trim()
-        : `⚠️ Нет активных менеджеров — лид не распределён`,
-      `⏱ SLA до ${slaDeadline.toISOString().slice(0, 16).replace("T", " ")} UTC`,
+        : `⚠️ <b>Нет онлайн-менеджеров!</b> Лид в очереди до выхода кого-то в сеть.`,
+      slaDeadline ? `⏱ SLA до ${slaDeadline.toISOString().slice(0, 16).replace("T", " ")} UTC` : "",
       `🔗 ${PUBLIC_BASE_URL}/lidy`,
     ].filter(Boolean);
     sendTelegram(lines.join("\n")).catch(() => {});
@@ -799,17 +847,52 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  // Helper to load current manager record
+  async function loadManager(mid: number) {
+    const r = await pq().query(
+      `SELECT id, login, full_name, telegram_tag, active, role, is_online, working_hours
+       FROM managers WHERE id = $1`,
+      [mid]
+    );
+    return r.rows[0] || null;
+  }
+
   app.get("/api/lidy/me", requireManager, async (req, res) => {
     try {
       const session = (req as any).manager as { mid: number; login: string };
-      const m = await pq().query(
-        `SELECT id, login, full_name, telegram_tag, active FROM managers WHERE id = $1`,
-        [session.mid]
-      );
-      if (m.rows.length === 0) return res.status(401).json({ error: "Not found" });
-      res.json({ manager: m.rows[0] });
+      const m = await loadManager(session.mid);
+      if (!m) return res.status(401).json({ error: "Not found" });
+      res.json({ manager: m });
     } catch (err) {
       console.error("[lidy/me]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Toggle own online status
+  app.put("/api/lidy/me/status", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const { is_online } = req.body || {};
+      if (typeof is_online !== "boolean") return res.status(400).json({ error: "is_online boolean required" });
+      const updated = await pq().query(
+        `UPDATE managers SET is_online = $1 WHERE id = $2
+         RETURNING id, full_name, login, is_online`,
+        [is_online, session.mid]
+      );
+      const me = updated.rows[0];
+
+      let redistribution: { assigned: number; details: any[] } | null = null;
+      if (is_online) {
+        // Coming online — try to grab pending leads
+        redistribution = await assignPendingLeads(me.full_name);
+      } else {
+        // Going offline — notify Telegram
+        sendTelegram(`💤 <b>${escapeHtml(me.full_name)}</b> (${escapeHtml(me.login)}) — не в сети`).catch(() => {});
+      }
+      res.json({ ok: true, manager: me, redistribution });
+    } catch (err) {
+      console.error("[lidy/me/status]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
@@ -817,18 +900,36 @@ async function startServer() {
   app.get("/api/lidy/leads", requireManager, async (req, res) => {
     try {
       const session = (req as any).manager as { mid: number; login: string };
-      const onlyMine = req.query.scope !== "all";
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+
+      // Default scope:
+      //  - manager → "mine" (own leads only)
+      //  - teamlead → "all" (sees everything)
+      const requestedScope = req.query.scope as string | undefined;
+      const scope = requestedScope || (me.role === "teamlead" ? "all" : "mine");
+
+      // Managers cannot view scope=all (force mine)
+      const onlyMine = me.role === "teamlead" ? scope === "mine" : true;
+      const showOverdueOnly = req.query.overdue === "1";
       const filterStatus = (req.query.status as string | undefined) || null;
+      const filterManagerId = req.query.manager_id ? Number(req.query.manager_id) : null;
 
       const where: string[] = [];
       const params: any[] = [];
       if (onlyMine) {
         where.push(`assigned_manager_id = $${params.length + 1}`);
         params.push(session.mid);
+      } else if (filterManagerId) {
+        where.push(`assigned_manager_id = $${params.length + 1}`);
+        params.push(filterManagerId);
       }
       if (filterStatus) {
         where.push(`status_code = $${params.length + 1}`);
         params.push(filterStatus);
+      }
+      if (showOverdueOnly) {
+        where.push(`processed_at IS NULL AND sla_deadline_at < NOW()`);
       }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const { rows } = await pq().query(
@@ -839,12 +940,43 @@ async function startServer() {
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
          ${whereSql}
          ORDER BY l.received_at DESC
-         LIMIT 200`,
+         LIMIT 300`,
         params
       );
-      res.json({ leads: rows });
+      res.json({ leads: rows, role: me.role });
     } catch (err) {
       console.error("[lidy/leads]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Roster of all managers — used by teamlead UI to show stats and reassignment dropdown
+  app.get("/api/lidy/managers", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      // Managers see only basic name list (for display in their own card if needed)
+      // Teamleads see full stats
+      if (me.role !== "teamlead") {
+        const r = await pq().query(`SELECT id, full_name, login, is_online, role FROM managers WHERE active = TRUE ORDER BY full_name`);
+        return res.json({ managers: r.rows, role: me.role });
+      }
+      const r = await pq().query(
+        `SELECT m.id, m.full_name, m.login, m.is_online, m.active, m.role, m.telegram_tag,
+                COUNT(l.*) FILTER (WHERE l.received_at >= NOW() - INTERVAL '30 days')::int AS total30,
+                COUNT(*) FILTER (WHERE l.processed_at IS NULL)::int AS open,
+                COUNT(*) FILTER (WHERE ls.is_terminal AND l.received_at >= NOW() - INTERVAL '30 days')::int AS closed30,
+                COUNT(*) FILTER (WHERE l.processed_at IS NULL AND l.sla_deadline_at < NOW())::int AS overdue
+         FROM managers m
+         LEFT JOIN leads l ON l.assigned_manager_id = m.id
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         GROUP BY m.id, m.full_name, m.login, m.is_online, m.active, m.role, m.telegram_tag
+         ORDER BY m.full_name`
+      );
+      res.json({ managers: r.rows, role: me.role });
+    } catch (err) {
+      console.error("[lidy/managers]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
@@ -852,19 +984,21 @@ async function startServer() {
   app.post("/api/lidy/leads/:id/status", requireManager, async (req, res) => {
     try {
       const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
       const leadId = Number(req.params.id);
       const { status, note } = req.body || {};
       if (!status) return res.status(400).json({ error: "Missing status" });
 
-      // Validate status exists
       const statusRow = await pq().query(`SELECT code, is_terminal FROM lead_statuses WHERE code = $1`, [status]);
       if (statusRow.rows.length === 0) return res.status(400).json({ error: "Unknown status" });
 
-      // Read current lead, ensure manager owns it (or status is unassigned)
       const leadRow = await pq().query(`SELECT id, status_code, assigned_manager_id FROM leads WHERE id = $1`, [leadId]);
       if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
       const lead = leadRow.rows[0];
-      if (lead.assigned_manager_id && lead.assigned_manager_id !== session.mid) {
+
+      // Teamleads can change any lead. Managers only their own.
+      if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== session.mid) {
         return res.status(403).json({ error: "Lead is assigned to another manager" });
       }
 
@@ -894,6 +1028,66 @@ async function startServer() {
     }
   });
 
+  // Reassign a lead to another manager (teamlead only)
+  app.post("/api/lidy/leads/:id/reassign", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+
+      const leadId = Number(req.params.id);
+      const targetId = Number(req.body?.manager_id);
+      if (!targetId) return res.status(400).json({ error: "manager_id required" });
+
+      const target = await loadManager(targetId);
+      if (!target || !target.active) return res.status(400).json({ error: "Invalid target manager" });
+
+      const leadRow = await pq().query(
+        `SELECT id, assigned_manager_id, received_at, name, phone FROM leads WHERE id = $1`,
+        [leadId]
+      );
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+      const oldManagerId = lead.assigned_manager_id;
+
+      // Recompute SLA based on new manager's working hours
+      const newSla = computeSlaDeadline(
+        new Date(),
+        (target.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE
+      );
+
+      await pq().query(
+        `UPDATE leads SET assigned_manager_id = $1, sla_deadline_at = $2, sla_warned = FALSE, updated_at = NOW()
+         WHERE id = $3`,
+        [targetId, newSla, leadId]
+      );
+      await pq().query(
+        `INSERT INTO lead_status_history (lead_id, from_status, to_status, manager_id, note)
+         VALUES ($1, $2, $2, $3, $4)`,
+        [leadId, "(reassign)", session.mid, `Reassigned by ${me.full_name} → ${target.full_name}`]
+      );
+
+      // Telegram notify
+      const oldMgr = oldManagerId ? await loadManager(oldManagerId) : null;
+      const tag = (m: any) => m?.telegram_tag ? (m.telegram_tag.startsWith("@") ? m.telegram_tag : `@${m.telegram_tag}`) : "";
+      const lines = [
+        `🔄 <b>Лид #${leadId}</b> переназначен`,
+        lead.name ? `👤 ${escapeHtml(lead.name)}` : "",
+        oldMgr ? `Был у: <b>${escapeHtml(oldMgr.full_name)}</b> ${tag(oldMgr)}` : `Был без менеджера`,
+        `Теперь у: <b>${escapeHtml(target.full_name)}</b> ${tag(target)}`,
+        `Тимлид: ${escapeHtml(me.full_name)}`,
+        `🔗 ${PUBLIC_BASE_URL}/lidy`,
+      ].filter(Boolean);
+      sendTelegram(lines.join("\n")).catch(() => {});
+
+      res.json({ ok: true, leadId, newManager: { id: target.id, full_name: target.full_name } });
+    } catch (err) {
+      console.error("[lidy/reassign]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
   app.get("/api/lidy/statuses", requireManager, async (_req, res) => {
     try {
       const { rows } = await pq().query(`SELECT code, label, color, is_terminal, sort FROM lead_statuses ORDER BY sort ASC, label ASC`);
@@ -910,7 +1104,7 @@ async function startServer() {
   app.get("/api/admin/managers", requireAdmin, async (_req, res) => {
     try {
       const { rows } = await pq().query(
-        `SELECT id, login, full_name, telegram_tag, active, last_assigned_at,
+        `SELECT id, login, full_name, telegram_tag, active, role, is_online, last_assigned_at,
                 working_hours, created_at
          FROM managers ORDER BY id ASC`
       );
@@ -923,17 +1117,18 @@ async function startServer() {
 
   app.post("/api/admin/managers", requireAdmin, async (req, res) => {
     try {
-      const { login, password, full_name, telegram_tag, active, working_hours } = req.body || {};
+      const { login, password, full_name, telegram_tag, active, working_hours, role } = req.body || {};
       if (!login || !password || !full_name) {
         return res.status(400).json({ error: "Missing login/password/full_name" });
       }
+      const safeRole = role === "teamlead" ? "teamlead" : "manager";
       const hash = await bcrypt.hash(String(password), 10);
       const wh = working_hours ?? DEFAULT_SCHEDULE;
       const { rows } = await pq().query(
-        `INSERT INTO managers (login, password_hash, full_name, telegram_tag, active, working_hours)
-         VALUES ($1, $2, $3, $4, COALESCE($5, TRUE), $6)
-         RETURNING id, login, full_name, telegram_tag, active, working_hours`,
-        [String(login).trim().toLowerCase(), hash, full_name, telegram_tag || null, active, JSON.stringify(wh)]
+        `INSERT INTO managers (login, password_hash, full_name, telegram_tag, active, working_hours, role)
+         VALUES ($1, $2, $3, $4, COALESCE($5, TRUE), $6, $7)
+         RETURNING id, login, full_name, telegram_tag, active, role, is_online, working_hours`,
+        [String(login).trim().toLowerCase(), hash, full_name, telegram_tag || null, active, JSON.stringify(wh), safeRole]
       );
       res.json({ manager: rows[0] });
     } catch (err: any) {
@@ -946,7 +1141,7 @@ async function startServer() {
   app.put("/api/admin/managers/:id", requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const { full_name, telegram_tag, active, password, working_hours } = req.body || {};
+      const { full_name, telegram_tag, active, password, working_hours, role, is_online } = req.body || {};
       const sets: string[] = [];
       const params: any[] = [];
       if (full_name !== undefined) { sets.push(`full_name = $${params.length + 1}`); params.push(full_name); }
@@ -954,14 +1149,23 @@ async function startServer() {
       if (active !== undefined) { sets.push(`active = $${params.length + 1}`); params.push(!!active); }
       if (password) { sets.push(`password_hash = $${params.length + 1}`); params.push(await bcrypt.hash(String(password), 10)); }
       if (working_hours !== undefined) { sets.push(`working_hours = $${params.length + 1}`); params.push(JSON.stringify(working_hours)); }
+      if (role !== undefined) {
+        const safeRole = role === "teamlead" ? "teamlead" : "manager";
+        sets.push(`role = $${params.length + 1}`); params.push(safeRole);
+      }
+      if (is_online !== undefined) { sets.push(`is_online = $${params.length + 1}`); params.push(!!is_online); }
       if (sets.length === 0) return res.json({ ok: true });
       params.push(id);
       const { rows } = await pq().query(
         `UPDATE managers SET ${sets.join(", ")} WHERE id = $${params.length}
-         RETURNING id, login, full_name, telegram_tag, active, working_hours`,
+         RETURNING id, login, full_name, telegram_tag, active, role, is_online, working_hours`,
         params
       );
       if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      // If admin toggled an inactive manager to active+online or set is_online=true, redistribute pending
+      if ((active === true || is_online === true) && rows[0].is_online && rows[0].active) {
+        assignPendingLeads(`admin/${rows[0].full_name}`).catch(() => {});
+      }
       res.json({ manager: rows[0] });
     } catch (err) {
       console.error("[admin/managers PUT]", err);
