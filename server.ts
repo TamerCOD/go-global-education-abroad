@@ -22,6 +22,8 @@ const VISITOR_SECRET = process.env.VISITOR_SECRET || ADMIN_PASSWORD;
 const JWT_SECRET = process.env.JWT_SECRET || ADMIN_PASSWORD + "_jwt";
 const LEAD_INTAKE_SECRET = process.env.LEAD_INTAKE_SECRET || "";
 const LEAD_SLA_HOURS = Number(process.env.LEAD_SLA_HOURS || 3);
+const WORKING_HOURS_TZ_OFFSET_MIN = Number(process.env.WORKING_HOURS_TZ_OFFSET_MIN || 360); // Default Asia/Bishkek = UTC+6
+const SLA_CRON_INTERVAL_MS = Number(process.env.SLA_CRON_INTERVAL_MS || 60_000);
 const PUBLIC_BASE_URL =
   process.env.PUBLIC_BASE_URL || "https://web-production-50318.up.railway.app";
 const UPLOADS_DIR =
@@ -167,9 +169,12 @@ if (DATABASE_URL) {
         telegram_tag TEXT,
         active BOOLEAN NOT NULL DEFAULT TRUE,
         last_assigned_at TIMESTAMPTZ,
+        working_hours JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    // Migration for existing rows: add column if missing
+    await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS working_hours JSONB;`);
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_statuses (
         code TEXT PRIMARY KEY,
@@ -324,10 +329,96 @@ async function getAnalytics() {
 }
 
 // ---------- CRM helpers ----------
-async function pickNextManager(): Promise<{ id: number; full_name: string; telegram_tag: string | null; login: string } | null> {
+type WorkingDay = { from: string; to: string } | null;
+type WorkingSchedule = WorkingDay[]; // index 0=Sun..6=Sat
+
+const DEFAULT_SCHEDULE: WorkingSchedule = [
+  null,                           // Sun
+  { from: "09:00", to: "18:00" }, // Mon
+  { from: "09:00", to: "18:00" }, // Tue
+  { from: "09:00", to: "18:00" }, // Wed
+  { from: "09:00", to: "18:00" }, // Thu
+  { from: "09:00", to: "18:00" }, // Fri
+  null,                           // Sat
+];
+
+function parseHm(s: string): number {
+  const [h, m] = s.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function tzPartsFromUtc(utc: Date) {
+  const adjusted = new Date(utc.getTime() + WORKING_HOURS_TZ_OFFSET_MIN * 60_000);
+  return {
+    dow: adjusted.getUTCDay(),
+    minOfDay: adjusted.getUTCHours() * 60 + adjusted.getUTCMinutes(),
+  };
+}
+
+function tzMidnightUtc(utc: Date, addDays = 0): Date {
+  // Returns a UTC Date that corresponds to 00:00 on (date-in-tz + addDays).
+  const adjusted = new Date(utc.getTime() + WORKING_HOURS_TZ_OFFSET_MIN * 60_000);
+  adjusted.setUTCHours(0, 0, 0, 0);
+  if (addDays) adjusted.setUTCDate(adjusted.getUTCDate() + addDays);
+  return new Date(adjusted.getTime() - WORKING_HOURS_TZ_OFFSET_MIN * 60_000);
+}
+
+export function computeSlaDeadlineForSchedule(
+  receivedAt: Date,
+  schedule: WorkingSchedule | null,
+  slaMinutes: number
+): Date {
+  if (!schedule || !Array.isArray(schedule) || schedule.every(d => d === null)) {
+    return new Date(receivedAt.getTime() + slaMinutes * 60_000);
+  }
+
+  let remaining = slaMinutes;
+  let cursor = new Date(receivedAt);
+
+  for (let safety = 0; safety < 60; safety++) {
+    const { dow, minOfDay } = tzPartsFromUtc(cursor);
+    const window = schedule[dow] ?? null;
+
+    if (!window) {
+      // Day off: jump to tomorrow's 00:00 in tz
+      cursor = tzMidnightUtc(cursor, 1);
+      continue;
+    }
+
+    const fromMin = parseHm(window.from);
+    const toMin = parseHm(window.to);
+
+    if (minOfDay < fromMin) {
+      // Before working hours — move cursor to today's start
+      const dayStart = tzMidnightUtc(cursor, 0);
+      cursor = new Date(dayStart.getTime() + fromMin * 60_000);
+      continue;
+    }
+    if (minOfDay >= toMin) {
+      // After working hours — move to next day
+      cursor = tzMidnightUtc(cursor, 1);
+      continue;
+    }
+
+    const availableToday = toMin - minOfDay;
+    if (availableToday >= remaining) {
+      return new Date(cursor.getTime() + remaining * 60_000);
+    }
+    remaining -= availableToday;
+    cursor = tzMidnightUtc(cursor, 1);
+  }
+
+  // Shouldn't normally hit; fallback
+  return new Date(cursor.getTime() + remaining * 60_000);
+}
+
+async function pickNextManager(): Promise<{
+  id: number; full_name: string; telegram_tag: string | null;
+  login: string; working_hours: WorkingSchedule | null;
+} | null> {
   if (!pool) return null;
   const { rows } = await pool.query(
-    `SELECT id, full_name, telegram_tag, login
+    `SELECT id, full_name, telegram_tag, login, working_hours
      FROM managers WHERE active = TRUE
      ORDER BY last_assigned_at NULLS FIRST, id ASC
      LIMIT 1`
@@ -337,11 +428,8 @@ async function pickNextManager(): Promise<{ id: number; full_name: string; teleg
   return rows[0];
 }
 
-function computeSlaDeadline(receivedAt: Date): Date {
-  // Phase 3a: simple +N hours. Working-hours-aware logic to be added in Phase 3b.
-  const d = new Date(receivedAt);
-  d.setHours(d.getHours() + LEAD_SLA_HOURS);
-  return d;
+function computeSlaDeadline(receivedAt: Date, schedule: WorkingSchedule | null = null): Date {
+  return computeSlaDeadlineForSchedule(receivedAt, schedule, LEAD_SLA_HOURS * 60);
 }
 
 function signSession(payload: { mid: number; login: string }) {
@@ -405,6 +493,56 @@ function hashVisitor(ip: string, ua: string): string {
 console.log(`[server] Storage: ${pool ? "PostgreSQL" : "JSON file"}`);
 console.log(`[server] Telegram: ${TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID ? "configured" : "DISABLED"}`);
 console.log(`[server] Lead intake secret: ${LEAD_INTAKE_SECRET ? "set" : "DISABLED"}`);
+
+// ---------- SLA breach cron ----------
+async function checkSlaBreaches() {
+  if (!pool) return;
+  try {
+    await dbReady!;
+    const { rows } = await pool.query(
+      `SELECT l.id, l.received_at, l.sla_deadline_at,
+              m.id AS manager_id, m.full_name, m.login, m.telegram_tag
+       FROM leads l
+       LEFT JOIN managers m ON m.id = l.assigned_manager_id
+       WHERE l.processed_at IS NULL
+         AND l.sla_warned = FALSE
+         AND l.sla_deadline_at < NOW()
+       LIMIT 50`
+    );
+    for (const lead of rows) {
+      const tag = lead.telegram_tag
+        ? (lead.telegram_tag.startsWith("@") ? lead.telegram_tag : `@${lead.telegram_tag}`)
+        : "";
+      const overdueMs = Date.now() - new Date(lead.sla_deadline_at).getTime();
+      const overdueMin = Math.round(overdueMs / 60_000);
+      const lines = [
+        `⏰ <b>SLA нарушен по лиду #${lead.id}</b>`,
+        lead.full_name
+          ? `Менеджер: <b>${escapeHtml(lead.full_name)}</b> (${escapeHtml(lead.login)}) ${tag}`.trim()
+          : `⚠️ Лид без назначенного менеджера!`,
+        `Получен: ${new Date(lead.received_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
+        `Дедлайн был: ${new Date(lead.sla_deadline_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
+        `Просрочен на: <b>${Math.floor(overdueMin / 60)}ч ${overdueMin % 60}м</b>`,
+        `🔗 ${PUBLIC_BASE_URL}/lidy`,
+      ];
+      const sent = await sendTelegram(lines.join("\n"));
+      if (sent) {
+        await pool.query(`UPDATE leads SET sla_warned = TRUE WHERE id = $1`, [lead.id]);
+      }
+    }
+  } catch (err) {
+    console.error("[sla-cron]", err);
+  }
+}
+
+if (pool) {
+  // Initial run after 30s (gives DB time to be ready), then every interval
+  setTimeout(() => {
+    checkSlaBreaches();
+    setInterval(checkSlaBreaches, SLA_CRON_INTERVAL_MS);
+  }, 30_000);
+  console.log(`[server] SLA cron will run every ${Math.round(SLA_CRON_INTERVAL_MS / 1000)}s`);
+}
 
 // ---------- Express app ----------
 async function startServer() {
@@ -524,7 +662,10 @@ async function startServer() {
     }
 
     const manager = await pickNextManager();
-    const slaDeadline = computeSlaDeadline(new Date());
+    const slaDeadline = computeSlaDeadline(
+      new Date(),
+      (manager?.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE
+    );
 
     const insert = await pq().query(
       `INSERT INTO leads (name, phone, email, country, comment, source, raw,
@@ -769,7 +910,8 @@ async function startServer() {
   app.get("/api/admin/managers", requireAdmin, async (_req, res) => {
     try {
       const { rows } = await pq().query(
-        `SELECT id, login, full_name, telegram_tag, active, last_assigned_at, created_at
+        `SELECT id, login, full_name, telegram_tag, active, last_assigned_at,
+                working_hours, created_at
          FROM managers ORDER BY id ASC`
       );
       res.json({ managers: rows });
@@ -781,16 +923,17 @@ async function startServer() {
 
   app.post("/api/admin/managers", requireAdmin, async (req, res) => {
     try {
-      const { login, password, full_name, telegram_tag, active } = req.body || {};
+      const { login, password, full_name, telegram_tag, active, working_hours } = req.body || {};
       if (!login || !password || !full_name) {
         return res.status(400).json({ error: "Missing login/password/full_name" });
       }
       const hash = await bcrypt.hash(String(password), 10);
+      const wh = working_hours ?? DEFAULT_SCHEDULE;
       const { rows } = await pq().query(
-        `INSERT INTO managers (login, password_hash, full_name, telegram_tag, active)
-         VALUES ($1, $2, $3, $4, COALESCE($5, TRUE))
-         RETURNING id, login, full_name, telegram_tag, active`,
-        [String(login).trim().toLowerCase(), hash, full_name, telegram_tag || null, active]
+        `INSERT INTO managers (login, password_hash, full_name, telegram_tag, active, working_hours)
+         VALUES ($1, $2, $3, $4, COALESCE($5, TRUE), $6)
+         RETURNING id, login, full_name, telegram_tag, active, working_hours`,
+        [String(login).trim().toLowerCase(), hash, full_name, telegram_tag || null, active, JSON.stringify(wh)]
       );
       res.json({ manager: rows[0] });
     } catch (err: any) {
@@ -803,30 +946,19 @@ async function startServer() {
   app.put("/api/admin/managers/:id", requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const { full_name, telegram_tag, active, password } = req.body || {};
+      const { full_name, telegram_tag, active, password, working_hours } = req.body || {};
       const sets: string[] = [];
       const params: any[] = [];
-      if (full_name !== undefined) {
-        sets.push(`full_name = $${params.length + 1}`);
-        params.push(full_name);
-      }
-      if (telegram_tag !== undefined) {
-        sets.push(`telegram_tag = $${params.length + 1}`);
-        params.push(telegram_tag || null);
-      }
-      if (active !== undefined) {
-        sets.push(`active = $${params.length + 1}`);
-        params.push(!!active);
-      }
-      if (password) {
-        sets.push(`password_hash = $${params.length + 1}`);
-        params.push(await bcrypt.hash(String(password), 10));
-      }
+      if (full_name !== undefined) { sets.push(`full_name = $${params.length + 1}`); params.push(full_name); }
+      if (telegram_tag !== undefined) { sets.push(`telegram_tag = $${params.length + 1}`); params.push(telegram_tag || null); }
+      if (active !== undefined) { sets.push(`active = $${params.length + 1}`); params.push(!!active); }
+      if (password) { sets.push(`password_hash = $${params.length + 1}`); params.push(await bcrypt.hash(String(password), 10)); }
+      if (working_hours !== undefined) { sets.push(`working_hours = $${params.length + 1}`); params.push(JSON.stringify(working_hours)); }
       if (sets.length === 0) return res.json({ ok: true });
       params.push(id);
       const { rows } = await pq().query(
         `UPDATE managers SET ${sets.join(", ")} WHERE id = $${params.length}
-         RETURNING id, login, full_name, telegram_tag, active`,
+         RETURNING id, login, full_name, telegram_tag, active, working_hours`,
         params
       );
       if (rows.length === 0) return res.status(404).json({ error: "Not found" });
@@ -896,6 +1028,142 @@ async function startServer() {
       res.json({ leads: rows });
     } catch (err) {
       console.error("[admin/leads]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Detailed dashboard for the admin
+  app.get("/api/admin/dashboard", requireAdmin, async (req, res) => {
+    try {
+      const days = Math.min(180, Number(req.query.days) || 30);
+      const since = `NOW() - INTERVAL '${days} days'`;
+
+      const totalsQ = await pq().query(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE processed_at IS NULL)::int AS open,
+          COUNT(*) FILTER (WHERE l.status_code IN (SELECT code FROM lead_statuses WHERE is_terminal))::int AS closed,
+          COUNT(*) FILTER (WHERE l.status_code = 'closed_won')::int AS won,
+          COUNT(*) FILTER (WHERE l.status_code = 'closed_lost')::int AS lost,
+          COUNT(*) FILTER (WHERE processed_at IS NULL AND sla_deadline_at < NOW())::int AS sla_open_breached,
+          AVG(EXTRACT(EPOCH FROM (processed_at - received_at))/60) FILTER (WHERE processed_at IS NOT NULL)::float AS avg_close_min
+        FROM leads l
+        WHERE received_at >= ${since}
+      `);
+
+      const dailyQ = await pq().query(`
+        SELECT to_char(date_trunc('day', received_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS date,
+               COUNT(*)::int AS received,
+               COUNT(*) FILTER (WHERE processed_at IS NOT NULL)::int AS closed
+        FROM leads
+        WHERE received_at >= ${since}
+        GROUP BY 1 ORDER BY 1 ASC
+      `);
+
+      const byStatusQ = await pq().query(`
+        SELECT ls.code, ls.label, ls.color, COUNT(l.*)::int AS n
+        FROM lead_statuses ls
+        LEFT JOIN leads l ON l.status_code = ls.code AND l.received_at >= ${since}
+        GROUP BY ls.code, ls.label, ls.color, ls.sort
+        ORDER BY ls.sort
+      `);
+
+      const byManagerQ = await pq().query(`
+        SELECT m.id, m.full_name, m.login, m.active,
+               COUNT(l.*)::int AS total,
+               COUNT(*) FILTER (WHERE l.processed_at IS NULL)::int AS open,
+               COUNT(*) FILTER (WHERE ls.is_terminal)::int AS closed,
+               COUNT(*) FILTER (WHERE l.status_code = 'closed_won')::int AS won,
+               COUNT(*) FILTER (WHERE l.processed_at IS NULL AND l.sla_deadline_at < NOW())::int AS sla_breached,
+               COUNT(*) FILTER (WHERE l.processed_at IS NOT NULL AND l.processed_at <= l.sla_deadline_at)::int AS sla_met,
+               AVG(EXTRACT(EPOCH FROM (l.processed_at - l.received_at))/60)
+                 FILTER (WHERE l.processed_at IS NOT NULL)::float AS avg_close_min
+        FROM managers m
+        LEFT JOIN leads l ON l.assigned_manager_id = m.id AND l.received_at >= ${since}
+        LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+        GROUP BY m.id, m.full_name, m.login, m.active
+        ORDER BY total DESC
+      `);
+
+      const t = totalsQ.rows[0];
+      const closed = t.closed || 0;
+      const conversion = closed > 0 ? Math.round((t.won / closed) * 100) : 0;
+      const slaCompliance = t.total > 0
+        ? Math.round(((t.total - t.sla_open_breached) / t.total) * 100)
+        : 100;
+
+      res.json({
+        windowDays: days,
+        totals: {
+          total: t.total,
+          open: t.open,
+          closed: t.closed,
+          won: t.won,
+          lost: t.lost,
+          slaBreachedOpen: t.sla_open_breached,
+          conversionPct: conversion,
+          slaCompliancePct: slaCompliance,
+          avgCloseMinutes: t.avg_close_min ? Math.round(t.avg_close_min) : null,
+        },
+        daily: dailyQ.rows,
+        byStatus: byStatusQ.rows,
+        byManager: byManagerQ.rows,
+      });
+    } catch (err) {
+      console.error("[admin/dashboard]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // CSV export
+  app.get("/api/admin/leads/export", requireAdmin, async (req, res) => {
+    try {
+      const from = req.query.from ? new Date(req.query.from as string) : null;
+      const to = req.query.to ? new Date(req.query.to as string) : null;
+      const where: string[] = [];
+      const params: any[] = [];
+      if (from && !isNaN(from.getTime())) { where.push(`l.received_at >= $${params.length + 1}`); params.push(from); }
+      if (to && !isNaN(to.getTime())) { where.push(`l.received_at <= $${params.length + 1}`); params.push(to); }
+      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+      const { rows } = await pq().query(
+        `SELECT l.id, l.received_at, l.name, l.phone, l.email, l.country, l.comment, l.source,
+                ls.label AS status_label, l.status_code, l.notes, l.sla_deadline_at, l.processed_at,
+                m.full_name AS manager_name, m.login AS manager_login
+         FROM leads l
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN managers m ON m.id = l.assigned_manager_id
+         ${whereSql}
+         ORDER BY l.received_at DESC`,
+        params
+      );
+
+      const headers = [
+        "id", "received_at", "name", "phone", "email", "country", "comment",
+        "source", "status_code", "status_label", "notes",
+        "sla_deadline_at", "processed_at", "manager_login", "manager_name",
+      ];
+      const escape = (v: any) => {
+        if (v === null || v === undefined) return "";
+        const s = String(v).replace(/"/g, '""');
+        return /[",\n\r;]/.test(s) ? `"${s}"` : s;
+      };
+      const csvRows = [
+        // BOM for Excel UTF-8 compatibility
+        "﻿" + headers.join(","),
+        ...rows.map((r: any) =>
+          headers.map(h => escape((r as any)[h])).join(",")
+        ),
+      ];
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="leads-${new Date().toISOString().slice(0, 10)}.csv"`
+      );
+      res.send(csvRows.join("\n"));
+    } catch (err) {
+      console.error("[admin/leads/export]", err);
       res.status(500).json({ error: "Server error" });
     }
   });

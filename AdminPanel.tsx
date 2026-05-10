@@ -318,6 +318,79 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
 // CRM widgets (managers, statuses, leads view)
 // =====================================================================
 
+type WorkingDay = { from: string; to: string } | null;
+type WorkingSchedule = WorkingDay[]; // [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+
+const DEFAULT_WORKING_SCHEDULE: WorkingSchedule = [
+    null,
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    null,
+];
+const DAY_LABELS = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+const WorkingHoursEditor: React.FC<{ value: WorkingSchedule | null; onChange: (s: WorkingSchedule) => void }> = ({ value, onChange }) => {
+    const schedule = (Array.isArray(value) && value.length === 7) ? value : DEFAULT_WORKING_SCHEDULE;
+
+    const updateDay = (i: number, day: WorkingDay) => {
+        const next = [...schedule];
+        next[i] = day;
+        onChange(next);
+    };
+
+    return (
+        <div className="space-y-1">
+            {DAY_LABELS.map((label, i) => {
+                const day = schedule[i];
+                const isWorking = !!day;
+                return (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                        <span className="w-8 font-medium text-slate-700">{label}</span>
+                        <label className="flex items-center gap-1">
+                            <input type="checkbox" className="accent-brand-600"
+                                checked={isWorking}
+                                onChange={e => updateDay(i, e.target.checked ? { from: '09:00', to: '18:00' } : null)} />
+                            <span className="text-xs text-slate-500">рабочий</span>
+                        </label>
+                        <input type="time" disabled={!isWorking}
+                            className="border border-slate-300 px-2 py-1 rounded text-sm w-24 disabled:opacity-30"
+                            value={day?.from || '09:00'}
+                            onChange={e => updateDay(i, { from: e.target.value, to: day?.to || '18:00' })} />
+                        <span className="text-slate-400">—</span>
+                        <input type="time" disabled={!isWorking}
+                            className="border border-slate-300 px-2 py-1 rounded text-sm w-24 disabled:opacity-30"
+                            value={day?.to || '18:00'}
+                            onChange={e => updateDay(i, { from: day?.from || '09:00', to: e.target.value })} />
+                    </div>
+                );
+            })}
+            <div className="flex gap-2 pt-2">
+                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                    onClick={() => onChange(DEFAULT_WORKING_SCHEDULE)}>Пн–Пт 9–18</button>
+                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                    onClick={() => onChange([
+                        null,
+                        { from: '10:00', to: '19:00' }, { from: '10:00', to: '19:00' },
+                        { from: '10:00', to: '19:00' }, { from: '10:00', to: '19:00' },
+                        { from: '10:00', to: '19:00' }, null,
+                    ])}>Пн–Пт 10–19</button>
+                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                    onClick={() => onChange([
+                        null,
+                        { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' },
+                        { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' },
+                        { from: '09:00', to: '18:00' }, { from: '10:00', to: '15:00' },
+                    ])}>Пн–Пт 9–18 + Сб 10–15</button>
+                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                    onClick={() => onChange([null, null, null, null, null, null, null])}>Все выходные</button>
+            </div>
+        </div>
+    );
+};
+
 interface ManagerRec {
     id: number;
     login: string;
@@ -325,6 +398,7 @@ interface ManagerRec {
     telegram_tag?: string | null;
     active: boolean;
     last_assigned_at?: string | null;
+    working_hours?: WorkingSchedule | null;
     created_at: string;
 }
 
@@ -360,6 +434,7 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
     const [loading, setLoading] = useState(true);
     const [draft, setDraft] = useState({ login: '', password: '', full_name: '', telegram_tag: '' });
     const [editing, setEditing] = useState<Record<number, Partial<ManagerRec> & { password?: string }>>({});
+    const [openSchedule, setOpenSchedule] = useState<Record<number, boolean>>({});
 
     const load = async () => {
         setLoading(true);
@@ -447,35 +522,56 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                         <tbody>
                             {managers.map(m => {
                                 const e = editing[m.id] || {};
+                                const hasEdit = !!editing[m.id];
+                                const isScheduleOpen = !!openSchedule[m.id];
+                                const currentSchedule = (e.working_hours ?? m.working_hours) as WorkingSchedule | null;
                                 return (
-                                    <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50">
-                                        <td className="py-2 px-2 text-slate-400">#{m.id}</td>
-                                        <td className="py-2 px-2 font-mono">{m.login}</td>
-                                        <td className="py-2 px-2">
-                                            <input className="border border-slate-300 p-1 rounded text-sm w-full"
-                                                value={(e.full_name ?? m.full_name) as string}
-                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], full_name: ev.target.value } }))} />
-                                        </td>
-                                        <td className="py-2 px-2">
-                                            <input className="border border-slate-300 p-1 rounded text-sm w-full"
-                                                value={(e.telegram_tag ?? m.telegram_tag ?? '') as string}
-                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], telegram_tag: ev.target.value } }))} />
-                                        </td>
-                                        <td className="py-2 px-2 text-center">
-                                            <input type="checkbox" className="w-4 h-4 accent-brand-600"
-                                                checked={(e.active ?? m.active) as boolean}
-                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], active: ev.target.checked } }))} />
-                                        </td>
-                                        <td className="py-2 px-2">
-                                            <input className="border border-slate-300 p-1 rounded text-sm w-full" type="password" placeholder="—"
-                                                value={e.password ?? ''}
-                                                onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], password: ev.target.value } }))} />
-                                        </td>
-                                        <td className="py-2 px-2 whitespace-nowrap">
-                                            <button onClick={() => update(m.id)} disabled={!editing[m.id]} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-30 text-white text-xs px-3 py-1 rounded mr-1">Сохранить</button>
-                                            <button onClick={() => remove(m.id, m.full_name)} className="bg-red-100 hover:bg-red-200 text-red-700 text-xs px-3 py-1 rounded">Удалить</button>
-                                        </td>
-                                    </tr>
+                                    <React.Fragment key={m.id}>
+                                        <tr className="border-b border-slate-100 hover:bg-slate-50">
+                                            <td className="py-2 px-2 text-slate-400">#{m.id}</td>
+                                            <td className="py-2 px-2 font-mono">{m.login}</td>
+                                            <td className="py-2 px-2">
+                                                <input className="border border-slate-300 p-1 rounded text-sm w-full"
+                                                    value={(e.full_name ?? m.full_name) as string}
+                                                    onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], full_name: ev.target.value } }))} />
+                                            </td>
+                                            <td className="py-2 px-2">
+                                                <input className="border border-slate-300 p-1 rounded text-sm w-full"
+                                                    value={(e.telegram_tag ?? m.telegram_tag ?? '') as string}
+                                                    onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], telegram_tag: ev.target.value } }))} />
+                                            </td>
+                                            <td className="py-2 px-2 text-center">
+                                                <input type="checkbox" className="w-4 h-4 accent-brand-600"
+                                                    checked={(e.active ?? m.active) as boolean}
+                                                    onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], active: ev.target.checked } }))} />
+                                            </td>
+                                            <td className="py-2 px-2">
+                                                <input className="border border-slate-300 p-1 rounded text-sm w-full" type="password" placeholder="—"
+                                                    value={e.password ?? ''}
+                                                    onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], password: ev.target.value } }))} />
+                                            </td>
+                                            <td className="py-2 px-2 whitespace-nowrap">
+                                                <button onClick={() => setOpenSchedule(p => ({ ...p, [m.id]: !p[m.id] }))}
+                                                    className={`text-xs px-2 py-1 rounded mr-1 ${isScheduleOpen ? 'bg-brand-200 text-brand-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+                                                    🕐 Часы
+                                                </button>
+                                                <button onClick={() => update(m.id)} disabled={!hasEdit} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-30 text-white text-xs px-3 py-1 rounded mr-1">Сохранить</button>
+                                                <button onClick={() => remove(m.id, m.full_name)} className="bg-red-100 hover:bg-red-200 text-red-700 text-xs px-3 py-1 rounded">Удалить</button>
+                                            </td>
+                                        </tr>
+                                        {isScheduleOpen && (
+                                            <tr className="border-b border-slate-100 bg-slate-50">
+                                                <td colSpan={7} className="px-4 py-3">
+                                                    <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Рабочие часы (Asia/Bishkek, UTC+6)</div>
+                                                    <WorkingHoursEditor
+                                                        value={currentSchedule}
+                                                        onChange={s => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], working_hours: s } }))}
+                                                    />
+                                                    <p className="text-xs text-slate-500 mt-2">SLA-таймер (3ч) тикает только в рабочие часы. Лиды, поступившие ночью, начинают отсчёт с начала следующего рабочего дня.</p>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
                                 );
                             })}
                         </tbody>
@@ -578,6 +674,159 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
                     await upsert(draft);
                     setDraft({ code: '', label: '', color: '#3b82f6', is_terminal: false, sort: 50 });
                 }} className="md:col-span-2 text-xs bg-brand-600 hover:bg-brand-700 text-white px-2 py-1 rounded">+ Добавить</button>
+            </div>
+        </div>
+    );
+};
+
+const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [days, setDays] = useState(30);
+    const [from, setFrom] = useState('');
+    const [to, setTo] = useState('');
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`/api/admin/dashboard?days=${days}`, { headers: { 'X-Admin-Password': password } });
+            setData(await res.json());
+        } finally { setLoading(false); }
+    };
+    useEffect(() => { load(); }, [days]);
+
+    const exportCsv = async () => {
+        const params = new URLSearchParams();
+        if (from) params.set('from', new Date(from).toISOString());
+        if (to) params.set('to', new Date(to).toISOString());
+        const url = `/api/admin/leads/export?${params.toString()}`;
+        // Use fetch + blob so we can attach the admin header
+        const res = await fetch(url, { headers: { 'X-Admin-Password': password } });
+        if (!res.ok) { alert('Ошибка экспорта'); return; }
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(a.href);
+    };
+
+    if (loading || !data) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+
+    const t = data.totals;
+    const maxDaily = Math.max(1, ...data.daily.map((d: any) => d.received));
+
+    return (
+        <div className="space-y-4">
+            <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-xs uppercase tracking-wide text-slate-500">Окно:</span>
+                {[7, 30, 90, 180].map(d => (
+                    <button key={d} onClick={() => setDays(d)}
+                        className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-brand-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+                        {d} дн
+                    </button>
+                ))}
+                <button onClick={load} className="text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded ml-auto">↻</button>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-600">Всего лидов</div>
+                    <div className="text-2xl font-bold text-slate-900">{t.total}</div>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-amber-700">Открытых</div>
+                    <div className="text-2xl font-bold text-amber-700">{t.open}</div>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-emerald-700">Закрыто (won)</div>
+                    <div className="text-2xl font-bold text-emerald-700">{t.won}</div>
+                    <div className="text-xs text-slate-500 mt-1">конверсия: {t.conversionPct}%</div>
+                </div>
+                <div className={`rounded-lg p-3 border ${t.slaCompliancePct >= 80 ? 'bg-emerald-50 border-emerald-200' : t.slaCompliancePct >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
+                    <div className="text-xs uppercase text-slate-700">SLA соблюдён</div>
+                    <div className="text-2xl font-bold text-slate-900">{t.slaCompliancePct}%</div>
+                    <div className="text-xs text-slate-500 mt-1">просрочено сейчас: {t.slaBreachedOpen}</div>
+                </div>
+            </div>
+
+            <div>
+                <div className="text-xs uppercase text-slate-500 mb-2">Лиды по дням</div>
+                <div className="flex items-end gap-1 h-32 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                    {data.daily.map((d: any) => (
+                        <div key={d.date} className="flex-1 group relative flex flex-col items-center justify-end">
+                            <div className="w-full bg-brand-500 hover:bg-brand-600 rounded-t transition-colors"
+                                style={{ height: `${(d.received / maxDaily) * 100}%`, minHeight: '2px' }} />
+                            <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+                                {d.date}: получено {d.received} / закрыто {d.closed}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-white border border-slate-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-500 mb-2">По статусам</div>
+                    {data.byStatus.map((s: any) => (
+                        <div key={s.code} className="flex items-center gap-2 mb-1">
+                            <span className="w-3 h-3 rounded-sm" style={{ background: s.color || '#94a3b8' }} />
+                            <span className="text-sm text-slate-700 flex-grow">{s.label}</span>
+                            <span className="text-sm font-medium text-slate-900">{s.n}</span>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-500 mb-2">По менеджерам (за {data.windowDays} дн)</div>
+                    <table className="w-full text-xs">
+                        <thead className="text-left text-slate-500">
+                            <tr><th className="py-1">Менеджер</th><th className="text-right">Всего</th><th className="text-right">Откр.</th><th className="text-right">Закр.</th><th className="text-right">SLA✓</th><th className="text-right">SLA✗</th></tr>
+                        </thead>
+                        <tbody>
+                            {data.byManager.map((m: any) => {
+                                const slaTotal = (m.sla_met || 0) + (m.sla_breached || 0);
+                                return (
+                                    <tr key={m.id} className="border-t border-slate-100">
+                                        <td className="py-1">
+                                            <div>{m.full_name} <span className="text-slate-400">{m.login}</span></div>
+                                            {!m.active && <span className="text-xs text-red-500">неактивен</span>}
+                                        </td>
+                                        <td className="text-right">{m.total}</td>
+                                        <td className="text-right">{m.open}</td>
+                                        <td className="text-right">{m.closed}</td>
+                                        <td className="text-right text-emerald-600">{m.sla_met}</td>
+                                        <td className={`text-right ${m.sla_breached > 0 ? 'text-red-600 font-medium' : ''}`}>{m.sla_breached}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {t.avgCloseMinutes !== null && (
+                <div className="text-sm text-slate-600">
+                    Среднее время от получения до закрытия: <strong>{Math.floor(t.avgCloseMinutes / 60)}ч {Math.round(t.avgCloseMinutes % 60)}м</strong>
+                </div>
+            )}
+
+            <div className="border-t border-slate-200 pt-3 mt-3">
+                <div className="text-xs uppercase text-slate-500 mb-2">Экспорт CSV</div>
+                <div className="flex flex-wrap gap-2 items-center">
+                    <label className="text-sm">с
+                        <input type="date" className="ml-1 border border-slate-300 px-2 py-1 rounded text-sm" value={from} onChange={e => setFrom(e.target.value)} />
+                    </label>
+                    <label className="text-sm">по
+                        <input type="date" className="ml-1 border border-slate-300 px-2 py-1 rounded text-sm" value={to} onChange={e => setTo(e.target.value)} />
+                    </label>
+                    <button onClick={exportCsv} className="bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 py-1.5 rounded font-medium">
+                        ⬇ Скачать CSV
+                    </button>
+                    <span className="text-xs text-slate-400">оставьте даты пустыми чтобы выгрузить всё</span>
+                </div>
             </div>
         </div>
     );
@@ -807,7 +1056,11 @@ const AdminPanel: React.FC = () => {
                     <AnalyticsWidget password={password} />
                 </Section>
 
-                <Section title="🧑‍💼 Менеджеры по продажам (CRM)" subtitle="Логин/пароль для входа на /lidy" badge="CRM" defaultOpen>
+                <Section title="📈 Дашборд CRM" subtitle="Метрики, конверсия, SLA, экспорт" badge="CRM" defaultOpen>
+                    <CRMDashboard password={password} />
+                </Section>
+
+                <Section title="🧑‍💼 Менеджеры по продажам (CRM)" subtitle="Логин/пароль для входа на /lidy + рабочие часы" badge="CRM">
                     <ManagersSection password={password} />
                 </Section>
 
