@@ -1244,20 +1244,18 @@ async function startServer() {
   // Events (admin CRUD + public lookup)
   // ====================================================================
   function slugify(s: string) {
+    const map: Record<string, string> = {
+      а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ж: "zh", з: "z",
+      и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p",
+      р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "c", ч: "ch",
+      ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+      ё: "e",
+    };
     return s
       .toLowerCase()
-      .replace(/ё/g, "е")
-      .replace(/[^\w\sа-я-]/gi, "")
+      .replace(/[а-яё]/g, c => (c in map ? map[c] : c))
+      .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-")
-      .replace(/[а-я]/g, c => {
-        const map: Record<string, string> = {
-          а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ж: "zh", з: "z",
-          и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p",
-          р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "c", ч: "ch",
-          ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
-        };
-        return map[c] || c;
-      })
       .replace(/-+/g, "-")
       .replace(/^-|-$/g, "")
       .slice(0, 60);
