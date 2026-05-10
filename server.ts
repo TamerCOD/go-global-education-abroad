@@ -25,7 +25,7 @@ const LEAD_SLA_HOURS = Number(process.env.LEAD_SLA_HOURS || 3);
 const WORKING_HOURS_TZ_OFFSET_MIN = Number(process.env.WORKING_HOURS_TZ_OFFSET_MIN || 360); // Default Asia/Bishkek = UTC+6
 const SLA_CRON_INTERVAL_MS = Number(process.env.SLA_CRON_INTERVAL_MS || 60_000);
 const PUBLIC_BASE_URL =
-  process.env.PUBLIC_BASE_URL || "https://web-production-50318.up.railway.app";
+  process.env.PUBLIC_BASE_URL || "https://goglobal.su";
 const UPLOADS_DIR =
   process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
 
@@ -65,6 +65,11 @@ const fallbackDefaults = {
       { id: "Asia", name: "Азия" },
       { id: "Europe", name: "Европа" },
       { id: "USA", name: "США" },
+    ],
+    workSchedule: [
+      { day: "Пн–Пт", hours: "09:00 – 18:00" },
+      { day: "Сб", hours: "10:00 – 15:00" },
+      { day: "Вс", hours: "Выходной" },
     ],
   },
 };
@@ -472,7 +477,7 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
       ...details.map(d =>
         `• #${d.leadId} ${escapeHtml(d.lead.name || "—")} → <b>${escapeHtml(d.manager.full_name)}</b> ${tagOf(d.manager)}`.trim()
       ),
-      `🔗 ${PUBLIC_BASE_URL}/lidy`,
+      `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
     ];
     sendTelegram(lines.join("\n")).catch(() => {});
   }
@@ -483,6 +488,16 @@ function whatsappLink(phone: string, msg?: string): string | null {
   const digits = (phone || "").replace(/\D/g, "");
   if (digits.length < 7 || digits.length > 15) return null;
   return `https://wa.me/${digits}${msg ? `?text=${encodeURIComponent(msg)}` : ""}`;
+}
+
+function sourceBadge(source: string): string {
+  const s = (source || "").toLowerCase();
+  if (s.includes("whatsapp")) return "💬 WhatsApp";
+  if (s.includes("instagram")) return "📷 Instagram";
+  if (s.includes("email") || s.includes("mail")) return "✉ Email";
+  if (s.includes("modal")) return "🌐 Сайт (попап)";
+  if (s.includes("apply")) return "🔗 По ссылке";
+  return "🌐 Сайт";
 }
 
 function signSession(payload: { mid: number; login: string }) {
@@ -614,7 +629,7 @@ async function checkSlaBreaches() {
         `Получен: ${new Date(lead.received_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
         `Дедлайн был: ${new Date(lead.sla_deadline_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
         `Просрочен на: <b>${Math.floor(overdueMin / 60)}ч ${overdueMin % 60}м</b>`,
-        `🔗 ${PUBLIC_BASE_URL}/lidy`,
+        `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
       ];
       const sent = await sendTelegram(lines.join("\n"));
       if (sent) {
@@ -772,18 +787,19 @@ async function startServer() {
       ? (manager.telegram_tag.startsWith("@") ? manager.telegram_tag : `@${manager.telegram_tag}`)
       : "";
     const wa = phone ? whatsappLink(phone) : null;
+    const sourceLabel = sourceBadge(source);
     const lines = [
-      `🆕 <b>Новый лид #${leadId}</b>`,
+      `🆕 <b>Новый лид <a href="${PUBLIC_BASE_URL}/lidy">#${leadId}</a></b> ${sourceLabel}`,
       name ? `👤 ${escapeHtml(name)}` : "",
-      phone ? `📞 ${escapeHtml(phone)}${wa ? ` · <a href="${wa}">WhatsApp</a>` : ""}` : "",
-      email ? `✉️ ${escapeHtml(email)}` : "",
+      phone ? `📞 ${escapeHtml(phone)}${wa ? ` · <a href="${wa}">открыть WhatsApp</a>` : ""}` : "",
+      email ? `✉️ <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>` : "",
       country ? `🌍 ${escapeHtml(country)}` : "",
       comment ? `💬 ${escapeHtml(comment)}` : "",
       manager
         ? `👨‍💼 Назначен: <b>${escapeHtml(manager.full_name)}</b> (${escapeHtml(manager.login)}) ${tag}`.trim()
         : `⚠️ <b>Нет онлайн-менеджеров!</b> Лид в очереди до выхода кого-то в сеть.`,
       slaDeadline ? `⏱ SLA до ${slaDeadline.toISOString().slice(0, 16).replace("T", " ")} UTC` : "",
-      `🔗 ${PUBLIC_BASE_URL}/lidy`,
+      `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
     ].filter(Boolean);
     sendTelegram(lines.join("\n")).catch(() => {});
 
@@ -1125,7 +1141,7 @@ async function startServer() {
           `🤝 <b>Передача лида #${leadId}</b>`,
           `От: <b>${escapeHtml(me.full_name)}</b> ${tag(me)}`,
           `Кому: <b>${escapeHtml(target.full_name)}</b> ${tag(target)} — ждём принятия (${TRANSFER_TIMEOUT_MIN} мин)`,
-          `🔗 ${PUBLIC_BASE_URL}/lidy`,
+          `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
         ].join("\n")
       ).catch(() => {});
 
@@ -1278,7 +1294,7 @@ async function startServer() {
         oldMgr ? `Был у: <b>${escapeHtml(oldMgr.full_name)}</b> ${tag(oldMgr)}` : `Был без менеджера`,
         `Теперь у: <b>${escapeHtml(target.full_name)}</b> ${tag(target)}`,
         `Тимлид: ${escapeHtml(me.full_name)}`,
-        `🔗 ${PUBLIC_BASE_URL}/lidy`,
+        `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
       ].filter(Boolean);
       sendTelegram(lines.join("\n")).catch(() => {});
 

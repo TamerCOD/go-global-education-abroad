@@ -13,6 +13,7 @@ import { Footer } from './components/Footer';
 import { WhatsAppBtn } from './components/WhatsAppBtn';
 import { ContactModal } from './components/ContactModal';
 import { Loader } from './components/Loader';
+import { ApplyForm } from './components/ApplyForm';
 import AdminPanel from './AdminPanel';
 import LidyApp from './lidy/LidyApp';
 import { useData } from './DataContext';
@@ -54,7 +55,8 @@ function App() {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isLidyRoute = location.pathname.startsWith('/lidy');
-  const isUtilityRoute = isAdminRoute || isLidyRoute;
+  const isApplyRoute = location.pathname.startsWith('/apply');
+  const isUtilityRoute = isAdminRoute || isLidyRoute || isApplyRoute;
   const [showLoader, setShowLoader] = useState(!isUtilityRoute);
 
   useEffect(() => {
@@ -93,6 +95,7 @@ function App() {
         <Route path="/admin" element={<AdminPanel />} />
         <Route path="/lidy" element={<LidyApp />} />
         <Route path="/lidy/*" element={<LidyApp />} />
+        <Route path="/apply" element={<ApplyForm />} />
       </Routes>
     </div>
   );

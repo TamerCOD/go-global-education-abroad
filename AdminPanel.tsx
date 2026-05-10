@@ -6,12 +6,12 @@ import { DEFAULT_VISIBILITY, DEFAULT_REGIONS } from './types';
 // Reusable bits
 // =====================================================================
 
-// Brutalist design tokens
-const A_SHADOW = 'shadow-[4px_4px_0_0_#0a0a0a]';
-const A_SHADOW_HOVER = 'hover:shadow-[6px_6px_0_0_#0a0a0a] hover:-translate-x-[2px] hover:-translate-y-[2px]';
-const A_BORDER = 'border-2 border-black';
-const A_BTN = `${A_BORDER} ${A_SHADOW} ${A_SHADOW_HOVER} active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
-const A_CARD = `bg-white ${A_BORDER} ${A_SHADOW}`;
+// Material + light neumorphism tokens (was brutalist)
+const A_SHADOW = 'shadow-[0_4px_24px_-6px_rgba(15,23,42,0.12),0_1px_3px_rgba(15,23,42,0.05)]';
+const A_SHADOW_HOVER = 'hover:shadow-[0_10px_28px_-6px_rgba(15,23,42,0.18)] hover:-translate-y-[1px]';
+const A_BORDER = 'border border-slate-200/80';
+const A_BTN = `${A_BORDER} rounded-xl ${A_SHADOW} ${A_SHADOW_HOVER} active:translate-y-[1px] active:shadow-sm transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
+const A_CARD = `bg-white ${A_BORDER} rounded-2xl ${A_SHADOW}`;
 const SECTION_BG: Record<string, string> = {
     'CRM': 'bg-fuchsia-100',
     'аналитика': 'bg-cyan-100',
@@ -22,7 +22,7 @@ const SECTION_BG: Record<string, string> = {
 const ATooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
     <span className="relative inline-flex group">
         {children}
-        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 border-2 border-black">
+        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 rounded-md border border-slate-200">
             {text}
         </span>
     </span>
@@ -51,7 +51,7 @@ const Section: React.FC<{
             <button
                 type="button"
                 onClick={() => setOpen(!open)}
-                className={`w-full flex items-center justify-between px-5 py-3 text-left ${headerBg} hover:brightness-95 transition-all border-b-2 border-black`}
+                className={`w-full flex items-center justify-between px-5 py-3 text-left ${headerBg} hover:brightness-95 transition-all border-b border-slate-200`}
             >
                 <div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -342,6 +342,110 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
                     </div>
                 </div>
             )}
+        </div>
+    );
+};
+
+// =====================================================================
+// Sharing links (apply forms per channel)
+// =====================================================================
+
+const PUBLIC_BASE = (typeof window !== 'undefined') ? window.location.origin : 'https://goglobal.su';
+
+const SharingLinksSection: React.FC<{ contactInfo: any }> = ({ contactInfo }) => {
+    const [phone, setPhone] = useState('');
+    const [insta, setInsta] = useState('');
+    const [email, setEmail] = useState('');
+    const [copied, setCopied] = useState<string | null>(null);
+
+    const copy = async (text: string, key: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(key);
+            setTimeout(() => setCopied(null), 1500);
+        } catch {
+            alert('Скопируйте вручную: ' + text);
+        }
+    };
+
+    const buildUrl = (params: Record<string, string>) => {
+        const u = new URL(`${PUBLIC_BASE}/apply`);
+        for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v);
+        return u.toString();
+    };
+
+    const links = [
+        {
+            key: 'whatsapp',
+            title: '💬 Для рассылки в WhatsApp',
+            color: 'bg-emerald-50 border-emerald-200',
+            input: (
+                <input className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+                    placeholder="996700123456 (опционально)"
+                    value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} />
+            ),
+            url: buildUrl({ source: 'whatsapp', phone }),
+            tip: 'Когда клиент откроет ссылку — поле «Телефон» уже подставлено',
+        },
+        {
+            key: 'instagram',
+            title: '📷 Для рассылки в Instagram (DM)',
+            color: 'bg-pink-50 border-pink-200',
+            input: (
+                <input className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+                    placeholder="@username клиента (опционально)"
+                    value={insta} onChange={e => setInsta(e.target.value)} />
+            ),
+            url: buildUrl({ source: 'instagram', insta }),
+            tip: 'У формы появится отдельное поле «Ваш Instagram»',
+        },
+        {
+            key: 'email',
+            title: '✉ Для рассылки по почте',
+            color: 'bg-blue-50 border-blue-200',
+            input: (
+                <input className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+                    placeholder="user@example.com (опционально)"
+                    value={email} onChange={e => setEmail(e.target.value)} />
+            ),
+            url: buildUrl({ source: 'email', email }),
+            tip: 'Email-поле будет преподаспонено и отмечено обязательным',
+        },
+    ];
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+                Каждая ссылка ведёт на отдельную форму, которая запоминает источник лида.
+                В CRM этот лид появится с цветной плашкой «WhatsApp / Instagram / Email».
+                Можно вставить заранее контакт клиента — он подставится в форму автоматически.
+            </p>
+            <div className="grid lg:grid-cols-3 gap-4">
+                {links.map(l => (
+                    <div key={l.key} className={`rounded-2xl border-2 p-4 ${l.color}`}>
+                        <div className="font-bold text-slate-900 mb-2">{l.title}</div>
+                        <div className="mb-2">{l.input}</div>
+                        <div className="text-xs font-mono break-all bg-white rounded-lg border border-slate-300 p-2 mb-2 select-all">{l.url}</div>
+                        <div className="flex gap-2 mb-2">
+                            <button onClick={() => copy(l.url, l.key)} className="flex-1 bg-slate-900 hover:bg-black text-white text-sm font-bold rounded-lg px-3 py-2 transition-colors">
+                                {copied === l.key ? '✓ Скопировано' : '📋 Копировать'}
+                            </button>
+                            <a href={l.url} target="_blank" rel="noopener noreferrer"
+                                className="bg-white border border-slate-300 hover:bg-slate-50 text-sm font-medium rounded-lg px-3 py-2">
+                                🔍 Открыть
+                            </a>
+                        </div>
+                        <details>
+                            <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">QR-код</summary>
+                            <img
+                                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(l.url)}`}
+                                alt="QR" className="mt-2 rounded-lg border border-slate-300 bg-white"
+                            />
+                        </details>
+                        <p className="text-xs text-slate-500 mt-2">{l.tip}</p>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 };
@@ -973,6 +1077,7 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                         <tr className="text-left">
                             <th className="px-2 py-2">ID</th>
                             <th className="px-2 py-2">Когда</th>
+                            <th className="px-2 py-2">Источник</th>
                             <th className="px-2 py-2">Имя</th>
                             <th className="px-2 py-2">Контакты</th>
                             <th className="px-2 py-2">Страна</th>
@@ -986,10 +1091,20 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                             const sla = l.processed_at ? '✓ обработан'
                                 : new Date(l.sla_deadline_at).getTime() < Date.now() ? '⚠ просрочен'
                                     : 'в работе';
+                            const src = (l.source || '').toLowerCase();
+                            const srcInfo = src.includes('whatsapp') ? { label: 'WA', bg: 'bg-emerald-500' }
+                                : src.includes('instagram') ? { label: 'IG', bg: 'bg-pink-500' }
+                                    : src.includes('email') ? { label: 'Mail', bg: 'bg-blue-500' }
+                                        : src.includes('apply') ? { label: 'Link', bg: 'bg-violet-500' }
+                                            : src.includes('modal') ? { label: 'Popup', bg: 'bg-slate-600' }
+                                                : { label: 'Site', bg: 'bg-slate-500' };
                             return (
                                 <tr key={l.id} className="border-b border-slate-100 hover:bg-slate-50">
                                     <td className="px-2 py-2 text-slate-400 font-mono text-xs">#{l.id}</td>
                                     <td className="px-2 py-2 text-xs text-slate-600">{new Date(l.received_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                                    <td className="px-2 py-2">
+                                        <span className={`text-[10px] px-2 py-0.5 rounded text-white font-bold ${srcInfo.bg}`} title={l.source}>{srcInfo.label}</span>
+                                    </td>
                                     <td className="px-2 py-2 font-medium">{l.name || '—'}</td>
                                     <td className="px-2 py-2 text-xs">
                                         {l.phone && <div>📞 {l.phone}</div>}
@@ -1078,12 +1193,12 @@ const AdminPanel: React.FC = () => {
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-cyan-300 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-cyan-200 via-blue-100 to-violet-100 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
                 <div className="absolute inset-0 opacity-30 pointer-events-none" style={{
                     backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 24px, rgba(0,0,0,0.06) 24px, rgba(0,0,0,0.06) 25px), repeating-linear-gradient(90deg, transparent, transparent 24px, rgba(0,0,0,0.06) 24px, rgba(0,0,0,0.06) 25px)',
                 }} />
                 <form onSubmit={handleLogin} className={`relative ${A_CARD} p-8 w-full max-w-md`}>
-                    <div className="flex items-center gap-3 mb-6 pb-4 border-b-2 border-black">
+                    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">
                         <img src="/ppp.png" alt="" className="w-12 h-auto" />
                         <div>
                             <h2 className="text-2xl font-black uppercase tracking-tight">Admin</h2>
@@ -1116,14 +1231,14 @@ const AdminPanel: React.FC = () => {
     const setVisibility = (patch: any) => setSC({ visibility: { ...v, ...patch } });
 
     return (
-        <div className="min-h-screen bg-yellow-50" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
             {/* Subtle grid background */}
             <div className="fixed inset-0 pointer-events-none opacity-[0.06]" style={{
                 backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
             }} />
 
             {/* Sticky brutalist header */}
-            <div className="sticky top-0 z-40 bg-black text-lime-300 border-b-4 border-black">
+            <div className="sticky top-0 z-40 bg-slate-900 text-lime-300 border-b border-slate-800 shadow-md">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
                     <h1 className="text-xl font-black uppercase tracking-tight">⚙️ ADMIN_PANEL</h1>
                     <div className="flex items-center gap-3">
@@ -1176,7 +1291,11 @@ const AdminPanel: React.FC = () => {
                     </div>
                 </Section>
 
-                <Section title="📞 Контакты и WhatsApp" subtitle="Телефон, email, кнопка WhatsApp" defaultOpen={false}>
+                <Section title="🔗 Ссылки для рассылки клиентам" subtitle="Готовые формы по каналам — копируй и отправляй" badge="NEW" accent="cyan" defaultOpen>
+                    <SharingLinksSection contactInfo={ci} />
+                </Section>
+
+                <Section title="📞 Контакты, WhatsApp и график работы" subtitle="Телефон, email, расписание для футера" defaultOpen={false}>
                     <div className="space-y-3">
                         <label className="block text-sm">
                             <span className="block font-medium text-slate-700 mb-1">Телефон (отображается на сайте)</span>
@@ -1226,6 +1345,40 @@ const AdminPanel: React.FC = () => {
                             />
                             <span className="text-xs text-slate-500 block mt-1">Подставляется в текстовое поле когда посетитель открывает виджет</span>
                         </label>
+
+                        <hr className="my-3" />
+                        <h3 className="font-semibold text-slate-800">⏰ График работы (показывается в футере сайта)</h3>
+                        {((sc.workSchedule as Array<{ day: string; hours: string }>) || [
+                            { day: 'Пн–Пт', hours: '09:00 – 18:00' },
+                            { day: 'Сб', hours: '10:00 – 15:00' },
+                            { day: 'Вс', hours: 'Выходной' },
+                        ]).map((row, i, arr) => (
+                            <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-2">
+                                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="День (например, Пн–Пт)"
+                                    value={row.day}
+                                    onChange={e => {
+                                        const list = [...arr]; list[i] = { ...row, day: e.target.value };
+                                        setSC({ workSchedule: list });
+                                    }} />
+                                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Часы (например, 09:00 – 18:00 или Выходной)"
+                                    value={row.hours}
+                                    onChange={e => {
+                                        const list = [...arr]; list[i] = { ...row, hours: e.target.value };
+                                        setSC({ workSchedule: list });
+                                    }} />
+                                <button className="text-red-500 text-sm px-2"
+                                    onClick={() => {
+                                        const list = [...arr]; list.splice(i, 1);
+                                        setSC({ workSchedule: list });
+                                    }}>✕</button>
+                            </div>
+                        ))}
+                        <button className="text-brand-600 hover:underline text-sm font-medium mt-1"
+                            onClick={() => {
+                                const list = [...((sc.workSchedule as any[]) || [])];
+                                list.push({ day: 'Новый день', hours: '09:00 – 18:00' });
+                                setSC({ workSchedule: list });
+                            }}>+ Добавить строку расписания</button>
                     </div>
                 </Section>
 

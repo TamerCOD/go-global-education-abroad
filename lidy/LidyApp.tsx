@@ -53,18 +53,19 @@ interface StatusOption {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Brutalist primitives
+// Material + neumorphism + bento primitives
+// (was brutalist; softened to material-light with subtle neumorphism)
 // ─────────────────────────────────────────────────────────────────────
-const SHADOW = 'shadow-[4px_4px_0_0_#0a0a0a]';
-const SHADOW_HOVER = 'hover:shadow-[6px_6px_0_0_#0a0a0a] hover:-translate-x-[2px] hover:-translate-y-[2px]';
-const BORDER = 'border-2 border-black';
-const BTN = `${BORDER} ${SHADOW} ${SHADOW_HOVER} active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
-const CARD = `bg-white ${BORDER} ${SHADOW}`;
+const SHADOW = 'shadow-[0_4px_20px_-4px_rgba(15,23,42,0.12),0_1px_3px_rgba(15,23,42,0.06)]';
+const SHADOW_HOVER = 'hover:shadow-[0_10px_30px_-6px_rgba(15,23,42,0.18)] hover:-translate-y-[1px]';
+const BORDER = 'border border-slate-200/80';
+const BTN = `${BORDER} rounded-xl ${SHADOW} ${SHADOW_HOVER} active:translate-y-[1px] active:shadow-sm transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
+const CARD = `bg-white ${BORDER} rounded-2xl ${SHADOW}`;
 
 const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
     <span className="relative inline-flex group">
         {children}
-        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 border-2 border-black">
+        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 rounded-md border border-slate-200">
             {text}
         </span>
     </span>
@@ -103,6 +104,16 @@ function whatsappLink(phone: string, msg?: string): string | null {
     const digits = (phone || '').replace(/\D/g, '');
     if (digits.length < 7 || digits.length > 15) return null;
     return `https://wa.me/${digits}${msg ? `?text=${encodeURIComponent(msg)}` : ''}`;
+}
+
+function sourceBadge(source: string): { label: string; bg: string; text: string } {
+    const s = (source || '').toLowerCase();
+    if (s.includes('whatsapp')) return { label: '💬 WhatsApp', bg: 'bg-[#25D366]', text: 'text-white' };
+    if (s.includes('instagram')) return { label: '📷 Instagram', bg: 'bg-gradient-to-r from-pink-500 to-purple-600', text: 'text-white' };
+    if (s.includes('email') || s.includes('mail')) return { label: '✉ Email', bg: 'bg-blue-500', text: 'text-white' };
+    if (s.includes('modal')) return { label: '🌐 Сайт (поп-ап)', bg: 'bg-slate-600', text: 'text-white' };
+    if (s.includes('apply')) return { label: '🔗 По ссылке', bg: 'bg-violet-500', text: 'text-white' };
+    return { label: '🌐 Сайт', bg: 'bg-slate-500', text: 'text-white' };
 }
 
 // Countdown helper for transfer expiry
@@ -153,12 +164,12 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-lime-300 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-lime-200 via-emerald-100 to-cyan-100 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
             <div className="absolute inset-0 opacity-30 pointer-events-none" style={{
                 backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 24px, rgba(0,0,0,0.05) 24px, rgba(0,0,0,0.05) 25px), repeating-linear-gradient(90deg, transparent, transparent 24px, rgba(0,0,0,0.05) 24px, rgba(0,0,0,0.05) 25px)',
             }} />
             <form onSubmit={submit} className={`relative ${CARD} p-8 w-full max-w-md`}>
-                <div className="flex items-center gap-3 mb-6 pb-4 border-b-2 border-black">
+                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">
                     <img src="/ppp.png" alt="" className="w-12 h-auto" />
                     <div>
                         <h1 className="text-2xl font-black uppercase tracking-tight">GoGlobal CRM</h1>
@@ -231,28 +242,38 @@ const LeadCard: React.FC<{
     return (
         <div className={`${CARD} relative overflow-hidden`}>
             {/* Top row: status block + assignee + sla */}
-            <div className="grid grid-cols-[auto_1fr_auto] border-b-2 border-black">
+            <div className="grid grid-cols-[auto_1fr_auto] border-b border-slate-200">
                 {/* ID block */}
-                <div className="bg-black text-lime-300 px-4 py-3 font-mono font-bold flex items-center border-r-2 border-black">
+                <div className="bg-black text-lime-300 px-4 py-3 font-mono font-bold flex items-center border-r border-slate-200">
                     #{lead.id}
                 </div>
                 {/* Status + processed badge */}
                 <div className="px-3 py-2 flex items-center gap-2 flex-wrap min-w-0">
                     <span
-                        className="text-xs font-bold uppercase tracking-wider px-2 py-1 border-2 border-black text-white"
+                        className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 text-white"
                         style={{ backgroundColor: statusColor }}
                     >
                         {lead.status_label || lead.status_code}
                     </span>
+                    {(() => {
+                        const sb = sourceBadge(lead.source || '');
+                        return (
+                            <Tooltip text={`Источник лида: ${lead.source || 'неизвестен'}`}>
+                                <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 ${sb.bg} ${sb.text}`}>
+                                    {sb.label}
+                                </span>
+                            </Tooltip>
+                        );
+                    })()}
                     {isProcessed ? (
                         <Tooltip text="Лид закрыт менеджером">
-                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 border-2 border-black bg-emerald-400 text-black">
+                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 bg-emerald-400 text-black">
                                 ✓ Обработан
                             </span>
                         </Tooltip>
                     ) : (
                         <Tooltip text="Лид ещё в работе или не взят">
-                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 border-2 border-black bg-amber-300 text-black">
+                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 bg-amber-300 text-black">
                                 ⏳ Не обработан
                             </span>
                         </Tooltip>
@@ -260,12 +281,12 @@ const LeadCard: React.FC<{
                     {/* Assignee badge */}
                     {lead.manager_name ? (
                         <Tooltip text={`Назначен на ${lead.manager_name}${lead.manager_archived_at ? ' (уволен)' : ''}`}>
-                            <span className={`text-xs font-bold px-2 py-1 border-2 border-black ${lead.manager_archived_at ? 'bg-slate-300 line-through text-slate-700' : 'bg-cyan-200 text-black'}`}>
+                            <span className={`text-xs font-bold px-2 py-1 rounded-md border border-slate-200 ${lead.manager_archived_at ? 'bg-slate-300 line-through text-slate-700' : 'bg-cyan-200 text-black'}`}>
                                 👤 {lead.manager_name}{lead.manager_archived_at && ' (уволен)'}
                             </span>
                         </Tooltip>
                     ) : (
-                        <span className="text-xs font-bold px-2 py-1 border-2 border-black bg-orange-400 text-black">
+                        <span className="text-xs font-bold px-2 py-1 rounded-md border border-slate-200 bg-orange-400 text-black">
                             ⏳ Без менеджера
                         </span>
                     )}
@@ -273,14 +294,14 @@ const LeadCard: React.FC<{
                         <Tooltip text="Открыть WhatsApp клиента">
                             <a href={wa} target="_blank" rel="noopener noreferrer"
                                 onClick={e => e.stopPropagation()}
-                                className="text-xs font-bold px-2 py-1 border-2 border-black bg-[#25D366] text-black hover:bg-[#1eba56]">
+                                className="text-xs font-bold px-2 py-1 rounded-md border border-slate-200 bg-[#25D366] text-black hover:bg-[#1eba56]">
                                 💬 WA
                             </a>
                         </Tooltip>
                     )}
                 </div>
                 {/* SLA right */}
-                <div className={`px-4 py-2 flex flex-col items-end justify-center border-l-2 border-black ${sla.color} ${sla.textColor}`}>
+                <div className={`px-4 py-2 flex flex-col items-end justify-center border-l border-slate-200 ${sla.color} ${sla.textColor}`}>
                     <span className="font-mono text-xs uppercase">{sla.text}</span>
                     <span className="font-mono text-[10px] opacity-70">{formatRel(lead.received_at)}</span>
                 </div>
@@ -288,7 +309,7 @@ const LeadCard: React.FC<{
 
             {/* Pending transfer banners */}
             {isIncomingTransfer && (
-                <div className="bg-fuchsia-300 border-b-2 border-black px-4 py-3 flex items-center justify-between gap-3">
+                <div className="bg-fuchsia-300 border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3">
                     <div>
                         <div className="font-bold text-sm">🤝 ВАМ ПЕРЕДАЛИ ЛИД от {lead.pending_transfer_by_name}</div>
                         <div className="font-mono text-xs">Решите за <strong>{transferCountdown}</strong> или вернётся обратно</div>
@@ -304,7 +325,7 @@ const LeadCard: React.FC<{
                 </div>
             )}
             {isOutgoingTransfer && (
-                <div className="bg-violet-300 border-b-2 border-black px-4 py-3 flex items-center justify-between gap-3">
+                <div className="bg-violet-300 border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3">
                     <div className="font-mono text-xs">
                         ⏱ Передан <strong>{lead.pending_transfer_to_name}</strong> — ждёт принятия (<strong>{transferCountdown}</strong>)
                     </div>
@@ -341,7 +362,7 @@ const LeadCard: React.FC<{
             </div>
 
             {open && (
-                <div className="border-t-2 border-black bg-yellow-50 p-4 space-y-4">
+                <div className="border-t border-slate-200 bg-yellow-50 p-4 space-y-4">
                     {lead.comment && (
                         <div>
                             <div className="text-xs font-bold uppercase tracking-widest mb-1">💬 Комментарий клиента</div>
@@ -415,7 +436,7 @@ const LeadCard: React.FC<{
 
                     {/* Teamlead-only: hard reassign */}
                     {isTeamlead && (
-                        <div className="border-t-2 border-dashed border-black pt-3">
+                        <div className="border-t border-dashed border-slate-300 pt-3">
                             <div className="text-xs font-bold uppercase tracking-widest mb-2">🔄 Переназначить (тимлид, без подтверждения)</div>
                             <div className="flex gap-2">
                                 <select className={`${BORDER} bg-white px-2 py-1.5 text-sm flex-grow font-mono`}
@@ -455,7 +476,7 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
         <div className="overflow-x-auto">
             <table className="w-full text-sm">
                 <thead>
-                    <tr className="text-left border-b-2 border-black bg-yellow-100">
+                    <tr className="text-left border-b border-slate-200 bg-yellow-100">
                         <th className="py-2 px-2 text-xs font-black uppercase">Менеджер</th>
                         <th className="text-center text-xs font-black uppercase px-2">Статус</th>
                         <th className="text-right text-xs font-black uppercase px-2">Всего</th>
@@ -623,21 +644,21 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     }, [leads, manager.id]);
 
     return (
-        <div className="min-h-screen bg-yellow-50" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
             {/* Subtle grid background */}
             <div className="fixed inset-0 pointer-events-none opacity-[0.06]" style={{
                 backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
             }} />
 
             {/* Header */}
-            <div className="sticky top-0 z-30 bg-black text-lime-300 border-b-4 border-black">
+            <div className="sticky top-0 z-30 bg-slate-900 text-lime-300 border-b border-slate-800 shadow-md">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-3">
                         <img src="/ppp.png" alt="" className="h-9 w-auto invert" />
                         <div>
                             <div className="font-black tracking-tight text-lg flex items-center gap-2">
                                 CRM
-                                {isTeamlead && <span className="text-[10px] bg-fuchsia-400 text-black px-2 py-0.5 border-2 border-lime-300 font-mono uppercase">TEAMLEAD</span>}
+                                {isTeamlead && <span className="text-[10px] bg-fuchsia-400 text-black px-2 py-0.5 rounded-md font-mono uppercase">TEAMLEAD</span>}
                             </div>
                             <div className="text-xs font-mono opacity-70">{manager.full_name} · @{manager.login}</div>
                         </div>
