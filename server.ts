@@ -179,6 +179,11 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS working_hours JSONB;`);
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'manager';`);
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS is_online BOOLEAN NOT NULL DEFAULT TRUE;`);
+    await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;`);
+    // Transfer (handoff) columns on leads
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_to_id BIGINT REFERENCES managers(id) ON DELETE SET NULL;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_at TIMESTAMPTZ;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_by_id BIGINT REFERENCES managers(id) ON DELETE SET NULL;`);
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_statuses (
         code TEXT PRIMARY KEY,
@@ -421,11 +426,11 @@ async function pickNextManager(): Promise<{
   login: string; working_hours: WorkingSchedule | null;
 } | null> {
   if (!pool) return null;
-  // Only active + online managers (not teamleads — they coordinate, not receive)
+  // Only active + online + non-archived managers (teamleads skipped — they coordinate)
   const { rows } = await pool.query(
     `SELECT id, full_name, telegram_tag, login, working_hours
      FROM managers
-     WHERE active = TRUE AND is_online = TRUE AND role = 'manager'
+     WHERE active = TRUE AND is_online = TRUE AND role = 'manager' AND archived_at IS NULL
      ORDER BY last_assigned_at NULLS FIRST, id ASC
      LIMIT 1`
   );
@@ -542,6 +547,44 @@ console.log(`[server] Storage: ${pool ? "PostgreSQL" : "JSON file"}`);
 console.log(`[server] Telegram: ${TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID ? "configured" : "DISABLED"}`);
 console.log(`[server] Lead intake secret: ${LEAD_INTAKE_SECRET ? "set" : "DISABLED"}`);
 
+// ---------- Expired-transfer cron ----------
+async function revertExpiredTransfers() {
+  if (!pool) return;
+  try {
+    await dbReady!;
+    const timeoutMin = Number(process.env.LEAD_TRANSFER_TIMEOUT_MIN || 10);
+    const { rows } = await pool.query(
+      `SELECT l.id, l.pending_transfer_to_id, l.pending_transfer_by_id,
+              mt.full_name AS to_name, mt.telegram_tag AS to_tag,
+              mb.full_name AS by_name, mb.telegram_tag AS by_tag
+       FROM leads l
+       LEFT JOIN managers mt ON mt.id = l.pending_transfer_to_id
+       LEFT JOIN managers mb ON mb.id = l.pending_transfer_by_id
+       WHERE l.pending_transfer_at IS NOT NULL
+         AND l.pending_transfer_at < NOW() - INTERVAL '${timeoutMin} minutes'
+       LIMIT 50`
+    );
+    for (const lead of rows) {
+      await pool.query(
+        `UPDATE leads SET pending_transfer_to_id = NULL, pending_transfer_at = NULL,
+                          pending_transfer_by_id = NULL, updated_at = NOW()
+         WHERE id = $1`,
+        [lead.id]
+      );
+      const tag = (t: string | null) => t ? (t.startsWith("@") ? t : `@${t}`) : "";
+      sendTelegram(
+        [
+          `⌛ <b>Передача лида #${lead.id} истекла</b>`,
+          `Не принята: ${escapeHtml(lead.to_name || "—")} ${tag(lead.to_tag)}`,
+          `Возвращён: ${escapeHtml(lead.by_name || "—")} ${tag(lead.by_tag)}`,
+        ].join("\n")
+      ).catch(() => {});
+    }
+  } catch (err) {
+    console.error("[transfer-cron]", err);
+  }
+}
+
 // ---------- SLA breach cron ----------
 async function checkSlaBreaches() {
   if (!pool) return;
@@ -587,9 +630,10 @@ if (pool) {
   // Initial run after 30s (gives DB time to be ready), then every interval
   setTimeout(() => {
     checkSlaBreaches();
-    setInterval(checkSlaBreaches, SLA_CRON_INTERVAL_MS);
+    revertExpiredTransfers();
+    setInterval(() => { checkSlaBreaches(); revertExpiredTransfers(); }, SLA_CRON_INTERVAL_MS);
   }, 30_000);
-  console.log(`[server] SLA cron will run every ${Math.round(SLA_CRON_INTERVAL_MS / 1000)}s`);
+  console.log(`[server] SLA + transfer cron will run every ${Math.round(SLA_CRON_INTERVAL_MS / 1000)}s`);
 }
 
 // ---------- Express app ----------
@@ -818,11 +862,12 @@ async function startServer() {
       if (!login || !password) return res.status(400).json({ error: "Missing credentials" });
 
       const { rows } = await pool.query(
-        `SELECT id, login, password_hash, full_name, active FROM managers WHERE login = $1`,
+        `SELECT id, login, password_hash, full_name, active, archived_at FROM managers WHERE login = $1`,
         [String(login).trim().toLowerCase()]
       );
       if (rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
       const m = rows[0];
+      if (m.archived_at) return res.status(403).json({ error: "Account archived (manager left)" });
       if (!m.active) return res.status(403).json({ error: "Manager is deactivated" });
 
       const ok = await bcrypt.compare(String(password), m.password_hash);
@@ -935,10 +980,14 @@ async function startServer() {
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const { rows } = await pq().query(
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color, ls.is_terminal AS status_is_terminal,
-                m.full_name AS manager_name, m.login AS manager_login
+                m.full_name AS manager_name, m.login AS manager_login, m.archived_at AS manager_archived_at,
+                pt.full_name AS pending_transfer_to_name, pt.login AS pending_transfer_to_login,
+                pby.full_name AS pending_transfer_by_name
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
+         LEFT JOIN managers pt ON pt.id = l.pending_transfer_to_id
+         LEFT JOIN managers pby ON pby.id = l.pending_transfer_by_id
          ${whereSql}
          ORDER BY l.received_at DESC
          LIMIT 300`,
@@ -1029,6 +1078,157 @@ async function startServer() {
     }
   });
 
+  // ----- Manager-to-manager transfer (10-min accept window) -----
+  const TRANSFER_TIMEOUT_MIN = Number(process.env.LEAD_TRANSFER_TIMEOUT_MIN || 10);
+
+  // Initiate transfer: manager A sends a lead they own to manager B
+  app.post("/api/lidy/leads/:id/transfer", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const leadId = Number(req.params.id);
+      const targetId = Number(req.body?.manager_id);
+      if (!targetId) return res.status(400).json({ error: "manager_id required" });
+      if (targetId === me.id) return res.status(400).json({ error: "Cannot transfer to self" });
+
+      const target = await loadManager(targetId);
+      if (!target || !target.active || target.archived_at || target.role !== "manager") {
+        return res.status(400).json({ error: "Target manager not eligible" });
+      }
+
+      const leadRow = await pq().query(
+        `SELECT id, assigned_manager_id, pending_transfer_to_id FROM leads WHERE id = $1`,
+        [leadId]
+      );
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+
+      // Manager can transfer only their own lead. Teamlead can transfer any (but should use reassign)
+      if (me.role !== "teamlead" && lead.assigned_manager_id !== me.id) {
+        return res.status(403).json({ error: "You don't own this lead" });
+      }
+      if (lead.pending_transfer_to_id) {
+        return res.status(409).json({ error: "Already pending transfer" });
+      }
+
+      await pq().query(
+        `UPDATE leads SET pending_transfer_to_id = $1, pending_transfer_at = NOW(), pending_transfer_by_id = $2,
+                          updated_at = NOW()
+         WHERE id = $3`,
+        [targetId, me.id, leadId]
+      );
+
+      const tag = (m: any) => m?.telegram_tag ? (m.telegram_tag.startsWith("@") ? m.telegram_tag : `@${m.telegram_tag}`) : "";
+      sendTelegram(
+        [
+          `🤝 <b>Передача лида #${leadId}</b>`,
+          `От: <b>${escapeHtml(me.full_name)}</b> ${tag(me)}`,
+          `Кому: <b>${escapeHtml(target.full_name)}</b> ${tag(target)} — ждём принятия (${TRANSFER_TIMEOUT_MIN} мин)`,
+          `🔗 ${PUBLIC_BASE_URL}/lidy`,
+        ].join("\n")
+      ).catch(() => {});
+
+      res.json({ ok: true, target: { id: target.id, full_name: target.full_name }, expiresInMinutes: TRANSFER_TIMEOUT_MIN });
+    } catch (err) {
+      console.error("[lidy/transfer]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/lidy/leads/:id/transfer/accept", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const leadId = Number(req.params.id);
+
+      const leadRow = await pq().query(
+        `SELECT l.id, l.assigned_manager_id, l.pending_transfer_to_id, l.pending_transfer_by_id,
+                m_old.full_name AS old_name, m_old.telegram_tag AS old_tag
+         FROM leads l
+         LEFT JOIN managers m_old ON m_old.id = l.assigned_manager_id
+         WHERE l.id = $1`,
+        [leadId]
+      );
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+      if (lead.pending_transfer_to_id !== me.id) {
+        return res.status(403).json({ error: "Not the transfer target" });
+      }
+
+      // New SLA based on accepting manager's hours
+      const newSla = computeSlaDeadline(
+        new Date(),
+        (me.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE
+      );
+
+      await pq().query(
+        `UPDATE leads SET assigned_manager_id = $1,
+                          sla_deadline_at = $2, sla_warned = FALSE,
+                          pending_transfer_to_id = NULL, pending_transfer_at = NULL, pending_transfer_by_id = NULL,
+                          updated_at = NOW()
+         WHERE id = $3`,
+        [me.id, newSla, leadId]
+      );
+      await pq().query(
+        `INSERT INTO lead_status_history (lead_id, from_status, to_status, manager_id, note)
+         VALUES ($1, '(transfer)', '(accepted)', $2, $3)`,
+        [leadId, me.id, `Accepted from ${lead.old_name || "(unassigned)"}`]
+      );
+
+      const tag = (m: any) => m?.telegram_tag ? (m.telegram_tag.startsWith("@") ? m.telegram_tag : `@${m.telegram_tag}`) : "";
+      sendTelegram(
+        [
+          `✅ <b>Лид #${leadId} принят</b>`,
+          `Был у: ${escapeHtml(lead.old_name || "—")} ${tag({ telegram_tag: lead.old_tag })}`,
+          `Теперь у: <b>${escapeHtml(me.full_name)}</b> ${tag(me)}`,
+        ].join("\n")
+      ).catch(() => {});
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[lidy/transfer/accept]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/lidy/leads/:id/transfer/reject", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const leadId = Number(req.params.id);
+
+      const leadRow = await pq().query(
+        `SELECT id, assigned_manager_id, pending_transfer_to_id, pending_transfer_by_id
+         FROM leads WHERE id = $1`,
+        [leadId]
+      );
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+
+      // Only the target OR the initiator OR teamlead can cancel
+      const allowed = lead.pending_transfer_to_id === me.id
+        || lead.pending_transfer_by_id === me.id
+        || me.role === "teamlead";
+      if (!allowed) return res.status(403).json({ error: "Not allowed" });
+      if (!lead.pending_transfer_to_id) return res.status(400).json({ error: "No pending transfer" });
+
+      await pq().query(
+        `UPDATE leads SET pending_transfer_to_id = NULL, pending_transfer_at = NULL, pending_transfer_by_id = NULL,
+                          updated_at = NOW()
+         WHERE id = $1`,
+        [leadId]
+      );
+      sendTelegram(`↩️ Передача лида #${leadId} отменена (${escapeHtml(me.full_name)})`).catch(() => {});
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[lidy/transfer/reject]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
   // Reassign a lead to another manager (teamlead only)
   app.post("/api/lidy/leads/:id/reassign", requireManager, async (req, res) => {
     try {
@@ -1106,8 +1306,10 @@ async function startServer() {
     try {
       const { rows } = await pq().query(
         `SELECT id, login, full_name, telegram_tag, active, role, is_online, last_assigned_at,
-                working_hours, created_at
-         FROM managers ORDER BY id ASC`
+                working_hours, archived_at, created_at,
+                (SELECT COUNT(*)::int FROM leads WHERE assigned_manager_id = managers.id) AS lead_count
+         FROM managers
+         ORDER BY (archived_at IS NOT NULL) ASC, id ASC`
       );
       res.json({ managers: rows });
     } catch (err) {
@@ -1176,10 +1378,46 @@ async function startServer() {
 
   app.delete("/api/admin/managers/:id", requireAdmin, async (req, res) => {
     try {
-      await pq().query(`DELETE FROM managers WHERE id = $1`, [Number(req.params.id)]);
-      res.json({ ok: true });
+      const id = Number(req.params.id);
+      const force = req.query.force === "1";
+
+      // Count leads that reference this manager
+      const { rows: refRows } = await pq().query(
+        `SELECT COUNT(*)::int AS n FROM leads WHERE assigned_manager_id = $1`,
+        [id]
+      );
+      const hasLeads = (refRows[0]?.n || 0) > 0;
+
+      if (hasLeads && !force) {
+        // Soft-archive: keep the row, mark as fired
+        await pq().query(
+          `UPDATE managers SET archived_at = NOW(), active = FALSE, is_online = FALSE WHERE id = $1`,
+          [id]
+        );
+        return res.json({ ok: true, mode: "archived", leadsKept: refRows[0].n });
+      }
+
+      // No leads referenced — safe to hard delete
+      await pq().query(`DELETE FROM managers WHERE id = $1`, [id]);
+      res.json({ ok: true, mode: "deleted" });
     } catch (err) {
       console.error("[admin/managers DELETE]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Restore an archived (fired) manager — admin can rehire
+  app.post("/api/admin/managers/:id/restore", requireAdmin, async (req, res) => {
+    try {
+      const { rows } = await pq().query(
+        `UPDATE managers SET archived_at = NULL, active = TRUE WHERE id = $1
+         RETURNING id, login, full_name, archived_at, active`,
+        [Number(req.params.id)]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true, manager: rows[0] });
+    } catch (err) {
+      console.error("[admin/managers/restore]", err);
       res.status(500).json({ error: "Server error" });
     }
   });

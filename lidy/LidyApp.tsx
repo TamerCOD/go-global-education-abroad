@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+// ─────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────
 interface Manager {
     id: number;
     login: string;
@@ -8,15 +11,14 @@ interface Manager {
     role?: 'manager' | 'teamlead';
     is_online?: boolean;
     active?: boolean;
+    archived_at?: string | null;
 }
-
 interface RosterManager extends Manager {
     total30?: number;
     open?: number;
     closed30?: number;
     overdue?: number;
 }
-
 interface Lead {
     id: number;
     received_at: string;
@@ -35,9 +37,13 @@ interface Lead {
     processed_at?: string | null;
     manager_name?: string;
     manager_login?: string;
+    manager_archived_at?: string | null;
     assigned_manager_id?: number;
+    pending_transfer_to_id?: number | null;
+    pending_transfer_to_name?: string | null;
+    pending_transfer_at?: string | null;
+    pending_transfer_by_name?: string | null;
 }
-
 interface StatusOption {
     code: string;
     label: string;
@@ -46,30 +52,51 @@ interface StatusOption {
     sort: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Brutalist primitives
+// ─────────────────────────────────────────────────────────────────────
+const SHADOW = 'shadow-[4px_4px_0_0_#0a0a0a]';
+const SHADOW_HOVER = 'hover:shadow-[6px_6px_0_0_#0a0a0a] hover:-translate-x-[2px] hover:-translate-y-[2px]';
+const BORDER = 'border-2 border-black';
+const BTN = `${BORDER} ${SHADOW} ${SHADOW_HOVER} active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
+const CARD = `bg-white ${BORDER} ${SHADOW}`;
+
+const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
+    <span className="relative inline-flex group">
+        {children}
+        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 border-2 border-black">
+            {text}
+        </span>
+    </span>
+);
+
+// ─────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────
 const formatRel = (iso: string) => {
     const t = new Date(iso).getTime();
     const diffMin = Math.round((Date.now() - t) / 60000);
     if (diffMin < 1) return 'только что';
-    if (diffMin < 60) return `${diffMin} мин назад`;
+    if (diffMin < 60) return `${diffMin} мин`;
     const h = Math.round(diffMin / 60);
-    if (h < 24) return `${h} ч назад`;
+    if (h < 24) return `${h} ч`;
     return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
 };
 
 const formatSla = (deadlineIso: string | null, processedIso?: string | null) => {
-    if (processedIso) return { text: 'обработан', color: 'text-emerald-600' };
-    if (!deadlineIso) return { text: 'в очереди — нет онлайн', color: 'text-orange-600 font-medium' };
+    if (processedIso) return { text: 'обработан', color: 'bg-emerald-300', textColor: 'text-emerald-900' };
+    if (!deadlineIso) return { text: 'в очереди', color: 'bg-orange-300', textColor: 'text-orange-900' };
     const ms = new Date(deadlineIso).getTime() - Date.now();
     if (ms < 0) {
         const overMin = Math.round(-ms / 60000);
         const h = Math.floor(overMin / 60);
         const m = overMin % 60;
-        return { text: `просрочен ${h ? `${h}ч ` : ''}${m}м`, color: 'text-red-600 font-bold' };
+        return { text: `Просрочен ${h ? `${h}ч ` : ''}${m}м`, color: 'bg-red-500', textColor: 'text-white' };
     }
     const totalMin = Math.round(ms / 60000);
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
-    return { text: `${h ? `${h}ч ` : ''}${m}м до SLA`, color: h < 1 ? 'text-orange-600 font-medium' : 'text-slate-600' };
+    return { text: `${h ? `${h}ч ` : ''}${m}м до SLA`, color: h < 1 ? 'bg-amber-300' : 'bg-cyan-200', textColor: 'text-black' };
 };
 
 function whatsappLink(phone: string, msg?: string): string | null {
@@ -78,9 +105,26 @@ function whatsappLink(phone: string, msg?: string): string | null {
     return `https://wa.me/${digits}${msg ? `?text=${encodeURIComponent(msg)}` : ''}`;
 }
 
-// =====================================================================
-// Login screen
-// =====================================================================
+// Countdown helper for transfer expiry
+const useCountdown = (targetIso: string | null) => {
+    const [now, setNow] = useState(Date.now());
+    useEffect(() => {
+        if (!targetIso) return;
+        const i = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(i);
+    }, [targetIso]);
+    if (!targetIso) return null;
+    const ms = new Date(targetIso).getTime() - now;
+    if (ms <= 0) return '00:00';
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+    const s = (totalSec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// Login screen — brutalist
+// ─────────────────────────────────────────────────────────────────────
 const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed }) => {
     const [login, setLogin] = useState('');
     const [password, setPassword] = useState('');
@@ -99,11 +143,8 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
                 credentials: 'include',
             });
             const j = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                setError(j.error || `Ошибка ${res.status}`);
-            } else {
-                onAuthed(j.manager);
-            }
+            if (!res.ok) setError(j.error || `Ошибка ${res.status}`);
+            else onAuthed(j.manager);
         } catch (err: any) {
             setError(err?.message || String(err));
         } finally {
@@ -112,131 +153,206 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-blue-50">
-            <form onSubmit={submit} className="bg-white p-8 rounded-2xl shadow-xl w-96 border border-slate-100">
-                <div className="flex items-center gap-3 mb-6">
+        <div className="min-h-screen flex items-center justify-center bg-lime-300 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+            <div className="absolute inset-0 opacity-30 pointer-events-none" style={{
+                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 24px, rgba(0,0,0,0.05) 24px, rgba(0,0,0,0.05) 25px), repeating-linear-gradient(90deg, transparent, transparent 24px, rgba(0,0,0,0.05) 24px, rgba(0,0,0,0.05) 25px)',
+            }} />
+            <form onSubmit={submit} className={`relative ${CARD} p-8 w-full max-w-md`}>
+                <div className="flex items-center gap-3 mb-6 pb-4 border-b-2 border-black">
                     <img src="/ppp.png" alt="" className="w-12 h-auto" />
                     <div>
-                        <h2 className="text-xl font-bold text-slate-900">GoGlobal CRM</h2>
-                        <p className="text-xs text-slate-500">Вход для менеджера</p>
+                        <h1 className="text-2xl font-black uppercase tracking-tight">GoGlobal CRM</h1>
+                        <p className="text-xs font-mono text-slate-500">// LOGIN_REQUIRED</p>
                     </div>
                 </div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Логин</label>
+                <label className="block text-xs uppercase tracking-widest font-bold text-black mb-1">Логин</label>
                 <input
-                    type="text"
-                    autoFocus
-                    autoComplete="username"
-                    className="w-full p-3 border border-slate-300 rounded-lg mb-3 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                    value={login}
-                    onChange={e => setLogin(e.target.value)}
+                    type="text" autoFocus autoComplete="username"
+                    className={`w-full ${BORDER} bg-yellow-100 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-white`}
+                    value={login} onChange={e => setLogin(e.target.value)}
                 />
-                <label className="block text-sm font-medium text-slate-700 mb-1">Пароль</label>
+                <label className="block text-xs uppercase tracking-widest font-bold text-black mb-1">Пароль</label>
                 <input
-                    type="password"
-                    autoComplete="current-password"
-                    className="w-full p-3 border border-slate-300 rounded-lg mb-4 focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
+                    type="password" autoComplete="current-password"
+                    className={`w-full ${BORDER} bg-yellow-100 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-white`}
+                    value={password} onChange={e => setPassword(e.target.value)}
                 />
-                {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-3 rounded-lg transition-colors"
-                >
-                    {loading ? 'Вход...' : 'Войти'}
+                {error && (
+                    <div className={`${BORDER} bg-red-400 text-black px-3 py-2 mb-4 font-mono text-sm`}>
+                        ⚠ {error}
+                    </div>
+                )}
+                <button type="submit" disabled={loading} className={`${BTN} w-full bg-black text-lime-300 disabled:opacity-50`}>
+                    {loading ? '⏳ ВХОД...' : '→ ВОЙТИ'}
                 </button>
-                <p className="text-xs text-slate-400 mt-4 text-center">
-                    Учётка создаётся в админ-панели сайта
-                </p>
+                <p className="text-xs text-slate-600 mt-4 text-center font-mono">Учётка создаётся в /admin</p>
             </form>
         </div>
     );
 };
 
-// =====================================================================
-// Lead card
-// =====================================================================
+// ─────────────────────────────────────────────────────────────────────
+// Lead card — brutalist
+// ─────────────────────────────────────────────────────────────────────
 const LeadCard: React.FC<{
     lead: Lead;
     statuses: StatusOption[];
+    me: Manager;
     onChangeStatus: (id: number, status: string, note?: string) => Promise<void>;
-    isTeamlead: boolean;
     roster: RosterManager[];
     onReassign: (leadId: number, newManagerId: number) => Promise<void>;
+    onTransfer: (leadId: number, newManagerId: number) => Promise<void>;
+    onTransferAccept: (leadId: number) => Promise<void>;
+    onTransferReject: (leadId: number) => Promise<void>;
     waMessage: string;
-}> = ({ lead, statuses, onChangeStatus, isTeamlead, roster, onReassign, waMessage }) => {
+}> = ({ lead, statuses, me, onChangeStatus, roster, onReassign, onTransfer, onTransferAccept, onTransferReject, waMessage }) => {
     const [open, setOpen] = useState(false);
     const [note, setNote] = useState(lead.notes || '');
     const [pendingStatus, setPendingStatus] = useState<string | null>(null);
     const [reassignTo, setReassignTo] = useState<string>('');
+    const [transferTo, setTransferTo] = useState<string>('');
+    const isTeamlead = me.role === 'teamlead';
+    const isOwner = lead.assigned_manager_id === me.id;
     const sla = formatSla(lead.sla_deadline_at, lead.processed_at);
-    const statusColor = lead.status_color || '#3b82f6';
     const wa = lead.phone ? whatsappLink(lead.phone, waMessage) : null;
+    const isProcessed = !!lead.processed_at;
+    const isQueued = !lead.assigned_manager_id;
+
+    // Pending transfer state
+    const transferDeadlineIso = lead.pending_transfer_at
+        ? new Date(new Date(lead.pending_transfer_at).getTime() + 10 * 60_000).toISOString()
+        : null;
+    const transferCountdown = useCountdown(transferDeadlineIso);
+    const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
+    const isOutgoingTransfer = !!lead.pending_transfer_to_id && lead.pending_transfer_to_id !== me.id;
+
+    const statusColor = lead.status_color || '#3b82f6';
 
     return (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div
-                className="p-4 cursor-pointer flex items-start justify-between gap-4 hover:bg-slate-50 transition-colors"
-                onClick={() => setOpen(!open)}
-            >
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <span className="text-xs font-mono text-slate-400">#{lead.id}</span>
-                        <span className="font-semibold text-slate-900">{lead.name || '— без имени —'}</span>
-                        <span
-                            className="text-xs px-2 py-0.5 rounded-full font-medium text-white"
-                            style={{ backgroundColor: statusColor }}
-                        >
-                            {lead.status_label || lead.status_code}
+        <div className={`${CARD} relative overflow-hidden`}>
+            {/* Top row: status block + assignee + sla */}
+            <div className="grid grid-cols-[auto_1fr_auto] border-b-2 border-black">
+                {/* ID block */}
+                <div className="bg-black text-lime-300 px-4 py-3 font-mono font-bold flex items-center border-r-2 border-black">
+                    #{lead.id}
+                </div>
+                {/* Status + processed badge */}
+                <div className="px-3 py-2 flex items-center gap-2 flex-wrap min-w-0">
+                    <span
+                        className="text-xs font-bold uppercase tracking-wider px-2 py-1 border-2 border-black text-white"
+                        style={{ backgroundColor: statusColor }}
+                    >
+                        {lead.status_label || lead.status_code}
+                    </span>
+                    {isProcessed ? (
+                        <Tooltip text="Лид закрыт менеджером">
+                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 border-2 border-black bg-emerald-400 text-black">
+                                ✓ Обработан
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <Tooltip text="Лид ещё в работе или не взят">
+                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 border-2 border-black bg-amber-300 text-black">
+                                ⏳ Не обработан
+                            </span>
+                        </Tooltip>
+                    )}
+                    {/* Assignee badge */}
+                    {lead.manager_name ? (
+                        <Tooltip text={`Назначен на ${lead.manager_name}${lead.manager_archived_at ? ' (уволен)' : ''}`}>
+                            <span className={`text-xs font-bold px-2 py-1 border-2 border-black ${lead.manager_archived_at ? 'bg-slate-300 line-through text-slate-700' : 'bg-cyan-200 text-black'}`}>
+                                👤 {lead.manager_name}{lead.manager_archived_at && ' (уволен)'}
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <span className="text-xs font-bold px-2 py-1 border-2 border-black bg-orange-400 text-black">
+                            ⏳ Без менеджера
                         </span>
-                        {wa && (
-                            <a
-                                href={wa}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                    )}
+                    {wa && (
+                        <Tooltip text="Открыть WhatsApp клиента">
+                            <a href={wa} target="_blank" rel="noopener noreferrer"
                                 onClick={e => e.stopPropagation()}
-                                className="text-xs px-2 py-0.5 rounded-full font-medium bg-[#25D366] text-white hover:bg-[#20bd5a] inline-flex items-center gap-1"
-                                title="Написать в WhatsApp"
-                            >
-                                💬 WhatsApp
+                                className="text-xs font-bold px-2 py-1 border-2 border-black bg-[#25D366] text-black hover:bg-[#1eba56]">
+                                💬 WA
                             </a>
-                        )}
-                        {isTeamlead && lead.manager_name && (
-                            <span className="text-xs text-slate-500 italic">→ {lead.manager_name}</span>
-                        )}
-                        {!lead.manager_name && (
-                            <span className="text-xs text-orange-600 italic">⏳ ждёт менеджера</span>
-                        )}
-                    </div>
-                    <div className="text-sm text-slate-600 mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                        {lead.phone && <span>📞 <a href={`tel:${lead.phone}`} className="text-brand-600 hover:underline" onClick={e => e.stopPropagation()}>{lead.phone}</a></span>}
-                        {lead.email && <span>✉️ <a href={`mailto:${lead.email}`} className="text-brand-600 hover:underline" onClick={e => e.stopPropagation()}>{lead.email}</a></span>}
-                        {lead.country && <span>🌍 {lead.country}</span>}
-                    </div>
-                    {lead.comment && !open && (
-                        <p className="text-sm text-slate-500 mt-1 truncate">💬 {lead.comment}</p>
+                        </Tooltip>
                     )}
                 </div>
-                <div className="text-right text-xs whitespace-nowrap flex-shrink-0">
-                    <div className="text-slate-500">{formatRel(lead.received_at)}</div>
-                    <div className={`mt-1 ${sla.color}`}>⏱ {sla.text}</div>
+                {/* SLA right */}
+                <div className={`px-4 py-2 flex flex-col items-end justify-center border-l-2 border-black ${sla.color} ${sla.textColor}`}>
+                    <span className="font-mono text-xs uppercase">{sla.text}</span>
+                    <span className="font-mono text-[10px] opacity-70">{formatRel(lead.received_at)}</span>
                 </div>
             </div>
 
+            {/* Pending transfer banners */}
+            {isIncomingTransfer && (
+                <div className="bg-fuchsia-300 border-b-2 border-black px-4 py-3 flex items-center justify-between gap-3">
+                    <div>
+                        <div className="font-bold text-sm">🤝 ВАМ ПЕРЕДАЛИ ЛИД от {lead.pending_transfer_by_name}</div>
+                        <div className="font-mono text-xs">Решите за <strong>{transferCountdown}</strong> или вернётся обратно</div>
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={() => onTransferAccept(lead.id)} className={`${BTN} bg-emerald-400 text-black`}>
+                            ✓ Принять
+                        </button>
+                        <button onClick={() => onTransferReject(lead.id)} className={`${BTN} bg-red-400 text-black`}>
+                            ✗ Отказать
+                        </button>
+                    </div>
+                </div>
+            )}
+            {isOutgoingTransfer && (
+                <div className="bg-violet-300 border-b-2 border-black px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="font-mono text-xs">
+                        ⏱ Передан <strong>{lead.pending_transfer_to_name}</strong> — ждёт принятия (<strong>{transferCountdown}</strong>)
+                    </div>
+                    {(isOwner || isTeamlead) && (
+                        <button onClick={() => onTransferReject(lead.id)} className={`${BTN} bg-white text-black`}>
+                            ↩ Отменить
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Main content */}
+            <div className="p-4 cursor-pointer" onClick={() => setOpen(!open)}>
+                <div className="font-bold text-lg mb-1">{lead.name || '— без имени —'}</div>
+                <div className="text-sm text-slate-700 flex flex-wrap gap-x-4 gap-y-1 font-mono">
+                    {lead.phone && (
+                        <a href={`tel:${lead.phone}`} className="hover:underline" onClick={e => e.stopPropagation()}>
+                            📞 {lead.phone}
+                        </a>
+                    )}
+                    {lead.email && (
+                        <a href={`mailto:${lead.email}`} className="hover:underline" onClick={e => e.stopPropagation()}>
+                            ✉ {lead.email}
+                        </a>
+                    )}
+                    {lead.country && <span>🌍 {lead.country}</span>}
+                </div>
+                {lead.comment && !open && (
+                    <p className="text-sm text-slate-600 mt-2 truncate">💬 {lead.comment}</p>
+                )}
+                <button className="text-xs font-mono text-slate-500 mt-2 hover:underline">
+                    {open ? '▲ свернуть' : '▼ развернуть для действий'}
+                </button>
+            </div>
+
             {open && (
-                <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-3 bg-slate-50">
+                <div className="border-t-2 border-black bg-yellow-50 p-4 space-y-4">
                     {lead.comment && (
                         <div>
-                            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Комментарий клиента</div>
-                            <p className="text-sm text-slate-700 bg-white p-3 rounded border border-slate-200">{lead.comment}</p>
+                            <div className="text-xs font-bold uppercase tracking-widest mb-1">💬 Комментарий клиента</div>
+                            <p className={`text-sm ${BORDER} bg-white p-3`}>{lead.comment}</p>
                         </div>
                     )}
 
                     <div>
-                        <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Заметка менеджера</div>
+                        <div className="text-xs font-bold uppercase tracking-widest mb-1">📝 Заметка менеджера</div>
                         <textarea
-                            className="w-full text-sm p-2 border border-slate-300 rounded"
+                            className={`w-full text-sm ${BORDER} bg-white p-2`}
                             rows={2}
                             value={note}
                             onChange={e => setNote(e.target.value)}
@@ -244,59 +360,79 @@ const LeadCard: React.FC<{
                         />
                     </div>
 
-                    <div>
-                        <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Сменить статус</div>
-                        <div className="flex flex-wrap gap-2">
-                            {statuses.map(s => (
-                                <button
-                                    key={s.code}
-                                    type="button"
-                                    disabled={pendingStatus !== null}
-                                    onClick={async () => {
-                                        setPendingStatus(s.code);
-                                        try {
-                                            await onChangeStatus(lead.id, s.code, note);
-                                        } finally {
-                                            setPendingStatus(null);
-                                        }
-                                    }}
-                                    className={`text-sm px-3 py-1.5 rounded-lg border transition-all ${lead.status_code === s.code
-                                        ? 'border-transparent text-white shadow-sm'
-                                        : 'border-slate-300 bg-white hover:border-slate-400 text-slate-700'
-                                        } disabled:opacity-50`}
-                                    style={lead.status_code === s.code ? { backgroundColor: s.color || '#3b82f6' } : undefined}
-                                >
-                                    {pendingStatus === s.code ? '...' : s.label}
-                                </button>
-                            ))}
+                    {/* Status buttons */}
+                    {(isOwner || isTeamlead || isQueued) && !isIncomingTransfer && (
+                        <div>
+                            <div className="text-xs font-bold uppercase tracking-widest mb-2">🎯 Сменить статус</div>
+                            <div className="flex flex-wrap gap-2">
+                                {statuses.map(s => (
+                                    <Tooltip key={s.code} text={s.is_terminal ? 'Закрывает лид (обработан)' : 'Промежуточный статус'}>
+                                        <button
+                                            type="button"
+                                            disabled={pendingStatus !== null}
+                                            onClick={async () => {
+                                                setPendingStatus(s.code);
+                                                try { await onChangeStatus(lead.id, s.code, note); }
+                                                finally { setPendingStatus(null); }
+                                            }}
+                                            className={`${BORDER} ${SHADOW} ${SHADOW_HOVER} active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all text-xs font-bold uppercase tracking-wider px-3 py-1.5 ${lead.status_code === s.code ? 'text-white' : 'bg-white text-black'}`}
+                                            style={lead.status_code === s.code ? { backgroundColor: s.color || '#3b82f6' } : undefined}
+                                        >
+                                            {pendingStatus === s.code ? '...' : s.label}
+                                            {s.is_terminal && ' ✓'}
+                                        </button>
+                                    </Tooltip>
+                                ))}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    {isTeamlead && (
-                        <div className="border-t border-slate-200 pt-3">
-                            <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Переназначить лид</div>
+                    {/* Manager-to-manager transfer (any manager who owns it) */}
+                    {isOwner && !lead.pending_transfer_to_id && (
+                        <div>
+                            <div className="text-xs font-bold uppercase tracking-widest mb-2">🤝 Передать другому менеджеру (10 мин на принятие)</div>
                             <div className="flex gap-2">
-                                <select
-                                    className="border border-slate-300 px-2 py-1 rounded text-sm flex-grow bg-white"
-                                    value={reassignTo}
-                                    onChange={e => setReassignTo(e.target.value)}
-                                >
+                                <select className={`${BORDER} bg-white px-2 py-1.5 text-sm flex-grow font-mono`}
+                                    value={transferTo} onChange={e => setTransferTo(e.target.value)}>
                                     <option value="">— выбрать менеджера —</option>
-                                    {roster.filter(m => m.active && m.id !== lead.assigned_manager_id).map(m => (
+                                    {roster.filter(m => m.role === 'manager' && m.active && !m.archived_at && m.id !== me.id).map(m => (
                                         <option key={m.id} value={m.id}>
-                                            {m.full_name} {m.is_online ? '🟢' : '⚪'} ({m.role || 'manager'})
+                                            {m.full_name} {m.is_online ? '🟢' : '⚪'}
                                         </option>
                                     ))}
                                 </select>
-                                <button
-                                    type="button"
-                                    disabled={!reassignTo}
+                                <button type="button" disabled={!transferTo}
+                                    onClick={async () => {
+                                        await onTransfer(lead.id, Number(transferTo));
+                                        setTransferTo('');
+                                    }}
+                                    className={`${BTN} bg-fuchsia-400 text-black disabled:opacity-30`}>
+                                    🤝 Передать
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Teamlead-only: hard reassign */}
+                    {isTeamlead && (
+                        <div className="border-t-2 border-dashed border-black pt-3">
+                            <div className="text-xs font-bold uppercase tracking-widest mb-2">🔄 Переназначить (тимлид, без подтверждения)</div>
+                            <div className="flex gap-2">
+                                <select className={`${BORDER} bg-white px-2 py-1.5 text-sm flex-grow font-mono`}
+                                    value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
+                                    <option value="">— выбрать менеджера —</option>
+                                    {roster.filter(m => m.role === 'manager' && m.active && !m.archived_at && m.id !== lead.assigned_manager_id).map(m => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.full_name} {m.is_online ? '🟢' : '⚪'}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button type="button" disabled={!reassignTo}
                                     onClick={async () => {
                                         await onReassign(lead.id, Number(reassignTo));
                                         setReassignTo('');
                                     }}
-                                    className="bg-brand-600 hover:bg-brand-700 disabled:opacity-30 text-white text-sm px-3 py-1 rounded font-medium"
-                                >
+                                    className={`${BTN} bg-violet-400 text-black disabled:opacity-30`}>
                                     🔄 Передать
                                 </button>
                             </div>
@@ -308,41 +444,47 @@ const LeadCard: React.FC<{
     );
 };
 
-// =====================================================================
-// Roster panel (only for teamlead)
-// =====================================================================
+// ─────────────────────────────────────────────────────────────────────
+// Roster panel for teamlead — bento style
+// ─────────────────────────────────────────────────────────────────────
 const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="text-xs uppercase tracking-wide text-slate-500 mb-3">Команда (за 30 дней)</div>
+    <div className={`${CARD} p-4`}>
+        <div className="text-xs font-black uppercase tracking-widest mb-3 flex items-center gap-2">
+            <span className="bg-black text-lime-300 px-2 py-0.5 font-mono">TEAM</span> за 30 дней
+        </div>
         <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-                <thead className="text-left text-slate-500">
-                    <tr>
-                        <th className="py-1">Менеджер</th>
-                        <th className="text-center">Статус</th>
-                        <th className="text-right">Всего 30д</th>
-                        <th className="text-right">Открыто</th>
-                        <th className="text-right">Закрыто</th>
-                        <th className="text-right">SLA✗</th>
+            <table className="w-full text-sm">
+                <thead>
+                    <tr className="text-left border-b-2 border-black bg-yellow-100">
+                        <th className="py-2 px-2 text-xs font-black uppercase">Менеджер</th>
+                        <th className="text-center text-xs font-black uppercase px-2">Статус</th>
+                        <th className="text-right text-xs font-black uppercase px-2">Всего</th>
+                        <th className="text-right text-xs font-black uppercase px-2">Откр</th>
+                        <th className="text-right text-xs font-black uppercase px-2">Закр</th>
+                        <th className="text-right text-xs font-black uppercase px-2">SLA✗</th>
                     </tr>
                 </thead>
                 <tbody>
                     {roster.map(m => (
-                        <tr key={m.id} className="border-t border-slate-100">
-                            <td className="py-1.5">
-                                {m.full_name}
-                                {m.role === 'teamlead' && <span className="ml-1 text-xs bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">тимлид</span>}
-                                <div className="text-slate-400 font-mono text-xs">{m.login}</div>
+                        <tr key={m.id} className={`border-b border-black/20 ${m.archived_at ? 'bg-slate-200/50' : ''}`}>
+                            <td className="py-2 px-2">
+                                <div className="font-bold flex items-center gap-1">
+                                    {m.full_name}
+                                    {m.role === 'teamlead' && <span className="text-[10px] bg-violet-400 px-1.5 border border-black">тимлид</span>}
+                                    {m.archived_at && <span className="text-[10px] bg-slate-400 text-white px-1.5 border border-black">УВОЛЕН</span>}
+                                </div>
+                                <div className="text-xs font-mono text-slate-500">{m.login}</div>
                             </td>
-                            <td className="text-center">
-                                {!m.active ? <span className="text-red-500" title="Неактивен">⛔</span>
-                                    : m.is_online ? <span className="text-emerald-500" title="В сети">🟢</span>
-                                        : <span className="text-slate-400" title="Не в сети">⚪</span>}
+                            <td className="text-center px-2">
+                                {m.archived_at ? <span title="Уволен">⛔</span>
+                                    : !m.active ? <span title="Деактивирован">⛔</span>
+                                        : m.is_online ? <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span></span>
+                                            : <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-slate-300 rounded-full inline-block"></span></span>}
                             </td>
-                            <td className="text-right">{m.total30 ?? 0}</td>
-                            <td className="text-right">{m.open ?? 0}</td>
-                            <td className="text-right">{m.closed30 ?? 0}</td>
-                            <td className={`text-right ${(m.overdue ?? 0) > 0 ? 'text-red-600 font-bold' : 'text-slate-400'}`}>{m.overdue ?? 0}</td>
+                            <td className="text-right px-2 font-mono font-bold">{m.total30 ?? 0}</td>
+                            <td className="text-right px-2 font-mono">{m.open ?? 0}</td>
+                            <td className="text-right px-2 font-mono text-emerald-700">{m.closed30 ?? 0}</td>
+                            <td className={`text-right px-2 font-mono ${(m.overdue ?? 0) > 0 ? 'text-red-700 font-black' : 'text-slate-400'}`}>{m.overdue ?? 0}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -351,9 +493,9 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
     </div>
 );
 
-// =====================================================================
+// ─────────────────────────────────────────────────────────────────────
 // Dashboard
-// =====================================================================
+// ─────────────────────────────────────────────────────────────────────
 const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: (m: Manager) => void; waMessage: string }> = ({ manager, onLogout, onMeUpdate, waMessage }) => {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [statuses, setStatuses] = useState<StatusOption[]>([]);
@@ -397,54 +539,66 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     };
 
     useEffect(() => { load(); }, [scope, filterStatus, overdueOnly, filterManagerId]);
-
     useEffect(() => {
-        const t = window.setInterval(load, 30000);
+        const t = window.setInterval(load, 15000);
         return () => window.clearInterval(t);
     }, [scope, filterStatus, overdueOnly, filterManagerId]);
 
     const onChangeStatus = async (id: number, status: string, note?: string) => {
-        try {
-            const res = await fetch(`/api/lidy/leads/${id}/status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ status, note }),
-            });
-            if (!res.ok) {
-                const j = await res.json().catch(() => ({}));
-                alert('Ошибка: ' + (j.error || res.status));
-            } else {
-                await load();
-            }
-        } catch (e: any) {
-            alert('Ошибка: ' + (e?.message || e));
-        }
-    };
-
-    const onReassign = async (leadId: number, newManagerId: number) => {
-        const res = await fetch(`/api/lidy/leads/${leadId}/reassign`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ manager_id: newManagerId }),
+        const res = await fetch(`/api/lidy/leads/${id}/status`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ status, note }),
         });
         if (!res.ok) {
             const j = await res.json().catch(() => ({}));
             alert('Ошибка: ' + (j.error || res.status));
-        } else {
-            await load();
-        }
+        } else await load();
+    };
+    const onReassign = async (leadId: number, mgrId: number) => {
+        const res = await fetch(`/api/lidy/leads/${leadId}/reassign`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ manager_id: mgrId }),
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        } else await load();
+    };
+    const onTransfer = async (leadId: number, mgrId: number) => {
+        const res = await fetch(`/api/lidy/leads/${leadId}/transfer`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ manager_id: mgrId }),
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        } else await load();
+    };
+    const onTransferAccept = async (leadId: number) => {
+        const res = await fetch(`/api/lidy/leads/${leadId}/transfer/accept`, {
+            method: 'POST', credentials: 'include',
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        } else await load();
+    };
+    const onTransferReject = async (leadId: number) => {
+        const res = await fetch(`/api/lidy/leads/${leadId}/transfer/reject`, {
+            method: 'POST', credentials: 'include',
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        } else await load();
     };
 
     const toggleOnline = async () => {
         setTogglingOnline(true);
         try {
             const res = await fetch('/api/lidy/me/status', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ is_online: !isOnline }),
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify({ is_online: !isOnline }),
             });
             const j = await res.json().catch(() => ({}));
             if (res.ok) {
@@ -453,9 +607,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     alert(`Распределено ${j.redistribution.assigned} ожидавших лидов`);
                 }
                 await load();
-            } else {
-                alert('Ошибка: ' + (j.error || res.status));
-            }
+            } else alert('Ошибка: ' + (j.error || res.status));
         } finally {
             setTogglingOnline(false);
         }
@@ -466,165 +618,156 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         const open = leads.filter(l => !l.processed_at).length;
         const overdue = leads.filter(l => !l.processed_at && l.sla_deadline_at && new Date(l.sla_deadline_at).getTime() < Date.now()).length;
         const queued = leads.filter(l => !l.assigned_manager_id).length;
-        return { total, open, overdue, queued };
-    }, [leads]);
+        const incomingTransfers = leads.filter(l => l.pending_transfer_to_id === manager.id).length;
+        return { total, open, overdue, queued, incomingTransfers };
+    }, [leads, manager.id]);
 
     return (
-        <div className="min-h-screen bg-slate-100">
-            <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-                <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="min-h-screen bg-yellow-50" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+            {/* Subtle grid background */}
+            <div className="fixed inset-0 pointer-events-none opacity-[0.06]" style={{
+                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
+            }} />
+
+            {/* Header */}
+            <div className="sticky top-0 z-30 bg-black text-lime-300 border-b-4 border-black">
+                <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-3">
-                        <img src="/ppp.png" alt="" className="h-8 w-auto" />
+                        <img src="/ppp.png" alt="" className="h-9 w-auto invert" />
                         <div>
-                            <div className="font-bold text-slate-900 flex items-center gap-2">
+                            <div className="font-black tracking-tight text-lg flex items-center gap-2">
                                 CRM
-                                {isTeamlead && <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">тимлид</span>}
+                                {isTeamlead && <span className="text-[10px] bg-fuchsia-400 text-black px-2 py-0.5 border-2 border-lime-300 font-mono uppercase">TEAMLEAD</span>}
                             </div>
-                            <div className="text-xs text-slate-500">{manager.full_name} · {manager.login}</div>
+                            <div className="text-xs font-mono opacity-70">{manager.full_name} · @{manager.login}</div>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={toggleOnline}
-                            disabled={togglingOnline}
-                            className={`text-sm px-3 py-1.5 rounded font-medium transition-colors flex items-center gap-2 ${isOnline ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
-                            title={isOnline ? 'Я в сети — лиды поступают' : 'Я не в сети — лиды не поступают'}
-                        >
-                            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                            {togglingOnline ? '...' : (isOnline ? 'В сети' : 'Не в сети')}
-                        </button>
-                        <button onClick={load} className="text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded">↻</button>
-                        <button
-                            onClick={async () => {
+                        <Tooltip text={isOnline ? 'Лиды распределяются на меня. Нажми чтобы выйти из распределения.' : 'Лиды НЕ распределяются. Нажми чтобы вернуться в работу.'}>
+                            <button onClick={toggleOnline} disabled={togglingOnline}
+                                className={`${BTN} flex items-center gap-2 ${isOnline ? 'bg-lime-300 text-black' : 'bg-slate-300 text-black'}`}>
+                                <span className={`w-2 h-2 ${isOnline ? 'bg-emerald-600 animate-pulse' : 'bg-slate-600'}`} />
+                                {togglingOnline ? '...' : isOnline ? 'В СЕТИ' : 'НЕ В СЕТИ'}
+                            </button>
+                        </Tooltip>
+                        <Tooltip text="Обновить список вручную">
+                            <button onClick={load} className={`${BTN} bg-cyan-300 text-black`}>↻</button>
+                        </Tooltip>
+                        <Tooltip text="Выйти из аккаунта">
+                            <button onClick={async () => {
                                 await fetch('/api/lidy/logout', { method: 'POST', credentials: 'include' });
                                 onLogout();
-                            }}
-                            className="text-sm bg-red-50 hover:bg-red-100 text-red-700 px-3 py-1.5 rounded"
-                        >Выйти</button>
+                            }} className={`${BTN} bg-red-400 text-black`}>EXIT</button>
+                        </Tooltip>
                     </div>
                 </div>
             </div>
 
-            <div className="max-w-6xl mx-auto p-4 space-y-4">
-                {/* Filters + counters */}
-                <div className="grid md:grid-cols-2 gap-4">
-                    <div className="bg-white rounded-xl border border-slate-200 p-4">
-                        <div className="flex gap-2 mb-3 flex-wrap">
-                            {isTeamlead && (
-                                <>
-                                    <button
-                                        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${scope === 'all' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                                        onClick={() => setScope('all')}
-                                    >Все лиды</button>
-                                    <button
-                                        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${scope === 'mine' ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                                        onClick={() => setScope('mine')}
-                                    >Мои лиды</button>
-                                </>
-                            )}
-                            <button
-                                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${overdueOnly ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                                onClick={() => setOverdueOnly(!overdueOnly)}
-                            >⏰ Только просроченные</button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <select
-                                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white"
-                                value={filterStatus}
-                                onChange={e => setFilterStatus(e.target.value)}
-                            >
-                                <option value="">Все статусы</option>
-                                {statuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
-                            </select>
-                            {isTeamlead && scope === 'all' && (
-                                <select
-                                    className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white"
-                                    value={filterManagerId}
-                                    onChange={e => setFilterManagerId(e.target.value)}
-                                >
-                                    <option value="">Все менеджеры</option>
-                                    {roster.filter(m => m.active).map(m => (
-                                        <option key={m.id} value={m.id}>{m.full_name}</option>
-                                    ))}
-                                </select>
-                            )}
-                        </div>
+            <div className="relative max-w-7xl mx-auto p-4 space-y-4">
+                {/* Bento KPI grid */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className={`${CARD} bg-white p-3`}>
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Всего</div>
+                        <div className="text-3xl font-black font-mono">{counters.total}</div>
                     </div>
+                    <div className={`${CARD} bg-amber-300 p-3`}>
+                        <div className="text-[10px] font-black uppercase tracking-widest">Открытых</div>
+                        <div className="text-3xl font-black font-mono">{counters.open}</div>
+                    </div>
+                    <div className={`${CARD} bg-red-400 p-3`}>
+                        <div className="text-[10px] font-black uppercase tracking-widest text-white">Просрочено</div>
+                        <div className="text-3xl font-black font-mono text-white">{counters.overdue}</div>
+                    </div>
+                    <div className={`${CARD} bg-orange-300 p-3`}>
+                        <div className="text-[10px] font-black uppercase tracking-widest">В очереди</div>
+                        <div className="text-3xl font-black font-mono">{counters.queued}</div>
+                    </div>
+                    <div className={`${CARD} ${counters.incomingTransfers > 0 ? 'bg-fuchsia-400 animate-pulse' : 'bg-slate-200'} p-3`}>
+                        <div className="text-[10px] font-black uppercase tracking-widest">Передачи мне</div>
+                        <div className="text-3xl font-black font-mono">{counters.incomingTransfers}</div>
+                    </div>
+                </div>
 
-                    <div className="grid grid-cols-4 gap-2">
-                        <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
-                            <div className="text-xs uppercase tracking-wide text-slate-500">Всего</div>
-                            <div className="text-2xl font-bold text-slate-900">{counters.total}</div>
-                        </div>
-                        <div className="bg-amber-50 rounded-xl border border-amber-200 p-3 text-center">
-                            <div className="text-xs uppercase tracking-wide text-amber-700">Открытых</div>
-                            <div className="text-2xl font-bold text-amber-700">{counters.open}</div>
-                        </div>
-                        <div className="bg-red-50 rounded-xl border border-red-200 p-3 text-center">
-                            <div className="text-xs uppercase tracking-wide text-red-700">Просрочено</div>
-                            <div className="text-2xl font-bold text-red-700">{counters.overdue}</div>
-                        </div>
-                        <div className="bg-orange-50 rounded-xl border border-orange-200 p-3 text-center">
-                            <div className="text-xs uppercase tracking-wide text-orange-700">В очереди</div>
-                            <div className="text-2xl font-bold text-orange-700">{counters.queued}</div>
-                        </div>
-                    </div>
+                {/* Filters */}
+                <div className={`${CARD} bg-white p-4 flex flex-wrap items-center gap-2`}>
+                    {isTeamlead && (
+                        <>
+                            <Tooltip text="Все лиды команды">
+                                <button className={`${BTN} ${scope === 'all' ? 'bg-black text-lime-300' : 'bg-white text-black'}`} onClick={() => setScope('all')}>ВСЕ</button>
+                            </Tooltip>
+                            <Tooltip text="Только мои лиды">
+                                <button className={`${BTN} ${scope === 'mine' ? 'bg-black text-lime-300' : 'bg-white text-black'}`} onClick={() => setScope('mine')}>МОИ</button>
+                            </Tooltip>
+                        </>
+                    )}
+                    <Tooltip text="Показать только просроченные">
+                        <button className={`${BTN} ${overdueOnly ? 'bg-red-500 text-white' : 'bg-white text-black'}`} onClick={() => setOverdueOnly(!overdueOnly)}>⏰ ПРОСРОЧЕНЫ</button>
+                    </Tooltip>
+                    <select className={`${BORDER} bg-white px-3 py-2 text-sm font-mono`}
+                        value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                        <option value="">Все статусы</option>
+                        {statuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                    </select>
+                    {isTeamlead && scope === 'all' && (
+                        <select className={`${BORDER} bg-white px-3 py-2 text-sm font-mono`}
+                            value={filterManagerId} onChange={e => setFilterManagerId(e.target.value)}>
+                            <option value="">Все менеджеры</option>
+                            {roster.filter(m => m.role === 'manager').map(m => (
+                                <option key={m.id} value={m.id}>{m.full_name}{m.archived_at ? ' (уволен)' : ''}</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
 
                 {/* Roster panel for teamlead */}
                 {isTeamlead && roster.length > 0 && <RosterPanel roster={roster} />}
 
                 {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded text-sm">{error}</div>
+                    <div className={`${CARD} bg-red-400 text-black p-3 font-mono text-sm`}>⚠ {error}</div>
                 )}
-
                 {!isOnline && (
-                    <div className="bg-orange-50 border border-orange-200 text-orange-800 p-3 rounded text-sm flex items-center gap-2">
-                        ⚪ Вы помечены как «не в сети» — новые лиды не будут вам распределяться. Тумблер вверху, чтобы вернуться в сеть.
+                    <div className={`${CARD} bg-orange-300 text-black p-3 font-mono text-sm`}>
+                        ⚪ Вы помечены как «не в сети» — новые лиды не распределяются. Кнопка вверху чтобы вернуться.
                     </div>
                 )}
 
                 {loading ? (
-                    <p className="text-slate-500 text-center py-8">Загрузка...</p>
+                    <p className="text-center py-8 font-mono">// LOADING...</p>
                 ) : leads.length === 0 ? (
-                    <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-                        <div className="text-5xl mb-3">📭</div>
-                        <p className="text-slate-600">
-                            {scope === 'mine' ? 'У вас пока нет лидов.' : 'Лидов пока нет.'}
-                        </p>
+                    <div className={`${CARD} bg-white p-8 text-center`}>
+                        <div className="text-6xl mb-3">📭</div>
+                        <p className="font-mono text-slate-600">{scope === 'mine' ? '// NO_LEADS_ASSIGNED' : '// NO_LEADS_FOUND'}</p>
                     </div>
                 ) : (
                     <div className="space-y-3">
                         {leads.map(l => (
-                            <LeadCard
-                                key={l.id}
-                                lead={l}
-                                statuses={statuses}
+                            <LeadCard key={l.id} lead={l} statuses={statuses} me={manager}
                                 onChangeStatus={onChangeStatus}
-                                isTeamlead={isTeamlead}
                                 roster={roster}
                                 onReassign={onReassign}
-                                waMessage={waMessage}
-                            />
+                                onTransfer={onTransfer}
+                                onTransferAccept={onTransferAccept}
+                                onTransferReject={onTransferReject}
+                                waMessage={waMessage} />
                         ))}
                     </div>
                 )}
 
-                <p className="text-center text-xs text-slate-400 mt-8">
-                    Авто-обновление каждые 30 секунд.
+                <p className="text-center text-xs font-mono text-slate-500 pt-4">
+                    // AUTO_REFRESH every 15s · build {new Date().toISOString().slice(0, 10)}
                 </p>
             </div>
         </div>
     );
 };
 
-// =====================================================================
+// ─────────────────────────────────────────────────────────────────────
 // Top-level
-// =====================================================================
+// ─────────────────────────────────────────────────────────────────────
 const LidyApp: React.FC = () => {
     const [manager, setManager] = useState<Manager | null>(null);
     const [checking, setChecking] = useState(true);
-    const [waMessage, setWaMessage] = useState('Здравствуйте! Я ваш менеджер из GoGlobal по поводу заявки.');
+    const [waMessage] = useState('Здравствуйте! Это GoGlobal по вашей заявке.');
 
     const checkSession = async () => {
         try {
@@ -632,49 +775,21 @@ const LidyApp: React.FC = () => {
             if (res.ok) {
                 const j = await res.json();
                 setManager(j.manager);
-            } else {
-                setManager(null);
-            }
-        } catch {
-            setManager(null);
-        } finally {
-            setChecking(false);
-        }
+            } else setManager(null);
+        } catch { setManager(null); }
+        finally { setChecking(false); }
     };
-
-    // Read public site config to get WhatsApp message template (use for outgoing CRM clicks)
-    useEffect(() => {
-        fetch('/api/data')
-            .then(r => r.ok ? r.json() : null)
-            .then(j => {
-                const m = j?.contactInfo?.whatsappMessage;
-                // We use a CRM-specific default; could be made configurable separately
-                if (m) setWaMessage(`Здравствуйте! Это GoGlobal по вашей заявке.`);
-            })
-            .catch(() => {});
-    }, []);
 
     useEffect(() => { checkSession(); }, []);
 
     if (checking) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-100">
-                <p className="text-slate-500">Загрузка...</p>
-            </div>
-        );
+        return <div className="min-h-screen flex items-center justify-center bg-lime-300 font-mono">// LOADING...</div>;
     }
 
-    if (!manager) {
-        return <LoginScreen onAuthed={setManager} />;
-    }
+    if (!manager) return <LoginScreen onAuthed={setManager} />;
 
     return (
-        <Dashboard
-            manager={manager}
-            onLogout={() => setManager(null)}
-            onMeUpdate={setManager}
-            waMessage={waMessage}
-        />
+        <Dashboard manager={manager} onLogout={() => setManager(null)} onMeUpdate={setManager} waMessage={waMessage} />
     );
 };
 

@@ -6,31 +6,63 @@ import { DEFAULT_VISIBILITY, DEFAULT_REGIONS } from './types';
 // Reusable bits
 // =====================================================================
 
+// Brutalist design tokens
+const A_SHADOW = 'shadow-[4px_4px_0_0_#0a0a0a]';
+const A_SHADOW_HOVER = 'hover:shadow-[6px_6px_0_0_#0a0a0a] hover:-translate-x-[2px] hover:-translate-y-[2px]';
+const A_BORDER = 'border-2 border-black';
+const A_BTN = `${A_BORDER} ${A_SHADOW} ${A_SHADOW_HOVER} active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
+const A_CARD = `bg-white ${A_BORDER} ${A_SHADOW}`;
+const SECTION_BG: Record<string, string> = {
+    'CRM': 'bg-fuchsia-100',
+    'аналитика': 'bg-cyan-100',
+    'видимость': 'bg-lime-100',
+    'контент': 'bg-amber-100',
+};
+
+const ATooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
+    <span className="relative inline-flex group">
+        {children}
+        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 border-2 border-black">
+            {text}
+        </span>
+    </span>
+);
+
 const Section: React.FC<{
     title: string;
     subtitle?: string;
     defaultOpen?: boolean;
     children: React.ReactNode;
     badge?: string;
-}> = ({ title, subtitle, defaultOpen = false, children, badge }) => {
+    accent?: 'lime' | 'cyan' | 'fuchsia' | 'amber' | 'violet' | 'red';
+}> = ({ title, subtitle, defaultOpen = false, children, badge, accent }) => {
     const [open, setOpen] = useState(defaultOpen);
+    const accentBg: Record<string, string> = {
+        lime: 'bg-lime-300',
+        cyan: 'bg-cyan-300',
+        fuchsia: 'bg-fuchsia-300',
+        amber: 'bg-amber-300',
+        violet: 'bg-violet-300',
+        red: 'bg-red-400',
+    };
+    const headerBg = accent ? accentBg[accent] : 'bg-yellow-100';
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-4 overflow-hidden">
+        <div className={`${A_CARD} mb-4 overflow-hidden`}>
             <button
                 type="button"
                 onClick={() => setOpen(!open)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+                className={`w-full flex items-center justify-between px-5 py-3 text-left ${headerBg} hover:brightness-95 transition-all border-b-2 border-black`}
             >
                 <div>
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-                        {badge && <span className="text-xs bg-brand-100 text-brand-700 px-2 py-0.5 rounded-full font-medium">{badge}</span>}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-lg font-black uppercase tracking-tight">{title}</h2>
+                        {badge && <span className={`text-[10px] bg-black text-lime-300 px-2 py-0.5 font-mono uppercase tracking-widest`}>{badge}</span>}
                     </div>
-                    {subtitle && <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>}
+                    {subtitle && <p className="text-sm text-slate-700 mt-0.5 font-mono">{subtitle}</p>}
                 </div>
-                <span className={`text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
+                <span className={`text-2xl transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
             </button>
-            {open && <div className="px-5 pb-5 pt-1 border-t border-slate-100">{children}</div>}
+            {open && <div className="p-5 bg-white">{children}</div>}
         </div>
     );
 };
@@ -485,9 +517,18 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
         }
     };
 
-    const remove = async (id: number, name: string) => {
-        if (!confirm(`Удалить менеджера ${name}?`)) return;
+    const remove = async (id: number, name: string, leadCount: number) => {
+        const msg = leadCount > 0
+            ? `${name} имеет ${leadCount} лидов. Карточка будет помечена как "УВОЛЕН" — лиды останутся видны вам и тимлиду. Продолжить?`
+            : `Удалить ${name}? Лидов нет, можно удалить полностью.`;
+        if (!confirm(msg)) return;
         await fetch(`/api/admin/managers/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        await load();
+    };
+
+    const restore = async (id: number, name: string) => {
+        if (!confirm(`Восстановить ${name}? Он снова сможет логиниться.`)) return;
+        await fetch(`/api/admin/managers/${id}/restore`, { method: 'POST', headers: { 'X-Admin-Password': password } });
         await load();
     };
 
@@ -538,8 +579,11 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                 const currentSchedule = (e.working_hours ?? m.working_hours) as WorkingSchedule | null;
                                 return (
                                     <React.Fragment key={m.id}>
-                                        <tr className="border-b border-slate-100 hover:bg-slate-50">
-                                            <td className="py-2 px-2 text-slate-400">#{m.id}</td>
+                                        <tr className={`border-b border-slate-100 hover:bg-slate-50 ${m.archived_at ? 'opacity-60' : ''}`}>
+                                            <td className="py-2 px-2 text-slate-400">
+                                                #{m.id}
+                                                {m.archived_at && <div className="text-[10px] bg-slate-700 text-white px-1 mt-0.5 inline-block">УВОЛЕН</div>}
+                                            </td>
                                             <td className="py-2 px-2 font-mono">{m.login}</td>
                                             <td className="py-2 px-2">
                                                 <input className="border border-slate-300 p-1 rounded text-sm w-full"
@@ -582,7 +626,11 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                                     🕐 Часы
                                                 </button>
                                                 <button onClick={() => update(m.id)} disabled={!hasEdit} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-30 text-white text-xs px-3 py-1 rounded mr-1">Сохранить</button>
-                                                <button onClick={() => remove(m.id, m.full_name)} className="bg-red-100 hover:bg-red-200 text-red-700 text-xs px-3 py-1 rounded">Удалить</button>
+                                                {m.archived_at ? (
+                                                    <button onClick={() => restore(m.id, m.full_name)} className="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-xs px-3 py-1 rounded">↺ Восстановить</button>
+                                                ) : (
+                                                    <button onClick={() => remove(m.id, m.full_name, (m as any).lead_count || 0)} className="bg-red-100 hover:bg-red-200 text-red-700 text-xs px-3 py-1 rounded">Уволить</button>
+                                                )}
                                             </td>
                                         </tr>
                                         {isScheduleOpen && (
@@ -1030,17 +1078,27 @@ const AdminPanel: React.FC = () => {
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-100">
-                <form onSubmit={handleLogin} className="bg-white p-8 rounded-xl shadow-md w-96">
-                    <h2 className="text-2xl font-bold mb-4">Admin Login</h2>
+            <div className="min-h-screen flex items-center justify-center bg-cyan-300 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+                <div className="absolute inset-0 opacity-30 pointer-events-none" style={{
+                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 24px, rgba(0,0,0,0.06) 24px, rgba(0,0,0,0.06) 25px), repeating-linear-gradient(90deg, transparent, transparent 24px, rgba(0,0,0,0.06) 24px, rgba(0,0,0,0.06) 25px)',
+                }} />
+                <form onSubmit={handleLogin} className={`relative ${A_CARD} p-8 w-full max-w-md`}>
+                    <div className="flex items-center gap-3 mb-6 pb-4 border-b-2 border-black">
+                        <img src="/ppp.png" alt="" className="w-12 h-auto" />
+                        <div>
+                            <h2 className="text-2xl font-black uppercase tracking-tight">Admin</h2>
+                            <p className="text-xs font-mono text-slate-500">// AUTH_REQUIRED</p>
+                        </div>
+                    </div>
+                    <label className="block text-xs uppercase tracking-widest font-bold mb-1">Пароль</label>
                     <input
-                        type="password"
-                        placeholder="Пароль"
-                        className="w-full p-3 border border-slate-300 rounded mb-4"
+                        type="password" autoFocus
+                        placeholder="••••••••"
+                        className={`w-full ${A_BORDER} bg-yellow-100 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-white`}
                         value={password}
                         onChange={e => setPassword(e.target.value)}
                     />
-                    <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium p-3 rounded">Войти</button>
+                    <button type="submit" className={`${A_BTN} w-full bg-black text-lime-300`}>→ ВОЙТИ</button>
                 </form>
             </div>
         );
@@ -1058,50 +1116,54 @@ const AdminPanel: React.FC = () => {
     const setVisibility = (patch: any) => setSC({ visibility: { ...v, ...patch } });
 
     return (
-        <div className="min-h-screen bg-slate-100">
-            {/* Sticky save bar */}
-            <div className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
-                <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-                    <h1 className="text-xl font-bold text-slate-900">⚙️ Панель администратора</h1>
+        <div className="min-h-screen bg-yellow-50" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+            {/* Subtle grid background */}
+            <div className="fixed inset-0 pointer-events-none opacity-[0.06]" style={{
+                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
+            }} />
+
+            {/* Sticky brutalist header */}
+            <div className="sticky top-0 z-40 bg-black text-lime-300 border-b-4 border-black">
+                <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+                    <h1 className="text-xl font-black uppercase tracking-tight">⚙️ ADMIN_PANEL</h1>
                     <div className="flex items-center gap-3">
-                        {savedAt && <span className="text-sm text-emerald-600 font-medium">✓ Сохранено</span>}
-                        <button
-                            onClick={handleSave}
-                            disabled={saving}
-                            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-medium px-5 py-2 rounded-lg shadow-sm transition-colors"
-                        >
-                            {saving ? '💾 Сохранение...' : '💾 Сохранить всё'}
-                        </button>
+                        {savedAt && <span className="text-sm font-mono text-lime-300">✓ SAVED</span>}
+                        <ATooltip text="Сохранить все изменения сайта в БД">
+                            <button onClick={handleSave} disabled={saving}
+                                className={`${A_BTN} bg-lime-300 text-black disabled:opacity-50`}>
+                                {saving ? '💾 ...' : '💾 СОХРАНИТЬ'}
+                            </button>
+                        </ATooltip>
                     </div>
                 </div>
             </div>
 
-            <div className="max-w-6xl mx-auto p-6">
+            <div className="relative max-w-7xl mx-auto p-4">
 
-                <Section title="📊 Статистика посещений" subtitle="Только публичный сайт (без админки)" defaultOpen>
+                <Section title="📊 Статистика посещений" subtitle="Только публичный сайт (без админки)" defaultOpen accent="cyan">
                     <AnalyticsWidget password={password} />
                 </Section>
 
-                <Section title="📈 Дашборд CRM" subtitle="Метрики, конверсия, SLA, экспорт" badge="CRM" defaultOpen>
+                <Section title="📈 Дашборд CRM" subtitle="Метрики, конверсия, SLA, экспорт" badge="CRM" defaultOpen accent="fuchsia">
                     <CRMDashboard password={password} />
                 </Section>
 
-                <Section title="🧑‍💼 Менеджеры по продажам (CRM)" subtitle="Логин/пароль для входа на /lidy + рабочие часы" badge="CRM">
+                <Section title="🧑‍💼 Менеджеры по продажам (CRM)" subtitle="Логин/пароль для входа на /lidy + рабочие часы + увольнение" badge="CRM" accent="fuchsia">
                     <ManagersSection password={password} />
                 </Section>
 
-                <Section title="🎯 Статусы лидов" subtitle="Что менеджер выбирает в карточке лида" badge="CRM">
+                <Section title="🎯 Статусы лидов" subtitle="Что менеджер выбирает в карточке лида" badge="CRM" accent="violet">
                     <StatusesSection password={password} />
                 </Section>
 
-                <Section title="📋 Все лиды (обзор)" subtitle="Полный список лидов и статистика по менеджерам" badge="CRM">
+                <Section title="📋 Все лиды (обзор)" subtitle="Полный список лидов и статистика по менеджерам" badge="CRM" accent="amber">
                     <LeadsView password={password} />
                 </Section>
 
                 <Section
                     title="👁 Видимость блоков сайта"
                     subtitle="Скрытые блоки автоматически исчезают и из шапки сайта"
-                    defaultOpen
+                    defaultOpen accent="lime"
                 >
                     <div className="grid md:grid-cols-2 gap-1">
                         <Toggle checked={v.hero} onChange={c => setVisibility({ hero: c })} label="Hero (главный экран)" hint="Большой блок наверху страницы" />
