@@ -31,7 +31,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) =
     setIsSubmitting(true);
     
     try {
-      const payload = { ...formData, timestamp: new Date().toISOString(), source: 'website-modal' };
+      const payload = { ...formData, timestamp: new Date().toISOString(), source: 'Сайт' };
 
       // 1) Save to our CRM (assigns to manager + Telegram notification)
       try {

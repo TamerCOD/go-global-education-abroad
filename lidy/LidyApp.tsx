@@ -33,6 +33,7 @@ interface Lead {
     status_color?: string;
     status_is_terminal?: boolean;
     notes?: string;
+    rejection_reason?: string | null;
     sla_deadline_at: string | null;
     processed_at?: string | null;
     manager_name?: string;
@@ -49,7 +50,16 @@ interface StatusOption {
     label: string;
     color?: string;
     is_terminal: boolean;
+    requires_reason?: boolean;
     sort: number;
+}
+interface CommentRec {
+    id: number;
+    manager_id?: number | null;
+    author_name: string;
+    author_role?: string;
+    body: string;
+    created_at: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -209,25 +219,61 @@ const LeadCard: React.FC<{
     lead: Lead;
     statuses: StatusOption[];
     me: Manager;
-    onChangeStatus: (id: number, status: string, note?: string) => Promise<void>;
+    onChangeStatus: (id: number, status: string, note?: string, rejectionReason?: string) => Promise<void>;
+    onChangeSource: (leadId: number, newSource: string) => Promise<void>;
     roster: RosterManager[];
+    sourceOptions: string[];
     onReassign: (leadId: number, newManagerId: number) => Promise<void>;
     onTransfer: (leadId: number, newManagerId: number) => Promise<void>;
     onTransferAccept: (leadId: number) => Promise<void>;
     onTransferReject: (leadId: number) => Promise<void>;
     waMessage: string;
-}> = ({ lead, statuses, me, onChangeStatus, roster, onReassign, onTransfer, onTransferAccept, onTransferReject, waMessage }) => {
+}> = ({ lead, statuses, me, onChangeStatus, onChangeSource, roster, sourceOptions, onReassign, onTransfer, onTransferAccept, onTransferReject, waMessage }) => {
     const [open, setOpen] = useState(false);
     const [note, setNote] = useState(lead.notes || '');
     const [pendingStatus, setPendingStatus] = useState<string | null>(null);
     const [reassignTo, setReassignTo] = useState<string>('');
     const [transferTo, setTransferTo] = useState<string>('');
+    const [editSourceMode, setEditSourceMode] = useState(false);
+    const [pendingRejection, setPendingRejection] = useState<{ statusCode: string; reason: string } | null>(null);
+    const [comments, setComments] = useState<CommentRec[] | null>(null);
+    const [newComment, setNewComment] = useState('');
+    const [postingComment, setPostingComment] = useState(false);
     const isTeamlead = me.role === 'teamlead';
     const isOwner = lead.assigned_manager_id === me.id;
     const sla = formatSla(lead.sla_deadline_at, lead.processed_at);
     const wa = lead.phone ? whatsappLink(lead.phone, waMessage) : null;
     const isProcessed = !!lead.processed_at;
     const isQueued = !lead.assigned_manager_id;
+    const canComment = isTeamlead || isOwner;
+    const canEditSource = isTeamlead || isOwner;
+
+    // Lazy-load comments when card opens
+    useEffect(() => {
+        if (!open || comments !== null) return;
+        fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' })
+            .then(r => r.json())
+            .then(j => setComments(j.comments || []))
+            .catch(() => setComments([]));
+    }, [open, lead.id, comments]);
+
+    const submitComment = async () => {
+        const body = newComment.trim();
+        if (!body) return;
+        setPostingComment(true);
+        try {
+            const r = await fetch(`/api/lidy/leads/${lead.id}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ body }),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) { alert('Ошибка: ' + (j.error || r.status)); return; }
+            setComments(prev => [...(prev || []), j.comment]);
+            setNewComment('');
+        } finally { setPostingComment(false); }
+    };
 
     // Pending transfer state
     const transferDeadlineIso = lead.pending_transfer_at
@@ -257,7 +303,16 @@ const LeadCard: React.FC<{
                     </span>
                     {(() => {
                         const sb = sourceBadge(lead.source || '');
-                        return (
+                        return canEditSource ? (
+                            <Tooltip text="Кликни чтобы изменить источник">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setEditSourceMode(true); setOpen(true); }}
+                                    className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 ${sb.bg} ${sb.text} hover:brightness-110`}
+                                >
+                                    {sb.label} ✎
+                                </button>
+                            </Tooltip>
+                        ) : (
                             <Tooltip text={`Источник лида: ${lead.source || 'неизвестен'}`}>
                                 <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 ${sb.bg} ${sb.text}`}>
                                     {sb.label}
@@ -362,51 +417,149 @@ const LeadCard: React.FC<{
             </div>
 
             {open && (
-                <div className="border-t border-slate-200 bg-yellow-50 p-4 space-y-4">
+                <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-4">
                     {lead.comment && (
                         <div>
-                            <div className="text-xs font-bold uppercase tracking-widest mb-1">💬 Комментарий клиента</div>
-                            <p className={`text-sm ${BORDER} bg-white p-3`}>{lead.comment}</p>
+                            <div className="text-xs font-bold uppercase tracking-widest mb-1 text-slate-500">💬 Комментарий клиента</div>
+                            <p className={`text-sm ${BORDER} rounded-lg bg-white p-3`}>{lead.comment}</p>
                         </div>
                     )}
 
-                    <div>
-                        <div className="text-xs font-bold uppercase tracking-widest mb-1">📝 Заметка менеджера</div>
-                        <textarea
-                            className={`w-full text-sm ${BORDER} bg-white p-2`}
-                            rows={2}
-                            value={note}
-                            onChange={e => setNote(e.target.value)}
-                            placeholder="Внутренняя заметка..."
-                        />
-                    </div>
+                    {lead.rejection_reason && (
+                        <div>
+                            <div className="text-xs font-bold uppercase tracking-widest mb-1 text-red-700">❌ Причина отказа</div>
+                            <p className={`text-sm ${BORDER} rounded-lg bg-red-50 border-red-200 p-3 text-red-900`}>{lead.rejection_reason}</p>
+                        </div>
+                    )}
+
+                    {/* Source editor */}
+                    {editSourceMode && canEditSource && (
+                        <div className={`${BORDER} rounded-xl bg-white p-3`}>
+                            <div className="text-xs font-bold uppercase tracking-widest mb-2 text-slate-500">🏷 Изменить источник лида</div>
+                            <div className="flex flex-wrap gap-2">
+                                {sourceOptions.map(opt => (
+                                    <button key={opt} type="button"
+                                        onClick={async () => {
+                                            await onChangeSource(lead.id, opt);
+                                            setEditSourceMode(false);
+                                        }}
+                                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${lead.source === opt ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-slate-300 hover:bg-slate-100'}`}>
+                                        {opt}
+                                    </button>
+                                ))}
+                                <button type="button" onClick={() => setEditSourceMode(false)}
+                                    className="text-xs text-slate-500 hover:underline px-2 py-1.5">Отменить</button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Status buttons */}
                     {(isOwner || isTeamlead || isQueued) && !isIncomingTransfer && (
                         <div>
-                            <div className="text-xs font-bold uppercase tracking-widest mb-2">🎯 Сменить статус</div>
+                            <div className="text-xs font-bold uppercase tracking-widest mb-2 text-slate-500">🎯 Сменить статус</div>
                             <div className="flex flex-wrap gap-2">
                                 {statuses.map(s => (
-                                    <Tooltip key={s.code} text={s.is_terminal ? 'Закрывает лид (обработан)' : 'Промежуточный статус'}>
+                                    <Tooltip key={s.code} text={
+                                        s.requires_reason ? 'Закроет лид и попросит указать причину'
+                                            : s.is_terminal ? 'Закрывает лид (обработан)'
+                                                : 'Промежуточный статус'
+                                    }>
                                         <button
                                             type="button"
                                             disabled={pendingStatus !== null}
                                             onClick={async () => {
+                                                if (s.requires_reason) {
+                                                    setPendingRejection({ statusCode: s.code, reason: '' });
+                                                    return;
+                                                }
                                                 setPendingStatus(s.code);
                                                 try { await onChangeStatus(lead.id, s.code, note); }
                                                 finally { setPendingStatus(null); }
                                             }}
-                                            className={`${BORDER} ${SHADOW} ${SHADOW_HOVER} active:shadow-none active:translate-x-[4px] active:translate-y-[4px] transition-all text-xs font-bold uppercase tracking-wider px-3 py-1.5 ${lead.status_code === s.code ? 'text-white' : 'bg-white text-black'}`}
+                                            className={`${BORDER} ${SHADOW} ${SHADOW_HOVER} active:shadow-none active:translate-y-[1px] transition-all text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg ${lead.status_code === s.code ? 'text-white' : 'bg-white text-black'}`}
                                             style={lead.status_code === s.code ? { backgroundColor: s.color || '#3b82f6' } : undefined}
                                         >
                                             {pendingStatus === s.code ? '...' : s.label}
                                             {s.is_terminal && ' ✓'}
+                                            {s.requires_reason && ' ✎'}
                                         </button>
                                     </Tooltip>
                                 ))}
                             </div>
+
+                            {/* Rejection reason inline form */}
+                            {pendingRejection && (
+                                <div className={`${BORDER} rounded-xl bg-red-50 border-red-200 p-3 mt-3 space-y-2`}>
+                                    <div className="text-xs font-bold uppercase tracking-widest text-red-700">
+                                        ❌ Причина для статуса «{statuses.find(s => s.code === pendingRejection.statusCode)?.label}»
+                                    </div>
+                                    <textarea
+                                        autoFocus rows={3}
+                                        className="w-full text-sm border border-red-300 rounded-lg bg-white p-2 focus:ring-2 focus:ring-red-500"
+                                        value={pendingRejection.reason}
+                                        onChange={e => setPendingRejection(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                                        placeholder="Например: клиент передумал / нашёл другое агентство / недостаточный бюджет..."
+                                    />
+                                    <div className="flex gap-2">
+                                        <button type="button"
+                                            disabled={!pendingRejection.reason.trim()}
+                                            onClick={async () => {
+                                                const code = pendingRejection.statusCode;
+                                                const reason = pendingRejection.reason.trim();
+                                                setPendingStatus(code);
+                                                try {
+                                                    await onChangeStatus(lead.id, code, note, reason);
+                                                    setPendingRejection(null);
+                                                } finally { setPendingStatus(null); }
+                                            }}
+                                            className="bg-red-600 hover:bg-red-700 disabled:opacity-30 text-white text-sm font-bold px-4 py-2 rounded-lg">
+                                            Подтвердить отказ
+                                        </button>
+                                        <button type="button" onClick={() => setPendingRejection(null)}
+                                            className="text-slate-600 text-sm hover:underline">Отменить</button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
+
+                    {/* Notes / Comments thread */}
+                    <div>
+                        <div className="text-xs font-bold uppercase tracking-widest mb-2 text-slate-500">💬 Комментарии команды</div>
+                        <div className={`${BORDER} rounded-xl bg-white divide-y divide-slate-100 max-h-72 overflow-y-auto`}>
+                            {comments === null ? (
+                                <div className="p-3 text-sm text-slate-400">Загрузка...</div>
+                            ) : comments.length === 0 ? (
+                                <div className="p-3 text-sm text-slate-400 italic">Комментариев пока нет</div>
+                            ) : (
+                                comments.map(c => (
+                                    <div key={c.id} className="p-3">
+                                        <div className="flex items-baseline gap-2 mb-1">
+                                            <span className="font-bold text-sm text-slate-900">{c.author_name}</span>
+                                            {c.author_role === 'teamlead' && <span className="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">тимлид</span>}
+                                            <span className="text-xs text-slate-400 ml-auto">{formatRel(c.created_at)}</span>
+                                        </div>
+                                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{c.body}</p>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        {canComment && (
+                            <div className="flex gap-2 mt-2">
+                                <textarea
+                                    rows={2}
+                                    className={`flex-grow text-sm ${BORDER} rounded-lg bg-white p-2`}
+                                    value={newComment} onChange={e => setNewComment(e.target.value)}
+                                    placeholder="Оставить комментарий…"
+                                />
+                                <button type="button" disabled={postingComment || !newComment.trim()}
+                                    onClick={submitComment}
+                                    className={`${BTN} bg-brand-600 text-white disabled:opacity-30 self-start`}>
+                                    {postingComment ? '...' : '↩ Отправить'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Manager-to-manager transfer (any manager who owns it) */}
                     {isOwner && !lead.pending_transfer_to_id && (
@@ -517,7 +670,7 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
 // ─────────────────────────────────────────────────────────────────────
 // Dashboard
 // ─────────────────────────────────────────────────────────────────────
-const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: (m: Manager) => void; waMessage: string }> = ({ manager, onLogout, onMeUpdate, waMessage }) => {
+const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: (m: Manager) => void; waMessage: string; sourceOptions: string[] }> = ({ manager, onLogout, onMeUpdate, waMessage, sourceOptions }) => {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [statuses, setStatuses] = useState<StatusOption[]>([]);
     const [roster, setRoster] = useState<RosterManager[]>([]);
@@ -565,10 +718,21 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         return () => window.clearInterval(t);
     }, [scope, filterStatus, overdueOnly, filterManagerId]);
 
-    const onChangeStatus = async (id: number, status: string, note?: string) => {
+    const onChangeStatus = async (id: number, status: string, note?: string, rejection_reason?: string) => {
         const res = await fetch(`/api/lidy/leads/${id}/status`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', body: JSON.stringify({ status, note }),
+            credentials: 'include', body: JSON.stringify({ status, note, rejection_reason }),
+        });
+        if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || res.status));
+        } else await load();
+    };
+
+    const onChangeSource = async (id: number, source: string) => {
+        const res = await fetch(`/api/lidy/leads/${id}/source`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ source }),
         });
         if (!res.ok) {
             const j = await res.json().catch(() => ({}));
@@ -764,7 +928,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         {leads.map(l => (
                             <LeadCard key={l.id} lead={l} statuses={statuses} me={manager}
                                 onChangeStatus={onChangeStatus}
+                                onChangeSource={onChangeSource}
                                 roster={roster}
+                                sourceOptions={sourceOptions}
                                 onReassign={onReassign}
                                 onTransfer={onTransfer}
                                 onTransferAccept={onTransferAccept}
@@ -785,10 +951,16 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 // ─────────────────────────────────────────────────────────────────────
 // Top-level
 // ─────────────────────────────────────────────────────────────────────
+const DEFAULT_SOURCE_OPTIONS = [
+    'Сайт', 'Instagram', 'WhatsApp', 'Email',
+    'Друзья / знакомые', 'Реклама', 'Поиск Google', 'Другое',
+];
+
 const LidyApp: React.FC = () => {
     const [manager, setManager] = useState<Manager | null>(null);
     const [checking, setChecking] = useState(true);
     const [waMessage] = useState('Здравствуйте! Это GoGlobal по вашей заявке.');
+    const [sourceOptions, setSourceOptions] = useState<string[]>(DEFAULT_SOURCE_OPTIONS);
 
     const checkSession = async () => {
         try {
@@ -802,15 +974,21 @@ const LidyApp: React.FC = () => {
     };
 
     useEffect(() => { checkSession(); }, []);
+    useEffect(() => {
+        fetch('/api/data').then(r => r.ok ? r.json() : null).then(j => {
+            const opts = j?.siteConfig?.attributionOptions;
+            if (Array.isArray(opts) && opts.length > 0) setSourceOptions(opts);
+        }).catch(() => {});
+    }, []);
 
     if (checking) {
-        return <div className="min-h-screen flex items-center justify-center bg-lime-300 font-mono">// LOADING...</div>;
+        return <div className="min-h-screen flex items-center justify-center bg-slate-50 font-mono">// LOADING...</div>;
     }
 
     if (!manager) return <LoginScreen onAuthed={setManager} />;
 
     return (
-        <Dashboard manager={manager} onLogout={() => setManager(null)} onMeUpdate={setManager} waMessage={waMessage} />
+        <Dashboard manager={manager} onLogout={() => setManager(null)} onMeUpdate={setManager} waMessage={waMessage} sourceOptions={sourceOptions} />
     );
 };
 

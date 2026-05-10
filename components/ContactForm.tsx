@@ -27,7 +27,7 @@ export const ContactForm: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-      const payload = { ...formData, timestamp: new Date().toISOString(), source: 'website-form' };
+      const payload = { ...formData, timestamp: new Date().toISOString(), source: 'Сайт' };
 
       // 1) Save to our CRM (assigns to manager + Telegram notification)
       try {

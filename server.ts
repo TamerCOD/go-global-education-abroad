@@ -71,6 +71,16 @@ const fallbackDefaults = {
       { day: "Сб", hours: "10:00 – 15:00" },
       { day: "Вс", hours: "Выходной" },
     ],
+    attributionOptions: [
+      "Сайт",
+      "Instagram",
+      "WhatsApp",
+      "Email",
+      "Друзья / знакомые",
+      "Реклама",
+      "Поиск Google",
+      "Другое",
+    ],
   },
 };
 
@@ -189,6 +199,23 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_to_id BIGINT REFERENCES managers(id) ON DELETE SET NULL;`);
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_at TIMESTAMPTZ;`);
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_by_id BIGINT REFERENCES managers(id) ON DELETE SET NULL;`);
+    // Rejection reason + requires_reason flag on lead_statuses
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS rejection_reason TEXT;`);
+    await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_reason BOOLEAN NOT NULL DEFAULT FALSE;`);
+    await pool!.query(`UPDATE lead_statuses SET requires_reason = TRUE WHERE code = 'closed_lost'`);
+    // Named comments (each manager/teamlead leaves a comment with their name)
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS lead_comments (
+        id BIGSERIAL PRIMARY KEY,
+        lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        manager_id BIGINT REFERENCES managers(id) ON DELETE SET NULL,
+        author_name TEXT NOT NULL,
+        author_role TEXT,
+        body TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_lead_comments_lead_id ON lead_comments (lead_id, created_at);`);
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_statuses (
         code TEXT PRIMARY KEY,
@@ -832,10 +859,10 @@ async function startServer() {
         return res.status(429).json({ error: "Too many requests" });
       }
 
-      // Honor source field from body if it's a known channel (apply-*, whatsapp, instagram, email)
-      const bodySource = (req.body?.source || "").toString().toLowerCase();
-      const allowFromBody = /^(apply-|whatsapp|instagram|email|website-)/.test(bodySource);
-      const source = allowFromBody ? bodySource : "website";
+      // Use the source picked by the client (the new attribution dropdown).
+      // Free-form, but we cap length to avoid abuse.
+      const rawSource = (req.body?.source || "").toString().trim().slice(0, 80);
+      const source = rawSource || "Сайт";
       const result = await ingestLead(req.body || {}, source);
       res.json({ ok: true, ...result });
     } catch (err: any) {
@@ -1057,17 +1084,22 @@ async function startServer() {
       const me = await loadManager(session.mid);
       if (!me) return res.status(401).json({ error: "Not found" });
       const leadId = Number(req.params.id);
-      const { status, note } = req.body || {};
+      const { status, note, rejection_reason } = req.body || {};
       if (!status) return res.status(400).json({ error: "Missing status" });
 
-      const statusRow = await pq().query(`SELECT code, is_terminal FROM lead_statuses WHERE code = $1`, [status]);
+      const statusRow = await pq().query(
+        `SELECT code, is_terminal, requires_reason FROM lead_statuses WHERE code = $1`,
+        [status]
+      );
       if (statusRow.rows.length === 0) return res.status(400).json({ error: "Unknown status" });
+      if (statusRow.rows[0].requires_reason && !(rejection_reason && String(rejection_reason).trim())) {
+        return res.status(400).json({ error: "Этот статус требует указать причину" });
+      }
 
       const leadRow = await pq().query(`SELECT id, status_code, assigned_manager_id FROM leads WHERE id = $1`, [leadId]);
       if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
       const lead = leadRow.rows[0];
 
-      // Teamleads can change any lead. Managers only their own.
       if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== session.mid) {
         return res.status(403).json({ error: "Lead is assigned to another manager" });
       }
@@ -1077,12 +1109,13 @@ async function startServer() {
         `UPDATE leads
          SET status_code = $1,
              notes = COALESCE($2, notes),
+             rejection_reason = COALESCE($3, rejection_reason),
              updated_at = NOW(),
              processed_at = ${newProcessedAt},
-             assigned_manager_id = COALESCE(assigned_manager_id, $3)
-         WHERE id = $4
-         RETURNING id, status_code, processed_at`,
-        [status, note ?? null, session.mid, leadId]
+             assigned_manager_id = COALESCE(assigned_manager_id, $4)
+         WHERE id = $5
+         RETURNING id, status_code, processed_at, rejection_reason`,
+        [status, note ?? null, rejection_reason ?? null, session.mid, leadId]
       );
 
       await pq().query(
@@ -1090,10 +1123,98 @@ async function startServer() {
          VALUES ($1, $2, $3, $4, $5)`,
         [leadId, lead.status_code, status, session.mid, note ?? null]
       );
+      // Auto-add a comment when rejection reason given
+      if (rejection_reason && String(rejection_reason).trim()) {
+        await pq().query(
+          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [leadId, me.id, me.full_name, me.role || "manager", `❌ Причина отказа: ${rejection_reason}`]
+        );
+      }
 
       res.json({ ok: true, lead: updated.rows[0] });
     } catch (err) {
       console.error("[lidy/status]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Get comments for a lead
+  app.get("/api/lidy/leads/:id/comments", requireManager, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      const { rows } = await pq().query(
+        `SELECT id, manager_id, author_name, author_role, body, created_at
+         FROM lead_comments WHERE lead_id = $1 ORDER BY created_at ASC`,
+        [leadId]
+      );
+      res.json({ comments: rows });
+    } catch (err) {
+      console.error("[lidy/comments GET]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Add a comment to a lead
+  app.post("/api/lidy/leads/:id/comments", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const leadId = Number(req.params.id);
+      const body = String(req.body?.body || "").trim();
+      if (!body) return res.status(400).json({ error: "Empty comment" });
+      if (body.length > 4000) return res.status(400).json({ error: "Comment too long" });
+
+      // Both managers and teamleads can comment on any lead they can see
+      // Manager can only comment on their own leads (unless teamlead)
+      const leadRow = await pq().query(`SELECT id, assigned_manager_id FROM leads WHERE id = $1`, [leadId]);
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+      if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== me.id) {
+        return res.status(403).json({ error: "You can only comment on your own leads" });
+      }
+
+      const { rows } = await pq().query(
+        `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, manager_id, author_name, author_role, body, created_at`,
+        [leadId, me.id, me.full_name, me.role || "manager", body]
+      );
+      res.json({ ok: true, comment: rows[0] });
+    } catch (err) {
+      console.error("[lidy/comments POST]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Manager can change the source on a lead (correct attribution)
+  app.put("/api/lidy/leads/:id/source", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const leadId = Number(req.params.id);
+      const newSource = String(req.body?.source || "").trim();
+      if (!newSource) return res.status(400).json({ error: "Source required" });
+
+      const leadRow = await pq().query(`SELECT id, assigned_manager_id, source FROM leads WHERE id = $1`, [leadId]);
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+      if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== me.id) {
+        return res.status(403).json({ error: "You can only edit your own leads" });
+      }
+
+      await pq().query(`UPDATE leads SET source = $1, updated_at = NOW() WHERE id = $2`, [newSource, leadId]);
+      // Log as a comment for trail
+      await pq().query(
+        `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [leadId, me.id, me.full_name, me.role || "manager", `🏷 Изменил источник: «${lead.source || "—"}» → «${newSource}»`]
+      );
+      res.json({ ok: true, source: newSource });
+    } catch (err) {
+      console.error("[lidy/source]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
@@ -1311,7 +1432,7 @@ async function startServer() {
 
   app.get("/api/lidy/statuses", requireManager, async (_req, res) => {
     try {
-      const { rows } = await pq().query(`SELECT code, label, color, is_terminal, sort FROM lead_statuses ORDER BY sort ASC, label ASC`);
+      const { rows } = await pq().query(`SELECT code, label, color, is_terminal, requires_reason, sort FROM lead_statuses ORDER BY sort ASC, label ASC`);
       res.json({ statuses: rows });
     } catch (err) {
       console.error("[lidy/statuses]", err);
@@ -1443,24 +1564,25 @@ async function startServer() {
   });
 
   app.get("/api/admin/lead-statuses", requireAdmin, async (_req, res) => {
-    const { rows } = await pq().query(`SELECT code, label, color, is_terminal, sort FROM lead_statuses ORDER BY sort, label`);
+    const { rows } = await pq().query(`SELECT code, label, color, is_terminal, requires_reason, sort FROM lead_statuses ORDER BY sort, label`);
     res.json({ statuses: rows });
   });
 
   app.post("/api/admin/lead-statuses", requireAdmin, async (req, res) => {
     try {
-      const { code, label, color, is_terminal, sort } = req.body || {};
+      const { code, label, color, is_terminal, requires_reason, sort } = req.body || {};
       if (!code || !label) return res.status(400).json({ error: "Missing code/label" });
       const { rows } = await pq().query(
-        `INSERT INTO lead_statuses (code, label, color, is_terminal, sort)
-         VALUES ($1,$2,$3,COALESCE($4,FALSE),COALESCE($5,0))
+        `INSERT INTO lead_statuses (code, label, color, is_terminal, requires_reason, sort)
+         VALUES ($1,$2,$3,COALESCE($4,FALSE),COALESCE($5,FALSE),COALESCE($6,0))
          ON CONFLICT (code) DO UPDATE SET
            label = EXCLUDED.label,
            color = EXCLUDED.color,
            is_terminal = EXCLUDED.is_terminal,
+           requires_reason = EXCLUDED.requires_reason,
            sort = EXCLUDED.sort
          RETURNING *`,
-        [code, label, color || null, is_terminal, sort]
+        [code, label, color || null, is_terminal, requires_reason, sort]
       );
       res.json({ status: rows[0] });
     } catch (err) {
@@ -1531,6 +1653,17 @@ async function startServer() {
         ORDER BY ls.sort
       `);
 
+      const bySourceQ = await pq().query(`
+        SELECT COALESCE(NULLIF(source, ''), 'Не указан') AS source,
+               COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won,
+               COUNT(*) FILTER (WHERE processed_at IS NOT NULL)::int AS closed
+        FROM leads
+        WHERE received_at >= ${since}
+        GROUP BY 1
+        ORDER BY total DESC
+      `);
+
       const byManagerQ = await pq().query(`
         SELECT m.id, m.full_name, m.login, m.active,
                COUNT(l.*)::int AS total,
@@ -1571,6 +1704,7 @@ async function startServer() {
         daily: dailyQ.rows,
         byStatus: byStatusQ.rows,
         byManager: byManagerQ.rows,
+        bySource: bySourceQ.rows,
       });
     } catch (err) {
       console.error("[admin/dashboard]", err);

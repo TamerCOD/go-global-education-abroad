@@ -352,99 +352,99 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
 
 const PUBLIC_BASE = (typeof window !== 'undefined') ? window.location.origin : 'https://goglobal.su';
 
-const SharingLinksSection: React.FC<{ contactInfo: any }> = ({ contactInfo }) => {
-    const [phone, setPhone] = useState('');
-    const [insta, setInsta] = useState('');
-    const [email, setEmail] = useState('');
-    const [copied, setCopied] = useState<string | null>(null);
+const SharingLinksSection: React.FC<{ contactInfo: any }> = () => {
+    const url = `${PUBLIC_BASE}/apply`;
+    const [copied, setCopied] = useState(false);
 
-    const copy = async (text: string, key: string) => {
+    const copy = async () => {
         try {
-            await navigator.clipboard.writeText(text);
-            setCopied(key);
-            setTimeout(() => setCopied(null), 1500);
+            await navigator.clipboard.writeText(url);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
         } catch {
-            alert('Скопируйте вручную: ' + text);
+            alert('Скопируйте вручную: ' + url);
         }
     };
-
-    const buildUrl = (params: Record<string, string>) => {
-        const u = new URL(`${PUBLIC_BASE}/apply`);
-        for (const [k, v] of Object.entries(params)) if (v) u.searchParams.set(k, v);
-        return u.toString();
-    };
-
-    const links = [
-        {
-            key: 'whatsapp',
-            title: '💬 Для рассылки в WhatsApp',
-            color: 'bg-emerald-50 border-emerald-200',
-            input: (
-                <input className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
-                    placeholder="996700123456 (опционально)"
-                    value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))} />
-            ),
-            url: buildUrl({ source: 'whatsapp', phone }),
-            tip: 'Когда клиент откроет ссылку — поле «Телефон» уже подставлено',
-        },
-        {
-            key: 'instagram',
-            title: '📷 Для рассылки в Instagram (DM)',
-            color: 'bg-pink-50 border-pink-200',
-            input: (
-                <input className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
-                    placeholder="@username клиента (опционально)"
-                    value={insta} onChange={e => setInsta(e.target.value)} />
-            ),
-            url: buildUrl({ source: 'instagram', insta }),
-            tip: 'У формы появится отдельное поле «Ваш Instagram»',
-        },
-        {
-            key: 'email',
-            title: '✉ Для рассылки по почте',
-            color: 'bg-blue-50 border-blue-200',
-            input: (
-                <input className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
-                    placeholder="user@example.com (опционально)"
-                    value={email} onChange={e => setEmail(e.target.value)} />
-            ),
-            url: buildUrl({ source: 'email', email }),
-            tip: 'Email-поле будет преподаспонено и отмечено обязательным',
-        },
-    ];
 
     return (
         <div className="space-y-4">
             <p className="text-sm text-slate-600">
-                Каждая ссылка ведёт на отдельную форму, которая запоминает источник лида.
-                В CRM этот лид появится с цветной плашкой «WhatsApp / Instagram / Email».
-                Можно вставить заранее контакт клиента — он подставится в форму автоматически.
+                Это публичная ссылка на форму заявки. В форме клиент сам выберет в выпадающем списке,
+                откуда он о нас узнал — и это значение запишется как источник лида.
+                Список вариантов настраивается ниже в секции «🎯 Варианты источников лидов».
             </p>
-            <div className="grid lg:grid-cols-3 gap-4">
-                {links.map(l => (
-                    <div key={l.key} className={`rounded-2xl border-2 p-4 ${l.color}`}>
-                        <div className="font-bold text-slate-900 mb-2">{l.title}</div>
-                        <div className="mb-2">{l.input}</div>
-                        <div className="text-xs font-mono break-all bg-white rounded-lg border border-slate-300 p-2 mb-2 select-all">{l.url}</div>
-                        <div className="flex gap-2 mb-2">
-                            <button onClick={() => copy(l.url, l.key)} className="flex-1 bg-slate-900 hover:bg-black text-white text-sm font-bold rounded-lg px-3 py-2 transition-colors">
-                                {copied === l.key ? '✓ Скопировано' : '📋 Копировать'}
-                            </button>
-                            <a href={l.url} target="_blank" rel="noopener noreferrer"
-                                className="bg-white border border-slate-300 hover:bg-slate-50 text-sm font-medium rounded-lg px-3 py-2">
-                                🔍 Открыть
-                            </a>
-                        </div>
-                        <details>
-                            <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">QR-код</summary>
-                            <img
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(l.url)}`}
-                                alt="QR" className="mt-2 rounded-lg border border-slate-300 bg-white"
-                            />
-                        </details>
-                        <p className="text-xs text-slate-500 mt-2">{l.tip}</p>
-                    </div>
+            <div className="rounded-2xl border-2 border-slate-200 bg-gradient-to-br from-blue-50 to-violet-50 p-5">
+                <div className="font-bold text-slate-900 mb-3 flex items-center gap-2">
+                    🔗 Универсальная форма заявки
+                </div>
+                <div className="font-mono text-sm break-all bg-white rounded-lg border border-slate-300 p-3 mb-3 select-all">{url}</div>
+                <div className="flex flex-wrap gap-2">
+                    <button onClick={copy} className="flex-1 bg-slate-900 hover:bg-black text-white text-sm font-bold rounded-lg px-4 py-2.5 transition-colors min-w-[140px]">
+                        {copied ? '✓ Скопировано' : '📋 Копировать'}
+                    </button>
+                    <a href={url} target="_blank" rel="noopener noreferrer"
+                        className="bg-white border border-slate-300 hover:bg-slate-50 text-sm font-medium rounded-lg px-4 py-2.5">
+                        🔍 Открыть форму
+                    </a>
+                </div>
+                <details className="mt-3">
+                    <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">QR-код для печати/баннеров</summary>
+                    <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(url)}`}
+                        alt="QR" className="mt-2 rounded-lg border border-slate-300 bg-white"
+                    />
+                </details>
+            </div>
+        </div>
+    );
+};
+
+// Admin can edit the dropdown list seen by clients on /apply
+const AttributionOptionsSection: React.FC<{ value: string[]; onChange: (next: string[]) => void }> = ({ value, onChange }) => {
+    const list = value && value.length > 0 ? value : [
+        'Сайт', 'Instagram', 'WhatsApp', 'Email', 'Друзья / знакомые', 'Реклама', 'Поиск Google', 'Другое',
+    ];
+    const [draft, setDraft] = useState('');
+    return (
+        <div className="space-y-2">
+            <p className="text-sm text-slate-600">
+                Эти варианты появляются в выпадающем списке «Откуда вы о нас узнали?» на форме заявки.
+                Менеджер также может вручную изменить источник лида в карточке — на любое из этих значений.
+            </p>
+            <div className="flex flex-wrap gap-2">
+                {list.map((s, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 bg-slate-100 border border-slate-300 rounded-lg pl-3 pr-1 py-1 text-sm">
+                        {s}
+                        <button className="text-slate-400 hover:text-red-500 px-2" title="Удалить"
+                            onClick={() => {
+                                const next = [...list]; next.splice(i, 1);
+                                onChange(next);
+                            }}>✕</button>
+                    </span>
                 ))}
+            </div>
+            <div className="flex gap-2 pt-2">
+                <input className="flex-grow rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Например: TikTok"
+                    value={draft} onChange={e => setDraft(e.target.value)}
+                    onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const v = draft.trim();
+                            if (v && !list.includes(v)) {
+                                onChange([...list, v]);
+                                setDraft('');
+                            }
+                        }
+                    }} />
+                <button className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                    onClick={() => {
+                        const v = draft.trim();
+                        if (v && !list.includes(v)) {
+                            onChange([...list, v]);
+                            setDraft('');
+                        }
+                    }}>+ Добавить</button>
             </div>
         </div>
     );
@@ -545,6 +545,7 @@ interface LeadStatusRec {
     label: string;
     color?: string;
     is_terminal: boolean;
+    requires_reason?: boolean;
     sort: number;
 }
 
@@ -763,7 +764,7 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
 const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
     const [statuses, setStatuses] = useState<LeadStatusRec[]>([]);
     const [loading, setLoading] = useState(true);
-    const [draft, setDraft] = useState<LeadStatusRec>({ code: '', label: '', color: '#3b82f6', is_terminal: false, sort: 50 });
+    const [draft, setDraft] = useState<LeadStatusRec>({ code: '', label: '', color: '#3b82f6', is_terminal: false, requires_reason: false, sort: 50 });
 
     const load = async () => {
         setLoading(true);
@@ -800,58 +801,70 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
 
     return (
         <div className="space-y-3">
-            <p className="text-xs text-slate-500">«Терминальные» статусы (закрыт / отказ) автоматически фиксируют время обработки и снимают лид с SLA-таймера.</p>
+            <p className="text-xs text-slate-500">«Терминальные» статусы автоматически фиксируют время обработки и снимают лид с SLA-таймера. «Требует причины» = при выборе менеджеру показывается форма с обязательным полем (например, причина отказа).</p>
             {statuses.map(s => (
-                <div key={s.code} className="grid md:grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded border border-slate-200">
-                    <code className="md:col-span-2 text-xs font-mono">{s.code}</code>
-                    <input className="md:col-span-4 border border-slate-300 p-1.5 rounded text-sm"
+                <div key={s.code} className="grid md:grid-cols-14 gap-2 items-center bg-slate-50 p-2 rounded border border-slate-200" style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto' }}>
+                    <code className="text-xs font-mono px-2">{s.code}</code>
+                    <input className="border border-slate-300 p-1.5 rounded text-sm"
                         value={s.label}
                         onChange={e => upsert({ ...s, label: e.target.value })} />
-                    <input type="color" className="md:col-span-1 h-8 w-full border border-slate-300 rounded"
+                    <input type="color" className="h-8 border border-slate-300 rounded"
                         value={s.color || '#3b82f6'}
                         onChange={e => upsert({ ...s, color: e.target.value })} />
-                    <input type="number" className="md:col-span-1 border border-slate-300 p-1.5 rounded text-sm"
+                    <input type="number" className="border border-slate-300 p-1.5 rounded text-sm"
                         value={s.sort}
                         onChange={e => upsert({ ...s, sort: parseInt(e.target.value) || 0 })} />
-                    <label className="md:col-span-2 text-xs flex items-center gap-1">
+                    <label className="text-xs flex items-center gap-1 whitespace-nowrap">
                         <input type="checkbox" className="accent-brand-600"
                             checked={s.is_terminal}
                             onChange={e => upsert({ ...s, is_terminal: e.target.checked })} />
-                        терминальный
+                        закрывает
+                    </label>
+                    <label className="text-xs flex items-center gap-1 whitespace-nowrap">
+                        <input type="checkbox" className="accent-red-600"
+                            checked={!!s.requires_reason}
+                            onChange={e => upsert({ ...s, requires_reason: e.target.checked })} />
+                        требует причины
                     </label>
                     <button onClick={() => remove(s.code)} disabled={s.code === 'new'}
-                        className="md:col-span-2 text-xs bg-red-50 hover:bg-red-100 disabled:opacity-30 text-red-700 px-2 py-1 rounded">
+                        className="text-xs bg-red-50 hover:bg-red-100 disabled:opacity-30 text-red-700 px-3 py-1.5 rounded whitespace-nowrap">
                         Удалить
                     </button>
                 </div>
             ))}
             <hr />
-            <div className="grid md:grid-cols-12 gap-2 items-center bg-emerald-50 p-2 rounded border border-emerald-200">
-                <input className="md:col-span-2 border border-slate-300 p-1.5 rounded text-sm font-mono"
-                    placeholder="code (англ.)"
+            <div className="grid gap-2 items-center bg-emerald-50 p-2 rounded border border-emerald-200" style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto' }}>
+                <input className="border border-slate-300 p-1.5 rounded text-sm font-mono w-24"
+                    placeholder="code"
                     value={draft.code}
                     onChange={e => setDraft({ ...draft, code: e.target.value.toLowerCase().replace(/\s/g, '_') })} />
-                <input className="md:col-span-4 border border-slate-300 p-1.5 rounded text-sm"
+                <input className="border border-slate-300 p-1.5 rounded text-sm"
                     placeholder="Метка для UI"
                     value={draft.label}
                     onChange={e => setDraft({ ...draft, label: e.target.value })} />
-                <input type="color" className="md:col-span-1 h-8 w-full border border-slate-300 rounded"
+                <input type="color" className="h-8 border border-slate-300 rounded"
                     value={draft.color || '#3b82f6'}
                     onChange={e => setDraft({ ...draft, color: e.target.value })} />
-                <input type="number" className="md:col-span-1 border border-slate-300 p-1.5 rounded text-sm"
+                <input type="number" className="border border-slate-300 p-1.5 rounded text-sm"
                     value={draft.sort}
                     onChange={e => setDraft({ ...draft, sort: parseInt(e.target.value) || 0 })} />
-                <label className="md:col-span-2 text-xs flex items-center gap-1">
+                <label className="text-xs flex items-center gap-1 whitespace-nowrap">
                     <input type="checkbox" className="accent-brand-600"
                         checked={draft.is_terminal}
                         onChange={e => setDraft({ ...draft, is_terminal: e.target.checked })} />
-                    терминальный
+                    закрывает
+                </label>
+                <label className="text-xs flex items-center gap-1 whitespace-nowrap">
+                    <input type="checkbox" className="accent-red-600"
+                        checked={!!draft.requires_reason}
+                        onChange={e => setDraft({ ...draft, requires_reason: e.target.checked })} />
+                    требует причины
                 </label>
                 <button onClick={async () => {
                     if (!draft.code || !draft.label) { alert('code и label обязательны'); return; }
                     await upsert(draft);
                     setDraft({ code: '', label: '', color: '#3b82f6', is_terminal: false, sort: 50 });
-                }} className="md:col-span-2 text-xs bg-brand-600 hover:bg-brand-700 text-white px-2 py-1 rounded">+ Добавить</button>
+                }} className="text-xs bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded whitespace-nowrap">+ Добавить</button>
             </div>
         </div>
     );
@@ -955,6 +968,39 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                             <span className="text-sm font-medium text-slate-900">{s.n}</span>
                         </div>
                     ))}
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-lg p-3 md:col-span-2">
+                    <div className="text-xs uppercase text-slate-500 mb-2">📡 По источникам (откуда узнали о нас)</div>
+                    {data.bySource && data.bySource.length > 0 ? (
+                        <table className="w-full text-xs">
+                            <thead className="text-left text-slate-500">
+                                <tr>
+                                    <th className="py-1">Источник</th>
+                                    <th className="text-right">Всего</th>
+                                    <th className="text-right">Закрыто</th>
+                                    <th className="text-right">Won</th>
+                                    <th className="text-right">Конверсия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {data.bySource.map((s: any) => {
+                                    const conv = s.closed > 0 ? Math.round((s.won / s.closed) * 100) : 0;
+                                    return (
+                                        <tr key={s.source} className="border-t border-slate-100">
+                                            <td className="py-1 font-medium">{s.source}</td>
+                                            <td className="text-right font-mono">{s.total}</td>
+                                            <td className="text-right font-mono">{s.closed}</td>
+                                            <td className="text-right font-mono text-emerald-700">{s.won}</td>
+                                            <td className="text-right font-mono">{conv}%</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <p className="text-xs text-slate-400 italic">Пока нет данных</p>
+                    )}
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
@@ -1291,8 +1337,15 @@ const AdminPanel: React.FC = () => {
                     </div>
                 </Section>
 
-                <Section title="🔗 Ссылки для рассылки клиентам" subtitle="Готовые формы по каналам — копируй и отправляй" badge="NEW" accent="cyan" defaultOpen>
+                <Section title="🔗 Ссылка на форму заявки" subtitle="Универсальный URL — копируй и отправляй клиентам в любом канале" accent="cyan" defaultOpen>
                     <SharingLinksSection contactInfo={ci} />
+                </Section>
+
+                <Section title="🎯 Варианты источников лидов" subtitle="Что клиент выбирает в форме «Откуда вы о нас узнали?»" accent="violet">
+                    <AttributionOptionsSection
+                        value={(sc.attributionOptions as string[]) || []}
+                        onChange={next => setSC({ attributionOptions: next })}
+                    />
                 </Section>
 
                 <Section title="📞 Контакты, WhatsApp и график работы" subtitle="Телефон, email, расписание для футера" defaultOpen={false}>
