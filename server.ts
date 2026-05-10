@@ -203,6 +203,28 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS rejection_reason TEXT;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_reason BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`UPDATE lead_statuses SET requires_reason = TRUE WHERE code = 'closed_lost'`);
+
+    // Events table
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS events (
+        id BIGSERIAL PRIMARY KEY,
+        slug TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Extended lead fields
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS event_id BIGINT REFERENCES events(id) ON DELETE SET NULL;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS event_name_snapshot TEXT;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS desired_university TEXT;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS study_level TEXT;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS intake_term TEXT;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS budget TEXT;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS english_level TEXT;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS birth_year INTEGER;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS current_education TEXT;`);
     // Named comments (each manager/teamlead leaves a comment with their name)
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_comments (
@@ -790,9 +812,30 @@ async function startServer() {
     const email = (b.email || "").toString().slice(0, 200);
     const country = (b.country || "").toString().slice(0, 100);
     const comment = (b.comment || "").toString().slice(0, 2000);
+    const desired_university = (b.desired_university || "").toString().slice(0, 200);
+    const study_level = (b.study_level || "").toString().slice(0, 80);
+    const intake_term = (b.intake_term || "").toString().slice(0, 80);
+    const budget = (b.budget || "").toString().slice(0, 80);
+    const english_level = (b.english_level || "").toString().slice(0, 40);
+    const birth_year = b.birth_year ? Number(b.birth_year) || null : null;
+    const current_education = (b.current_education || "").toString().slice(0, 120);
 
     if (!name && !phone && !email) {
       throw new Error("Missing name/phone/email");
+    }
+
+    // Look up event by slug if provided
+    let eventId: number | null = null;
+    let eventNameSnapshot: string | null = null;
+    if (b.event_slug) {
+      const ev = await pq().query(
+        `SELECT id, name FROM events WHERE slug = $1 AND active = TRUE`,
+        [String(b.event_slug).trim().toLowerCase()]
+      );
+      if (ev.rows.length > 0) {
+        eventId = ev.rows[0].id;
+        eventNameSnapshot = ev.rows[0].name;
+      }
     }
 
     const manager = await pickNextManager();
@@ -803,10 +846,14 @@ async function startServer() {
 
     const insert = await pq().query(
       `INSERT INTO leads (name, phone, email, country, comment, source, raw,
-                          assigned_manager_id, status_code, sla_deadline_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'new',$9)
+                          assigned_manager_id, status_code, sla_deadline_at,
+                          event_id, event_name_snapshot, desired_university, study_level,
+                          intake_term, budget, english_level, birth_year, current_education)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'new',$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING id, received_at`,
-      [name, phone, email, country, comment, source, JSON.stringify(b), manager?.id ?? null, slaDeadline]
+      [name, phone, email, country, comment, source, JSON.stringify(b), manager?.id ?? null, slaDeadline,
+        eventId, eventNameSnapshot, desired_university || null, study_level || null,
+        intake_term || null, budget || null, english_level || null, birth_year, current_education || null]
     );
     const leadId = insert.rows[0].id;
 
@@ -817,10 +864,13 @@ async function startServer() {
     const sourceLabel = sourceBadge(source);
     const lines = [
       `🆕 <b>Новый лид <a href="${PUBLIC_BASE_URL}/lidy">#${leadId}</a></b> ${sourceLabel}`,
+      eventNameSnapshot ? `🎟 Событие: <b>${escapeHtml(eventNameSnapshot)}</b>` : "",
       name ? `👤 ${escapeHtml(name)}` : "",
       phone ? `📞 ${escapeHtml(phone)}${wa ? ` · <a href="${wa}">открыть WhatsApp</a>` : ""}` : "",
       email ? `✉️ <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>` : "",
       country ? `🌍 ${escapeHtml(country)}` : "",
+      desired_university ? `🎓 ${escapeHtml(desired_university)}` : "",
+      study_level || intake_term ? `📚 ${escapeHtml([study_level, intake_term].filter(Boolean).join(", "))}` : "",
       comment ? `💬 ${escapeHtml(comment)}` : "",
       manager
         ? `👨‍💼 Назначен: <b>${escapeHtml(manager.full_name)}</b> (${escapeHtml(manager.login)}) ${tag}`.trim()
@@ -1029,12 +1079,14 @@ async function startServer() {
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color, ls.is_terminal AS status_is_terminal,
                 m.full_name AS manager_name, m.login AS manager_login, m.archived_at AS manager_archived_at,
                 pt.full_name AS pending_transfer_to_name, pt.login AS pending_transfer_to_login,
-                pby.full_name AS pending_transfer_by_name
+                pby.full_name AS pending_transfer_by_name,
+                ev.name AS event_name, ev.slug AS event_slug
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
          LEFT JOIN managers pt ON pt.id = l.pending_transfer_to_id
          LEFT JOIN managers pby ON pby.id = l.pending_transfer_by_id
+         LEFT JOIN events ev ON ev.id = l.event_id
          ${whereSql}
          ORDER BY l.received_at DESC
          LIMIT 300`,
@@ -1184,6 +1236,155 @@ async function startServer() {
       res.json({ ok: true, comment: rows[0] });
     } catch (err) {
       console.error("[lidy/comments POST]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // ====================================================================
+  // Events (admin CRUD + public lookup)
+  // ====================================================================
+  function slugify(s: string) {
+    return s
+      .toLowerCase()
+      .replace(/ё/g, "е")
+      .replace(/[^\w\sа-я-]/gi, "")
+      .replace(/\s+/g, "-")
+      .replace(/[а-я]/g, c => {
+        const map: Record<string, string> = {
+          а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ж: "zh", з: "z",
+          и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p",
+          р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "c", ч: "ch",
+          ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+        };
+        return map[c] || c;
+      })
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60);
+  }
+
+  app.get("/api/admin/events", requireAdmin, async (_req, res) => {
+    try {
+      const { rows } = await pq().query(
+        `SELECT e.*,
+                (SELECT COUNT(*)::int FROM leads l WHERE l.event_id = e.id) AS lead_count
+         FROM events e
+         ORDER BY e.active DESC, e.created_at DESC`
+      );
+      res.json({ events: rows });
+    } catch (err) {
+      console.error("[admin/events GET]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post("/api/admin/events", requireAdmin, async (req, res) => {
+    try {
+      const name = String(req.body?.name || "").trim();
+      const description = String(req.body?.description || "").trim();
+      let slug = String(req.body?.slug || "").trim().toLowerCase();
+      if (!name) return res.status(400).json({ error: "name required" });
+      if (!slug) slug = slugify(name) + "-" + Math.random().toString(36).slice(2, 6);
+
+      const { rows } = await pq().query(
+        `INSERT INTO events (slug, name, description) VALUES ($1, $2, $3)
+         RETURNING *`,
+        [slug, name, description || null]
+      );
+      res.json({ event: rows[0] });
+    } catch (err: any) {
+      if (err?.code === "23505") return res.status(409).json({ error: "Slug already exists" });
+      console.error("[admin/events POST]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.put("/api/admin/events/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { name, description, active, slug } = req.body || {};
+      const sets: string[] = [];
+      const params: any[] = [];
+      if (name !== undefined) { sets.push(`name = $${params.length + 1}`); params.push(name); }
+      if (description !== undefined) { sets.push(`description = $${params.length + 1}`); params.push(description || null); }
+      if (active !== undefined) { sets.push(`active = $${params.length + 1}`); params.push(!!active); }
+      if (slug !== undefined && slug) { sets.push(`slug = $${params.length + 1}`); params.push(String(slug).trim().toLowerCase()); }
+      if (sets.length === 0) return res.json({ ok: true });
+      params.push(id);
+      const { rows } = await pq().query(
+        `UPDATE events SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING *`,
+        params
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ event: rows[0] });
+    } catch (err: any) {
+      if (err?.code === "23505") return res.status(409).json({ error: "Slug already exists" });
+      console.error("[admin/events PUT]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.delete("/api/admin/events/:id", requireAdmin, async (req, res) => {
+    await pq().query(`DELETE FROM events WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  // Public lookup for the /apply page when ?event=<slug>
+  app.get("/api/events/:slug", async (req, res) => {
+    try {
+      const slug = String(req.params.slug || "").trim().toLowerCase();
+      const { rows } = await pq().query(
+        `SELECT id, slug, name, description FROM events WHERE slug = $1 AND active = TRUE`,
+        [slug]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ event: rows[0] });
+    } catch (err) {
+      console.error("[events public]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // ====================================================================
+  // Generic lead field update (for university, budget, level, etc.)
+  // ====================================================================
+  const ALLOWED_LEAD_FIELDS = new Set([
+    "name", "phone", "email", "country", "comment",
+    "desired_university", "study_level", "intake_term", "budget",
+    "english_level", "birth_year", "current_education",
+  ]);
+
+  app.patch("/api/lidy/leads/:id", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const leadId = Number(req.params.id);
+
+      const leadRow = await pq().query(`SELECT id, assigned_manager_id FROM leads WHERE id = $1`, [leadId]);
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+      if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== me.id) {
+        return res.status(403).json({ error: "Not your lead" });
+      }
+
+      const sets: string[] = [];
+      const params: any[] = [];
+      for (const [k, v] of Object.entries(req.body || {})) {
+        if (!ALLOWED_LEAD_FIELDS.has(k)) continue;
+        sets.push(`${k} = $${params.length + 1}`);
+        params.push(v === "" ? null : v);
+      }
+      if (sets.length === 0) return res.status(400).json({ error: "Nothing to update" });
+      params.push(leadId);
+      const { rows } = await pq().query(
+        `UPDATE leads SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $${params.length}
+         RETURNING *`,
+        params
+      );
+      res.json({ ok: true, lead: rows[0] });
+    } catch (err) {
+      console.error("[lidy/lead PATCH]", err);
       res.status(500).json({ error: "Server error" });
     }
   });

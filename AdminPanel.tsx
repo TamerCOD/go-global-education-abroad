@@ -399,6 +399,147 @@ const SharingLinksSection: React.FC<{ contactInfo: any }> = () => {
     );
 };
 
+// Events section — admin creates events with auto-generated slug
+interface EventRec {
+    id: number;
+    slug: string;
+    name: string;
+    description?: string;
+    active: boolean;
+    lead_count?: number;
+    created_at: string;
+}
+
+const EventsSection: React.FC<{ password: string }> = ({ password }) => {
+    const [events, setEvents] = useState<EventRec[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [draft, setDraft] = useState({ name: '', description: '' });
+    const [copied, setCopied] = useState<string | null>(null);
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const r = await fetch('/api/admin/events', { headers: { 'X-Admin-Password': password } });
+            const j = await r.json();
+            setEvents(j.events || []);
+        } finally { setLoading(false); }
+    };
+    useEffect(() => { load(); }, []);
+
+    const create = async () => {
+        if (!draft.name.trim()) { alert('Введите название события'); return; }
+        const r = await fetch('/api/admin/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(draft),
+        });
+        if (r.ok) {
+            setDraft({ name: '', description: '' });
+            await load();
+        } else {
+            const j = await r.json().catch(() => ({}));
+            alert('Ошибка: ' + (j.error || r.status));
+        }
+    };
+
+    const update = async (id: number, patch: Partial<EventRec>) => {
+        await fetch(`/api/admin/events/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(patch),
+        });
+        await load();
+    };
+
+    const remove = async (id: number, name: string) => {
+        if (!confirm(`Удалить событие "${name}"? Лиды этого события сохранятся, но останутся без привязки.`)) return;
+        await fetch(`/api/admin/events/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        await load();
+    };
+
+    const copy = async (text: string, key: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(key);
+            setTimeout(() => setCopied(null), 1500);
+        } catch { alert('Скопируйте вручную: ' + text); }
+    };
+
+    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+
+    return (
+        <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+                Каждое событие получает свою ссылку с auto-генерируемым slug.
+                Лиды, пришедшие по ссылке события, будут помечены этим событием в карточке + Telegram-уведомлении.
+                Клиент в форме увидит баннер с названием/описанием события.
+            </p>
+
+            <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-3 grid md:grid-cols-3 gap-2 items-end">
+                <input className="md:col-span-2 border border-slate-300 rounded-lg p-2 text-sm"
+                    placeholder="Название события (напр. День открытых дверей в США)"
+                    value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
+                <button onClick={create} className="bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-sm font-medium">+ Создать событие</button>
+                <textarea className="md:col-span-3 border border-slate-300 rounded-lg p-2 text-sm" rows={2}
+                    placeholder="Описание (необязательно — показывается клиенту в баннере на форме)"
+                    value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} />
+            </div>
+
+            {events.length === 0 ? (
+                <p className="text-slate-500 text-sm italic">Событий пока нет</p>
+            ) : (
+                <div className="space-y-3">
+                    {events.map(ev => {
+                        const url = `${PUBLIC_BASE}/apply?event=${encodeURIComponent(ev.slug)}`;
+                        return (
+                            <div key={ev.id} className={`border border-slate-200 rounded-xl p-3 ${ev.active ? 'bg-white' : 'bg-slate-50 opacity-70'}`}>
+                                <div className="grid md:grid-cols-[1fr_auto] gap-2 items-start">
+                                    <div className="space-y-2">
+                                        <input className="w-full border border-slate-300 rounded-lg p-2 text-sm font-bold"
+                                            value={ev.name}
+                                            onChange={e => setEvents(prev => prev.map(p => p.id === ev.id ? { ...p, name: e.target.value } : p))}
+                                            onBlur={e => update(ev.id, { name: e.target.value })} />
+                                        <textarea className="w-full border border-slate-300 rounded-lg p-2 text-xs" rows={2}
+                                            placeholder="Описание (необязательно)"
+                                            value={ev.description || ''}
+                                            onChange={e => setEvents(prev => prev.map(p => p.id === ev.id ? { ...p, description: e.target.value } : p))}
+                                            onBlur={e => update(ev.id, { description: e.target.value })} />
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <code className="text-xs font-mono bg-slate-100 px-2 py-1 rounded">slug: {ev.slug}</code>
+                                            <span className="text-xs text-slate-500">лидов: <strong>{ev.lead_count ?? 0}</strong></span>
+                                            <label className="text-xs flex items-center gap-1">
+                                                <input type="checkbox" className="accent-emerald-600"
+                                                    checked={ev.active}
+                                                    onChange={e => update(ev.id, { active: e.target.checked })} />
+                                                активно
+                                            </label>
+                                        </div>
+                                        <div className="text-xs font-mono break-all bg-slate-100 rounded p-2 select-all">{url}</div>
+                                    </div>
+                                    <div className="flex md:flex-col gap-2">
+                                        <button onClick={() => copy(url, ev.slug)}
+                                            className="bg-slate-900 hover:bg-black text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap">
+                                            {copied === ev.slug ? '✓ Скопировано' : '📋 Копировать'}
+                                        </button>
+                                        <a href={url} target="_blank" rel="noopener noreferrer"
+                                            className="bg-white border border-slate-300 hover:bg-slate-50 text-xs font-medium px-3 py-2 rounded-lg whitespace-nowrap text-center">
+                                            🔍 Открыть
+                                        </a>
+                                        <button onClick={() => remove(ev.id, ev.name)}
+                                            className="bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium px-3 py-2 rounded-lg whitespace-nowrap">
+                                            Удалить
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // Admin can edit the dropdown list seen by clients on /apply
 const AttributionOptionsSection: React.FC<{ value: string[]; onChange: (next: string[]) => void }> = ({ value, onChange }) => {
     const list = value && value.length > 0 ? value : [
@@ -566,6 +707,8 @@ interface LeadRec {
     processed_at?: string | null;
     manager_name?: string | null;
     manager_login?: string | null;
+    event_name_snapshot?: string | null;
+    desired_university?: string | null;
 }
 
 const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
@@ -1346,6 +1489,10 @@ const AdminPanel: React.FC = () => {
                         value={(sc.attributionOptions as string[]) || []}
                         onChange={next => setSC({ attributionOptions: next })}
                     />
+                </Section>
+
+                <Section title="🎟 События / ивент-ссылки" subtitle="Отдельный URL на каждое событие — лид получает метку ивента" badge="NEW" accent="fuchsia">
+                    <EventsSection password={password} />
                 </Section>
 
                 <Section title="📞 Контакты, WhatsApp и график работы" subtitle="Телефон, email, расписание для футера" defaultOpen={false}>

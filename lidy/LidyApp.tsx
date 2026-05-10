@@ -44,6 +44,17 @@ interface Lead {
     pending_transfer_to_name?: string | null;
     pending_transfer_at?: string | null;
     pending_transfer_by_name?: string | null;
+    // Extended fields
+    event_id?: number | null;
+    event_name?: string | null;
+    event_name_snapshot?: string | null;
+    desired_university?: string | null;
+    study_level?: string | null;
+    intake_term?: string | null;
+    budget?: string | null;
+    english_level?: string | null;
+    birth_year?: number | null;
+    current_education?: string | null;
 }
 interface StatusOption {
     code: string;
@@ -92,6 +103,27 @@ const formatRel = (iso: string) => {
     const h = Math.round(diffMin / 60);
     if (h < 24) return `${h} ч`;
     return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+};
+
+// Full date+time in Asia/Bishkek (UTC+6) — what menager-staff actually want to read
+const formatFull = (iso: string) =>
+    new Date(iso).toLocaleString('ru-RU', {
+        timeZone: 'Asia/Bishkek',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    });
+
+// Returns 'X ч Y мин' for diff between deadline and now (positive = remaining, negative = overdue)
+const formatRemaining = (deadlineIso: string) => {
+    const ms = new Date(deadlineIso).getTime() - Date.now();
+    const overdue = ms < 0;
+    const totalMin = Math.abs(Math.round(ms / 60000));
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    const parts = [];
+    if (h > 0) parts.push(`${h} ч`);
+    parts.push(`${m} мин`);
+    return { overdue, text: parts.join(' ') };
 };
 
 const formatSla = (deadlineIso: string | null, processedIso?: string | null) => {
@@ -212,8 +244,104 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
     );
 };
 
+const STUDY_LEVELS = ['Бакалавриат', 'Магистратура', 'PhD / докторантура', 'Foundation / подготовка', 'Языковые курсы', 'Среднее образование'];
+
+const DetailRow: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
+    <div className="flex items-baseline gap-2">
+        <span className="text-xs text-slate-500 whitespace-nowrap">{label}:</span>
+        <span className={`flex-grow text-sm ${value ? 'text-slate-900 font-medium' : 'text-slate-400 italic'}`}>
+            {value || '—'}
+        </span>
+    </div>
+);
+
+// Compact university picker — used inside lead detail editor
+const UniversityPicker: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
+    const [data, setData] = useState<any>(null);
+    const [filterRegion, setFilterRegion] = useState<string>('');
+    const [filterCountry, setFilterCountry] = useState<string>('');
+    const [search, setSearch] = useState('');
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        fetch('/api/data').then(r => r.ok ? r.json() : null).then(setData).catch(() => {});
+    }, []);
+
+    const allUnis = useMemo(() => {
+        const list: { name: string; country: string; region: string }[] = [];
+        for (const c of data?.countries || []) {
+            for (const u of (c.universities || [])) {
+                list.push({ name: u.name, country: c.name, region: c.region });
+            }
+        }
+        return list;
+    }, [data]);
+
+    const regions = data?.siteConfig?.regions || [];
+    const countries = useMemo(() => {
+        const set = new Set<string>();
+        for (const c of data?.countries || []) {
+            if (!filterRegion || c.region === filterRegion) set.add(c.name);
+        }
+        return Array.from(set).sort();
+    }, [data, filterRegion]);
+
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return allUnis.filter(u => {
+            if (filterRegion && u.region !== filterRegion) return false;
+            if (filterCountry && u.country !== filterCountry) return false;
+            if (q && !u.name.toLowerCase().includes(q) && !u.country.toLowerCase().includes(q)) return false;
+            return true;
+        }).slice(0, 30);
+    }, [allUnis, filterRegion, filterCountry, search]);
+
+    return (
+        <div className="relative">
+            <input type="text"
+                value={value}
+                onChange={e => { onChange(e.target.value); setSearch(e.target.value); setOpen(true); }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => setTimeout(() => setOpen(false), 200)}
+                className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                placeholder="Введите или выберите ниже"
+            />
+            {open && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-50 border border-slate-200 rounded-xl bg-white shadow-lg max-h-72 overflow-hidden flex flex-col">
+                    <div className="flex gap-1 p-2 border-b border-slate-200 bg-slate-50">
+                        <select className="text-xs border border-slate-300 rounded px-2 py-1 bg-white"
+                            value={filterRegion} onChange={e => { setFilterRegion(e.target.value); setFilterCountry(''); }}>
+                            <option value="">Все континенты</option>
+                            {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                        <select className="text-xs border border-slate-300 rounded px-2 py-1 bg-white flex-grow"
+                            value={filterCountry} onChange={e => setFilterCountry(e.target.value)}>
+                            <option value="">Все страны</option>
+                            {countries.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </div>
+                    <div className="overflow-y-auto flex-grow">
+                        {filtered.length === 0 ? (
+                            <div className="p-3 text-sm text-slate-400">Ничего не найдено · можно ввести вручную</div>
+                        ) : (
+                            filtered.map((u, i) => (
+                                <button key={i} type="button"
+                                    onMouseDown={e => { e.preventDefault(); onChange(u.name); setOpen(false); }}
+                                    className="w-full text-left px-3 py-2 hover:bg-slate-100 border-b border-slate-100 last:border-0">
+                                    <div className="text-sm font-medium">{u.name}</div>
+                                    <div className="text-xs text-slate-500">{u.country}</div>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─────────────────────────────────────────────────────────────────────
-// Lead card — brutalist
+// Lead card — material + bento
 // ─────────────────────────────────────────────────────────────────────
 const LeadCard: React.FC<{
     lead: Lead;
@@ -239,6 +367,38 @@ const LeadCard: React.FC<{
     const [comments, setComments] = useState<CommentRec[] | null>(null);
     const [newComment, setNewComment] = useState('');
     const [postingComment, setPostingComment] = useState(false);
+    const [editFields, setEditFields] = useState(false);
+    const [draftFields, setDraftFields] = useState({
+        desired_university: lead.desired_university || '',
+        study_level: lead.study_level || '',
+        intake_term: lead.intake_term || '',
+        budget: lead.budget || '',
+        english_level: lead.english_level || '',
+        birth_year: lead.birth_year ? String(lead.birth_year) : '',
+        current_education: lead.current_education || '',
+    });
+    const [savingFields, setSavingFields] = useState(false);
+
+    const saveFields = async () => {
+        setSavingFields(true);
+        try {
+            const payload: any = { ...draftFields };
+            if (payload.birth_year === '') payload.birth_year = null;
+            else payload.birth_year = Number(payload.birth_year) || null;
+            const r = await fetch(`/api/lidy/leads/${lead.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+            if (!r.ok) {
+                const j = await r.json().catch(() => ({}));
+                alert('Ошибка: ' + (j.error || r.status));
+            } else {
+                setEditFields(false);
+            }
+        } finally { setSavingFields(false); }
+    };
     const isTeamlead = me.role === 'teamlead';
     const isOwner = lead.assigned_manager_id === me.id;
     const sla = formatSla(lead.sla_deadline_at, lead.processed_at);
@@ -355,12 +515,41 @@ const LeadCard: React.FC<{
                         </Tooltip>
                     )}
                 </div>
-                {/* SLA right */}
-                <div className={`px-4 py-2 flex flex-col items-end justify-center border-l border-slate-200 ${sla.color} ${sla.textColor}`}>
-                    <span className="font-mono text-xs uppercase">{sla.text}</span>
-                    <span className="font-mono text-[10px] opacity-70">{formatRel(lead.received_at)}</span>
+                {/* SLA + dates right */}
+                <div className={`px-3 py-2 flex flex-col items-end justify-center border-l border-slate-200 ${sla.color} ${sla.textColor} text-right`}>
+                    <span className="font-mono text-xs uppercase font-bold">{sla.text}</span>
+                    <span className="font-mono text-[10px] opacity-80 mt-0.5">📥 {formatFull(lead.received_at)}</span>
+                    {lead.sla_deadline_at && !lead.processed_at && (
+                        <span className="font-mono text-[10px] opacity-80">⏰ до {formatFull(lead.sla_deadline_at)}</span>
+                    )}
                 </div>
             </div>
+
+            {/* Secondary badges row: event + university preview */}
+            {(lead.event_name || lead.event_name_snapshot || lead.desired_university || lead.study_level || lead.intake_term) && (
+                <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap gap-2 text-xs">
+                    {(lead.event_name || lead.event_name_snapshot) && (
+                        <span className="bg-violet-100 border border-violet-300 text-violet-800 px-2 py-1 rounded-md font-medium">
+                            🎟 {lead.event_name || lead.event_name_snapshot}
+                        </span>
+                    )}
+                    {lead.desired_university && (
+                        <span className="bg-blue-100 border border-blue-300 text-blue-900 px-2 py-1 rounded-md font-medium">
+                            🎓 {lead.desired_university}
+                        </span>
+                    )}
+                    {lead.study_level && (
+                        <span className="bg-slate-100 border border-slate-300 text-slate-700 px-2 py-1 rounded-md">
+                            📚 {lead.study_level}
+                        </span>
+                    )}
+                    {lead.intake_term && (
+                        <span className="bg-amber-100 border border-amber-300 text-amber-900 px-2 py-1 rounded-md">
+                            🗓 {lead.intake_term}
+                        </span>
+                    )}
+                </div>
+            )}
 
             {/* Pending transfer banners */}
             {isIncomingTransfer && (
@@ -431,6 +620,93 @@ const LeadCard: React.FC<{
                             <p className={`text-sm ${BORDER} rounded-lg bg-red-50 border-red-200 p-3 text-red-900`}>{lead.rejection_reason}</p>
                         </div>
                     )}
+
+                    {/* Detailed fields panel */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs font-bold uppercase tracking-widest text-slate-500">📋 Детали клиента</div>
+                            {canEditSource && (
+                                <button onClick={() => setEditFields(!editFields)}
+                                    className="text-xs text-brand-600 hover:underline font-medium">
+                                    {editFields ? '× Отменить' : '✎ Редактировать'}
+                                </button>
+                            )}
+                        </div>
+
+                        {editFields ? (
+                            <div className={`${BORDER} rounded-xl bg-white p-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm`}>
+                                <label className="md:col-span-2">
+                                    <span className="block text-xs text-slate-500 mb-1">Желаемый университет</span>
+                                    <UniversityPicker
+                                        value={draftFields.desired_university}
+                                        onChange={v => setDraftFields(prev => ({ ...prev, desired_university: v }))}
+                                    />
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Уровень программы</span>
+                                    <select className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        value={draftFields.study_level}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, study_level: e.target.value }))}>
+                                        <option value="">— не указано —</option>
+                                        {STUDY_LEVELS.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Когда поступает</span>
+                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        placeholder="Осень 2026"
+                                        value={draftFields.intake_term}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, intake_term: e.target.value }))} />
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Бюджет</span>
+                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        placeholder="$15k–$30k / год"
+                                        value={draftFields.budget}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, budget: e.target.value }))} />
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Английский</span>
+                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        placeholder="B2 / IELTS 6.5"
+                                        value={draftFields.english_level}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, english_level: e.target.value }))} />
+                                </label>
+                                <label>
+                                    <span className="block text-xs text-slate-500 mb-1">Год рождения</span>
+                                    <input type="number" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        placeholder="2005"
+                                        value={draftFields.birth_year}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, birth_year: e.target.value }))} />
+                                </label>
+                                <label className="md:col-span-2">
+                                    <span className="block text-xs text-slate-500 mb-1">Текущее образование</span>
+                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                        placeholder="11 класс / 2 курс / окончил вуз..."
+                                        value={draftFields.current_education}
+                                        onChange={e => setDraftFields(prev => ({ ...prev, current_education: e.target.value }))} />
+                                </label>
+                                <button onClick={saveFields} disabled={savingFields}
+                                    className="md:col-span-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-bold disabled:opacity-50">
+                                    {savingFields ? 'Сохранение...' : '💾 Сохранить детали'}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className={`${BORDER} rounded-xl bg-white p-3 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm`}>
+                                <DetailRow label="🎓 Университет" value={lead.desired_university} />
+                                <DetailRow label="📚 Уровень" value={lead.study_level} />
+                                <DetailRow label="🗓 Поступление" value={lead.intake_term} />
+                                <DetailRow label="💰 Бюджет" value={lead.budget} />
+                                <DetailRow label="🇬🇧 Английский" value={lead.english_level} />
+                                <DetailRow label="🎂 Год рождения" value={lead.birth_year ? String(lead.birth_year) : null} />
+                                <DetailRow label="📖 Образование" value={lead.current_education} />
+                                <DetailRow label="📥 Получен" value={formatFull(lead.received_at)} />
+                                {lead.sla_deadline_at && (
+                                    <DetailRow label="⏰ SLA до" value={formatFull(lead.sla_deadline_at)} />
+                                )}
+                            </div>
+                        )}
+                    </div>
 
                     {/* Source editor */}
                     {editSourceMode && canEditSource && (
@@ -682,6 +958,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [togglingOnline, setTogglingOnline] = useState(false);
+    const [autoRefresh, setAutoRefresh] = useState(false);
+    const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
     const isOnline = manager.is_online !== false;
 
     const load = async () => {
@@ -712,11 +990,14 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         }
     };
 
-    useEffect(() => { load(); }, [scope, filterStatus, overdueOnly, filterManagerId]);
+    useEffect(() => { load().then(() => setLastRefreshAt(Date.now())); }, [scope, filterStatus, overdueOnly, filterManagerId]);
     useEffect(() => {
-        const t = window.setInterval(load, 15000);
+        if (!autoRefresh) return;
+        const t = window.setInterval(() => {
+            load().then(() => setLastRefreshAt(Date.now()));
+        }, 15000);
         return () => window.clearInterval(t);
-    }, [scope, filterStatus, overdueOnly, filterManagerId]);
+    }, [autoRefresh, scope, filterStatus, overdueOnly, filterManagerId]);
 
     const onChangeStatus = async (id: number, status: string, note?: string, rejection_reason?: string) => {
         const res = await fetch(`/api/lidy/leads/${id}/status`, {
@@ -827,7 +1108,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             <div className="text-xs font-mono opacity-70">{manager.full_name} · @{manager.login}</div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <Tooltip text={isOnline ? 'Лиды распределяются на меня. Нажми чтобы выйти из распределения.' : 'Лиды НЕ распределяются. Нажми чтобы вернуться в работу.'}>
                             <button onClick={toggleOnline} disabled={togglingOnline}
                                 className={`${BTN} flex items-center gap-2 ${isOnline ? 'bg-lime-300 text-black' : 'bg-slate-300 text-black'}`}>
@@ -835,8 +1116,17 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                 {togglingOnline ? '...' : isOnline ? 'В СЕТИ' : 'НЕ В СЕТИ'}
                             </button>
                         </Tooltip>
+                        <Tooltip text={autoRefresh ? 'Авто-обновление каждые 15с (вкл). Клик — выкл.' : 'Авто-обновление выключено. Клик — вкл.'}>
+                            <button onClick={() => setAutoRefresh(v => !v)}
+                                className={`${BTN} flex items-center gap-2 ${autoRefresh ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-slate-700'}`}>
+                                <span className={`relative w-8 h-4 rounded-full transition-colors ${autoRefresh ? 'bg-emerald-500' : 'bg-slate-400'}`}>
+                                    <span className={`absolute top-0.5 ${autoRefresh ? 'left-4' : 'left-0.5'} w-3 h-3 bg-white rounded-full transition-all`} />
+                                </span>
+                                АВТО
+                            </button>
+                        </Tooltip>
                         <Tooltip text="Обновить список вручную">
-                            <button onClick={load} className={`${BTN} bg-cyan-300 text-black`}>↻</button>
+                            <button onClick={() => { load().then(() => setLastRefreshAt(Date.now())); }} className={`${BTN} bg-cyan-300 text-black`}>↻ ОБНОВИТЬ</button>
                         </Tooltip>
                         <Tooltip text="Выйти из аккаунта">
                             <button onClick={async () => {
@@ -849,27 +1139,43 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             </div>
 
             <div className="relative max-w-7xl mx-auto p-4 space-y-4">
-                {/* Bento KPI grid */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    <div className={`${CARD} bg-white p-3`}>
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Всего</div>
-                        <div className="text-3xl font-black font-mono">{counters.total}</div>
+                {/* Bento KPI grid — varied sizes + polygonal accents */}
+                <div className="grid grid-cols-6 gap-3">
+                    {/* Big tile: total */}
+                    <div className={`${CARD} bg-white p-4 col-span-3 md:col-span-2 row-span-2 relative overflow-hidden`}>
+                        <div className="absolute -top-6 -right-6 w-24 h-24 bg-brand-100 rotate-45" />
+                        <div className="relative">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Всего лидов</div>
+                            <div className="text-5xl font-black font-mono mt-1">{counters.total}</div>
+                            {lastRefreshAt && (
+                                <div className="mt-3 text-[10px] font-mono text-slate-400">
+                                    обн: {new Date(lastRefreshAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <div className={`${CARD} bg-amber-300 p-3`}>
+                    {/* Open */}
+                    <div className={`${CARD} bg-gradient-to-br from-amber-200 to-amber-300 p-3 col-span-3 md:col-span-2 relative overflow-hidden`}
+                        style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 8% 100%, 0 85%)' }}>
                         <div className="text-[10px] font-black uppercase tracking-widest">Открытых</div>
-                        <div className="text-3xl font-black font-mono">{counters.open}</div>
+                        <div className="text-3xl font-black font-mono mt-1">{counters.open}</div>
                     </div>
-                    <div className={`${CARD} bg-red-400 p-3`}>
-                        <div className="text-[10px] font-black uppercase tracking-widest text-white">Просрочено</div>
-                        <div className="text-3xl font-black font-mono text-white">{counters.overdue}</div>
+                    {/* Overdue */}
+                    <div className={`${CARD} bg-gradient-to-br from-red-400 to-red-500 p-3 col-span-3 md:col-span-2 relative overflow-hidden text-white`}
+                        style={{ clipPath: 'polygon(0 0, 100% 0, 100% 85%, 92% 100%, 0 100%)' }}>
+                        <div className="text-[10px] font-black uppercase tracking-widest">Просрочено SLA</div>
+                        <div className="text-3xl font-black font-mono mt-1">{counters.overdue}</div>
                     </div>
-                    <div className={`${CARD} bg-orange-300 p-3`}>
+                    {/* Queued */}
+                    <div className={`${CARD} bg-gradient-to-br from-orange-200 to-orange-300 p-3 col-span-3 md:col-span-2 relative overflow-hidden`}>
                         <div className="text-[10px] font-black uppercase tracking-widest">В очереди</div>
-                        <div className="text-3xl font-black font-mono">{counters.queued}</div>
+                        <div className="text-3xl font-black font-mono mt-1">{counters.queued}</div>
                     </div>
-                    <div className={`${CARD} ${counters.incomingTransfers > 0 ? 'bg-fuchsia-400 animate-pulse' : 'bg-slate-200'} p-3`}>
+                    {/* Incoming transfers — pulsing if any */}
+                    <div className={`${CARD} ${counters.incomingTransfers > 0 ? 'bg-gradient-to-br from-fuchsia-400 to-pink-500 text-white animate-pulse' : 'bg-slate-100'} p-3 col-span-3 md:col-span-2 relative overflow-hidden`}
+                        style={{ clipPath: 'polygon(8% 0, 100% 0, 100% 100%, 0 100%, 0 15%)' }}>
                         <div className="text-[10px] font-black uppercase tracking-widest">Передачи мне</div>
-                        <div className="text-3xl font-black font-mono">{counters.incomingTransfers}</div>
+                        <div className="text-3xl font-black font-mono mt-1">{counters.incomingTransfers}</div>
                     </div>
                 </div>
 
@@ -924,7 +1230,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         <p className="font-mono text-slate-600">{scope === 'mine' ? '// NO_LEADS_ASSIGNED' : '// NO_LEADS_FOUND'}</p>
                     </div>
                 ) : (
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                         {leads.map(l => (
                             <LeadCard key={l.id} lead={l} statuses={statuses} me={manager}
                                 onChangeStatus={onChangeStatus}
@@ -941,7 +1247,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                 )}
 
                 <p className="text-center text-xs font-mono text-slate-500 pt-4">
-                    // AUTO_REFRESH every 15s · build {new Date().toISOString().slice(0, 10)}
+                    {autoRefresh ? '// AUTO_REFRESH каждые 15с · ' : '// AUTO_REFRESH off · '}
+                    обновление вручную кнопкой ↻
                 </p>
             </div>
         </div>
