@@ -421,10 +421,11 @@ async function pickNextManager(): Promise<{
   login: string; working_hours: WorkingSchedule | null;
 } | null> {
   if (!pool) return null;
-  // Only active AND online managers can receive leads
+  // Only active + online managers (not teamleads — they coordinate, not receive)
   const { rows } = await pool.query(
     `SELECT id, full_name, telegram_tag, login, working_hours
-     FROM managers WHERE active = TRUE AND is_online = TRUE
+     FROM managers
+     WHERE active = TRUE AND is_online = TRUE AND role = 'manager'
      ORDER BY last_assigned_at NULLS FIRST, id ASC
      LIMIT 1`
   );
