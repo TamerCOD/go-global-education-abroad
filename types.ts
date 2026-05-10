@@ -2,9 +2,10 @@ export interface University {
   name: string;
   description: string;
   images: string[];
-  tuition?: number | null;    // Per-university yearly tuition in USD
-  grantAvailable?: boolean;   // Whether this university offers grants/scholarships
-  grantNote?: string;         // Free-form note about grants
+  tuition?: number | null;     // Per-university yearly tuition in USD
+  servicesCost?: number | null; // Our company's services cost for this university (USD/year)
+  grantAvailable?: boolean;    // Whether this university offers grants/scholarships
+  grantNote?: string;          // Free-form note about grants
 }
 
 export interface CostData {
@@ -21,6 +22,7 @@ export interface Country {
   image: string;
   universities: University[];
   costs: CostData;
+  servicesCost?: number | null;  // Country-level fallback for our company's services cost
   coordinates: { top: string; left: string };
 }
 

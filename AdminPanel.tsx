@@ -1406,19 +1406,21 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [editing, setEditing] = useState<LeadRec | null>(null);
+    const [includeClosed, setIncludeClosed] = useState(false);
 
     const load = async () => {
         setLoading(true);
         try {
+            const leadsUrl = `/api/admin/leads${includeClosed ? '?include_closed=1' : ''}`;
             const [l, s] = await Promise.all([
-                fetch('/api/admin/leads', { headers: { 'X-Admin-Password': password } }).then(r => r.json()),
+                fetch(leadsUrl, { headers: { 'X-Admin-Password': password } }).then(r => r.json()),
                 fetch('/api/admin/leads/stats', { headers: { 'X-Admin-Password': password } }).then(r => r.json()),
             ]);
             setLeads(l.leads || []);
             setStats(s);
         } finally { setLoading(false); }
     };
-    useEffect(() => { load(); }, []);
+    useEffect(() => { load(); }, [includeClosed]);
 
     const removeLead = async (id: number, name: string) => {
         if (!confirm(`⚠️ Удалить лид #${id} (${name || 'без имени'})?\n\nКомментарии и история тоже будут удалены. Действие НЕОБРАТИМО.`)) return;
@@ -1474,6 +1476,14 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                     <button onClick={load} className="bg-brand-50 border border-brand-200 rounded-lg p-3 text-sm text-brand-700 font-medium">↻ Обновить</button>
                 </div>
             )}
+
+            <div className="flex gap-2 items-center">
+                <button onClick={() => setIncludeClosed(!includeClosed)}
+                    className={`text-sm px-4 py-2 rounded-lg font-medium border transition-colors ${includeClosed ? 'bg-emerald-100 border-emerald-300 text-emerald-800' : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'}`}>
+                    {includeClosed ? '📂 Показаны: все лиды (включая закрытые)' : '📂 Скрыты закрытые/обработанные лиды'}
+                </button>
+                <span className="text-xs text-slate-500">Клик чтобы переключить</span>
+            </div>
 
             {stats?.byManager?.length > 0 && (
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
@@ -2105,6 +2115,17 @@ const AdminPanel: React.FC = () => {
                                             setLocalData({ ...localData, countries: list });
                                         }} />
                                 </label>
+                                <label className="text-sm md:col-span-2">
+                                    <span className="block font-medium text-slate-700 mb-1">💼 Услуги GoGlobal для этой страны ($)</span>
+                                    <input type="number" className="border border-slate-300 p-2 w-full rounded font-mono" placeholder="оставить пустым = взять глобальное значение"
+                                        value={(country as any).servicesCost ?? ''}
+                                        onChange={e => {
+                                            const list = [...localData.countries];
+                                            (list[cIndex] as any).servicesCost = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value) || 0);
+                                            setLocalData({ ...localData, countries: list });
+                                        }} />
+                                    <span className="text-xs text-slate-500 block mt-1">Fallback: если у конкретного университета не задано — используется это значение. Если и здесь пусто — берётся из глобального калькулятор-конфига.</span>
+                                </label>
                                 <div className="md:col-span-2 text-sm">
                                     <span className="block font-medium text-slate-700 mb-1">Картинка страны</span>
                                     <ImageInput
@@ -2156,7 +2177,19 @@ const AdminPanel: React.FC = () => {
                                                         setLocalData({ ...localData, countries: list });
                                                     }} />
                                             </label>
-                                            <label className="text-sm flex items-center gap-2 pl-2">
+                                            <label className="text-sm">
+                                                <span className="block text-xs text-slate-500 mb-1">💼 Услуги GoGlobal / год ($)</span>
+                                                <input type="number" className="border border-slate-300 p-1.5 w-full rounded text-sm"
+                                                    placeholder="взять из страны"
+                                                    value={uni.servicesCost ?? ''}
+                                                    onChange={e => {
+                                                        const list = [...localData.countries];
+                                                        const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value) || 0);
+                                                        list[cIndex].universities[uIndex].servicesCost = v;
+                                                        setLocalData({ ...localData, countries: list });
+                                                    }} />
+                                            </label>
+                                            <label className="text-sm flex items-center gap-2 pl-2 col-span-2">
                                                 <input type="checkbox" className="accent-emerald-600 w-4 h-4"
                                                     checked={!!uni.grantAvailable}
                                                     onChange={e => {

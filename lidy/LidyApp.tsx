@@ -1024,9 +1024,9 @@ const LeadCard: React.FC<{
                                 <select className={`${BORDER} bg-white px-2 py-1.5 text-sm flex-grow font-mono`}
                                     value={transferTo} onChange={e => setTransferTo(e.target.value)}>
                                     <option value="">— выбрать менеджера —</option>
-                                    {roster.filter(m => m.role === 'manager' && m.active && !m.archived_at && m.id !== me.id).map(m => (
+                                    {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at && m.id !== me.id).map(m => (
                                         <option key={m.id} value={m.id}>
-                                            {m.full_name} {m.is_online ? '🟢' : '⚪'}
+                                            {m.full_name} {m.is_online ? '🟢 в сети' : '⚪ не в сети'}
                                         </option>
                                     ))}
                                 </select>
@@ -1059,17 +1059,28 @@ const LeadCard: React.FC<{
                         </div>
                     )}
 
-                    {/* Teamlead-only: hard reassign */}
+                    {/* Teamlead-only: hard reassign + take-to-self */}
+                    {isTeamlead && lead.assigned_manager_id !== me.id && (
+                        <div className="border-t border-dashed border-slate-300 pt-3">
+                            <Tooltip text="Назначить этот лид на себя (тимлид)">
+                                <button type="button"
+                                    onClick={() => onReassign(lead.id, me.id)}
+                                    className={`${BTN} bg-violet-500 hover:bg-violet-600 text-white`}>
+                                    👤 Взять лид себе
+                                </button>
+                            </Tooltip>
+                        </div>
+                    )}
                     {isTeamlead && (
                         <div className="border-t border-dashed border-slate-300 pt-3">
                             <div className="text-xs font-bold uppercase tracking-widest mb-2">🔄 Переназначить (тимлид, без подтверждения)</div>
                             <div className="flex gap-2">
                                 <select className={`${BORDER} bg-white px-2 py-1.5 text-sm flex-grow font-mono`}
                                     value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
-                                    <option value="">— выбрать менеджера —</option>
-                                    {roster.filter(m => m.role === 'manager' && m.active && !m.archived_at && m.id !== lead.assigned_manager_id).map(m => (
+                                    <option value="">— выбрать менеджера или тимлида —</option>
+                                    {roster.filter(m => m.active && !m.archived_at && m.id !== lead.assigned_manager_id).map(m => (
                                         <option key={m.id} value={m.id}>
-                                            {m.full_name} {m.is_online ? '🟢' : '⚪'}
+                                            {m.full_name} {m.is_online ? '🟢' : '⚪'} {m.role === 'teamlead' ? '👑' : ''}
                                         </option>
                                     ))}
                                 </select>
@@ -1150,6 +1161,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [scope, setScope] = useState<'mine' | 'all'>(isTeamlead ? 'all' : 'mine');
     const [filterStatus, setFilterStatus] = useState<string>('');
     const [overdueOnly, setOverdueOnly] = useState(false);
+    const [includeClosed, setIncludeClosed] = useState(false);
     const [filterManagerId, setFilterManagerId] = useState<string>('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -1168,6 +1180,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             if (filterStatus) params.set('status', filterStatus);
             if (overdueOnly) params.set('overdue', '1');
             if (filterManagerId) params.set('manager_id', filterManagerId);
+            if (includeClosed) params.set('include_closed', '1');
             const [leadsRes, stRes, rosterRes] = await Promise.all([
                 fetch(`/api/lidy/leads?${params.toString()}`, { credentials: 'include' }),
                 fetch('/api/lidy/statuses', { credentials: 'include' }),
@@ -1187,14 +1200,14 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         }
     };
 
-    useEffect(() => { load().then(() => setLastRefreshAt(Date.now())); }, [scope, filterStatus, overdueOnly, filterManagerId]);
+    useEffect(() => { load().then(() => setLastRefreshAt(Date.now())); }, [scope, filterStatus, overdueOnly, filterManagerId, includeClosed]);
     useEffect(() => {
         if (!autoRefresh) return;
         const t = window.setInterval(() => {
             load().then(() => setLastRefreshAt(Date.now()));
         }, 15000);
         return () => window.clearInterval(t);
-    }, [autoRefresh, scope, filterStatus, overdueOnly, filterManagerId]);
+    }, [autoRefresh, scope, filterStatus, overdueOnly, filterManagerId, includeClosed]);
 
     const onChangeStatus = async (id: number, status: string, note?: string, rejection_reason?: string) => {
         const res = await fetch(`/api/lidy/leads/${id}/status`, {
@@ -1403,6 +1416,12 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     )}
                     <Tooltip text="Показать только просроченные">
                         <button className={`${BTN} ${overdueOnly ? 'bg-red-500 text-white' : 'bg-white text-black'}`} onClick={() => setOverdueOnly(!overdueOnly)}>⏰ ПРОСРОЧЕНЫ</button>
+                    </Tooltip>
+                    <Tooltip text={includeClosed ? 'Показываются закрытые лиды. Клик — скрыть.' : 'По умолчанию закрытые/обработанные лиды скрыты. Клик — показать.'}>
+                        <button className={`${BTN} ${includeClosed ? 'bg-emerald-500 text-white' : 'bg-white text-black'}`}
+                            onClick={() => setIncludeClosed(!includeClosed)}>
+                            {includeClosed ? '📂 С ЗАКРЫТЫМИ' : '📂 ТОЛЬКО АКТИВНЫЕ'}
+                        </button>
                     </Tooltip>
                     <select className={`${BORDER} bg-white px-3 py-2 text-sm font-mono`}
                         value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>

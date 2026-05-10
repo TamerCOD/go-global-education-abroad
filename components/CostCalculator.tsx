@@ -22,33 +22,47 @@ export const CostCalculator: React.FC = () => {
 
   const countryData = COUNTRIES.find(c => c.id === selectedCountry);
 
-  // Pick the cheapest university tuition for the country.
-  // Falls back to country.costs.tuition.min when university-level data is missing.
-  const minUniTuition = useMemo(() => {
-    if (!countryData) return 0;
-    const uniPrices = (countryData.universities || [])
-      .map((u: any) => (typeof u.tuition === 'number' ? u.tuition : null))
-      .filter((p: number | null): p is number => p !== null && p >= 0);
-    if (uniPrices.length > 0) return Math.min(...uniPrices);
-    return countryData.costs?.tuition?.min ?? 0;
+  // Pick the cheapest-tuition university; we'll use its servicesCost too (with fallbacks).
+  const { minUniTuition, chosenUniName, uniServices } = useMemo(() => {
+    if (!countryData) return { minUniTuition: 0, chosenUniName: '', uniServices: null as number | null };
+    const unis = (countryData.universities || []) as any[];
+    const priced = unis
+      .map(u => ({ name: u.name, tuition: typeof u.tuition === 'number' ? u.tuition : null, servicesCost: typeof u.servicesCost === 'number' ? u.servicesCost : null }))
+      .filter(u => u.tuition !== null && u.tuition >= 0);
+    if (priced.length > 0) {
+      const cheapest = priced.reduce((a, b) => (a.tuition! <= b.tuition! ? a : b));
+      return { minUniTuition: cheapest.tuition || 0, chosenUniName: cheapest.name, uniServices: cheapest.servicesCost };
+    }
+    return { minUniTuition: countryData.costs?.tuition?.min ?? 0, chosenUniName: '', uniServices: null };
   }, [countryData]);
 
   const minLiving = countryData?.costs?.living?.min ?? 0;
 
+  // Services cost cascade: university → country → global
+  const servicesCost = useMemo(() => {
+    if (typeof uniServices === 'number' && uniServices >= 0) return uniServices;
+    if (countryData && typeof (countryData as any).servicesCost === 'number') return (countryData as any).servicesCost;
+    return services;
+  }, [uniServices, countryData, services]);
+
   const estimatedCost = useMemo(() => {
     if (!countryData) return 0;
     const tuition = isScholarship ? 0 : minUniTuition;
-    return Math.round(tuition + minLiving + services);
-  }, [isScholarship, minUniTuition, minLiving, services, countryData]);
+    return Math.round(tuition + minLiving + servicesCost);
+  }, [isScholarship, minUniTuition, minLiving, servicesCost, countryData]);
 
   // Breakdown line items
   const breakdown = useMemo(() => {
-    const rows: { label: string; value: number }[] = [];
-    rows.push({ label: isScholarship ? 'Обучение (грант)' : 'Минимальное обучение', value: isScholarship ? 0 : minUniTuition });
+    const rows: { label: string; value: number; note?: string }[] = [];
+    rows.push({
+      label: isScholarship ? 'Обучение (грант)' : 'Минимальное обучение',
+      value: isScholarship ? 0 : minUniTuition,
+      note: chosenUniName || undefined,
+    });
     rows.push({ label: 'Проживание (мин.)', value: minLiving });
-    if (services > 0) rows.push({ label: 'Услуги GoGlobal', value: services });
+    if (servicesCost > 0) rows.push({ label: 'Услуги GoGlobal', value: servicesCost });
     return rows;
-  }, [isScholarship, minUniTuition, minLiving, services]);
+  }, [isScholarship, minUniTuition, minLiving, servicesCost, chosenUniName]);
 
   return (
     <section id="calculator" className="py-24 bg-white relative overflow-hidden">
@@ -104,14 +118,17 @@ export const CostCalculator: React.FC = () => {
               <div className="text-sm space-y-2">
                 <div className="text-xs uppercase tracking-wide text-slate-400 font-bold mb-2">Из чего складывается</div>
                 {breakdown.map(row => (
-                  <div key={row.label} className="flex justify-between py-1 border-b border-slate-100">
-                    <span className="text-slate-600">{row.label}</span>
+                  <div key={row.label} className="flex justify-between items-baseline py-1 border-b border-slate-100">
+                    <span className="text-slate-600">
+                      {row.label}
+                      {row.note && <span className="block text-xs text-slate-400 italic">{row.note}</span>}
+                    </span>
                     <span className="font-mono font-semibold text-slate-900">${row.value.toLocaleString()}</span>
                   </div>
                 ))}
                 {countryData.universities && countryData.universities.length > 0 && (
                   <div className="text-xs text-slate-400 mt-2">
-                    Берётся минимальная стоимость обучения из университетов: {countryData.universities.length} вуз(ов)
+                    Расчёт от самого доступного университета. В стране {countryData.universities.length} вуз(ов).
                   </div>
                 )}
               </div>

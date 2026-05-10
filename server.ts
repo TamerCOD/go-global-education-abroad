@@ -1097,6 +1097,7 @@ async function startServer() {
       // Managers cannot view scope=all (force mine)
       const onlyMine = me.role === "teamlead" ? scope === "mine" : true;
       const showOverdueOnly = req.query.overdue === "1";
+      const includeClosed = req.query.include_closed === "1";
       const filterStatus = (req.query.status as string | undefined) || null;
       const filterManagerId = req.query.manager_id ? Number(req.query.manager_id) : null;
 
@@ -1115,6 +1116,10 @@ async function startServer() {
       }
       if (showOverdueOnly) {
         where.push(`processed_at IS NULL AND sla_deadline_at < NOW()`);
+      }
+      // By default hide processed/closed leads — they're in archive, manager toggles them on
+      if (!includeClosed && !filterStatus) {
+        where.push(`processed_at IS NULL`);
       }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const { rows } = await pq().query(
@@ -1149,8 +1154,15 @@ async function startServer() {
       if (!me) return res.status(401).json({ error: "Not found" });
       // Managers see only basic name list (for display in their own card if needed)
       // Teamleads see full stats
+      // IMPORTANT: include `active` + `archived_at` so the transfer-dropdown filter on
+      // the client doesn't drop everyone (managers need these fields to render the list).
       if (me.role !== "teamlead") {
-        const r = await pq().query(`SELECT id, full_name, login, is_online, role FROM managers WHERE active = TRUE ORDER BY full_name`);
+        const r = await pq().query(
+          `SELECT id, full_name, login, is_online, role, active, archived_at, telegram_tag
+           FROM managers
+           WHERE archived_at IS NULL
+           ORDER BY full_name`
+        );
         return res.json({ managers: r.rows, role: me.role });
       }
       const r = await pq().query(
@@ -1995,12 +2007,15 @@ async function startServer() {
   app.get("/api/admin/leads", requireAdmin, async (req, res) => {
     try {
       const limit = Math.min(500, Number(req.query.limit) || 100);
+      const includeClosed = req.query.include_closed === "1";
+      const whereSql = includeClosed ? "" : "WHERE l.processed_at IS NULL";
       const { rows } = await pq().query(
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color,
                 m.full_name AS manager_name, m.login AS manager_login
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
+         ${whereSql}
          ORDER BY l.received_at DESC
          LIMIT $1`,
         [limit]
