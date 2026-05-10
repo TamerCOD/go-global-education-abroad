@@ -1104,7 +1104,9 @@ async function startServer() {
       const where: string[] = [];
       const params: any[] = [];
       if (onlyMine) {
-        where.push(`assigned_manager_id = $${params.length + 1}`);
+        // "My leads" = owned by me OR pending incoming transfer to me
+        // (so the target manager sees the lead with the accept/reject banner)
+        where.push(`(assigned_manager_id = $${params.length + 1} OR pending_transfer_to_id = $${params.length + 1})`);
         params.push(session.mid);
       } else if (filterManagerId) {
         where.push(`assigned_manager_id = $${params.length + 1}`);
