@@ -1734,7 +1734,7 @@ const AdminPanel: React.FC = () => {
                         value={password}
                         onChange={e => setPassword(e.target.value)}
                     />
-                    <button type="submit" className={`${A_BTN} w-full bg-black text-lime-300`}>→ ВОЙТИ</button>
+                    <button type="submit" className={`${A_BTN} w-full bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700`}>→ ВОЙТИ</button>
                 </form>
             </div>
         );
@@ -1766,7 +1766,7 @@ const AdminPanel: React.FC = () => {
                         {savedAt && <span className="text-sm font-mono text-lime-300">✓ SAVED</span>}
                         <ATooltip text="Сохранить все изменения сайта в БД">
                             <button onClick={handleSave} disabled={saving}
-                                className={`${A_BTN} bg-lime-300 text-black disabled:opacity-50`}>
+                                className={`${A_BTN} bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-600 disabled:opacity-50`}>
                                 {saving ? '💾 ...' : '💾 СОХРАНИТЬ'}
                             </button>
                         </ATooltip>

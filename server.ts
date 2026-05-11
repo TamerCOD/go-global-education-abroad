@@ -239,6 +239,14 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS english_level TEXT;`);
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS birth_year INTEGER;`);
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS current_education TEXT;`);
+    // Appointment / semi-closed status fields
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS appointment_at TIMESTAMPTZ;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS appointment_until TIMESTAMPTZ;`);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS appointment_kind TEXT;`);
+    await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_appointment BOOLEAN NOT NULL DEFAULT FALSE;`);
+    await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_semi_closed BOOLEAN NOT NULL DEFAULT FALSE;`);
+    // Mark office_visit as the canonical "semi-closed with appointment" status
+    await pool!.query(`UPDATE lead_statuses SET requires_appointment = TRUE, is_semi_closed = TRUE WHERE code = 'office_visit'`);
     // Named comments (each manager/teamlead leaves a comment with their name)
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_comments (
@@ -1100,6 +1108,14 @@ async function startServer() {
       const includeClosed = req.query.include_closed === "1";
       const filterStatus = (req.query.status as string | undefined) || null;
       const filterManagerId = req.query.manager_id ? Number(req.query.manager_id) : null;
+      const filterSource = (req.query.source as string | undefined) || null;
+      const filterCountry = (req.query.country as string | undefined) || null;
+      const filterUniversity = (req.query.university as string | undefined) || null;
+      const filterStudyLevel = (req.query.study_level as string | undefined) || null;
+      const filterEventId = req.query.event_id ? Number(req.query.event_id) : null;
+      const filterFrom = (req.query.from as string | undefined) || null;
+      const filterTo = (req.query.to as string | undefined) || null;
+      const filterSearch = ((req.query.q as string | undefined) || "").trim();
 
       const where: string[] = [];
       const params: any[] = [];
@@ -1113,15 +1129,53 @@ async function startServer() {
         params.push(filterManagerId);
       }
       if (filterStatus) {
-        where.push(`status_code = $${params.length + 1}`);
+        where.push(`l.status_code = $${params.length + 1}`);
         params.push(filterStatus);
       }
       if (showOverdueOnly) {
-        where.push(`processed_at IS NULL AND sla_deadline_at < NOW()`);
+        where.push(`l.processed_at IS NULL AND l.sla_deadline_at < NOW()`);
       }
-      // By default hide processed/closed leads — they're in archive, manager toggles them on
+      // By default hide processed/closed AND semi-closed leads. Manager toggles them on.
       if (!includeClosed && !filterStatus) {
-        where.push(`processed_at IS NULL`);
+        where.push(`l.processed_at IS NULL`);
+        where.push(`(l.status_code IS NULL OR l.status_code NOT IN (SELECT code FROM lead_statuses WHERE is_semi_closed))`);
+      }
+      if (filterSource) {
+        where.push(`LOWER(l.source) = LOWER($${params.length + 1})`);
+        params.push(filterSource);
+      }
+      if (filterCountry) {
+        where.push(`LOWER(l.country) = LOWER($${params.length + 1})`);
+        params.push(filterCountry);
+      }
+      if (filterUniversity) {
+        where.push(`LOWER(l.desired_university) LIKE LOWER($${params.length + 1})`);
+        params.push(`%${filterUniversity}%`);
+      }
+      if (filterStudyLevel) {
+        where.push(`l.study_level = $${params.length + 1}`);
+        params.push(filterStudyLevel);
+      }
+      if (filterEventId) {
+        where.push(`l.event_id = $${params.length + 1}`);
+        params.push(filterEventId);
+      }
+      if (filterFrom) {
+        where.push(`l.received_at >= $${params.length + 1}`);
+        params.push(new Date(filterFrom));
+      }
+      if (filterTo) {
+        where.push(`l.received_at <= $${params.length + 1}`);
+        params.push(new Date(filterTo));
+      }
+      if (filterSearch) {
+        const q = `%${filterSearch.replace(/[%_]/g, "\\$&")}%`;
+        where.push(`(LOWER(l.name) LIKE LOWER($${params.length + 1})
+                    OR LOWER(l.phone) LIKE LOWER($${params.length + 1})
+                    OR LOWER(l.email) LIKE LOWER($${params.length + 1})
+                    OR LOWER(l.comment) LIKE LOWER($${params.length + 1})
+                    OR LOWER(l.desired_university) LIKE LOWER($${params.length + 1}))`);
+        params.push(q);
       }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const { rows } = await pq().query(
@@ -1192,16 +1246,19 @@ async function startServer() {
       const me = await loadManager(session.mid);
       if (!me) return res.status(401).json({ error: "Not found" });
       const leadId = Number(req.params.id);
-      const { status, note, rejection_reason } = req.body || {};
+      const { status, note, rejection_reason, appointment_at, appointment_until, appointment_kind } = req.body || {};
       if (!status) return res.status(400).json({ error: "Missing status" });
 
       const statusRow = await pq().query(
-        `SELECT code, is_terminal, requires_reason FROM lead_statuses WHERE code = $1`,
+        `SELECT code, is_terminal, requires_reason, requires_appointment FROM lead_statuses WHERE code = $1`,
         [status]
       );
       if (statusRow.rows.length === 0) return res.status(400).json({ error: "Unknown status" });
       if (statusRow.rows[0].requires_reason && !(rejection_reason && String(rejection_reason).trim())) {
         return res.status(400).json({ error: "Этот статус требует указать причину" });
+      }
+      if (statusRow.rows[0].requires_appointment && !appointment_at) {
+        return res.status(400).json({ error: "Этот статус требует указать дату/время визита" });
       }
 
       const leadRow = await pq().query(`SELECT id, status_code, assigned_manager_id FROM leads WHERE id = $1`, [leadId]);
@@ -1218,12 +1275,21 @@ async function startServer() {
          SET status_code = $1,
              notes = COALESCE($2, notes),
              rejection_reason = COALESCE($3, rejection_reason),
+             appointment_at = $4,
+             appointment_until = $5,
+             appointment_kind = $6,
              updated_at = NOW(),
              processed_at = ${newProcessedAt},
-             assigned_manager_id = COALESCE(assigned_manager_id, $4)
-         WHERE id = $5
-         RETURNING id, status_code, processed_at, rejection_reason`,
-        [status, note ?? null, rejection_reason ?? null, session.mid, leadId]
+             assigned_manager_id = COALESCE(assigned_manager_id, $7)
+         WHERE id = $8
+         RETURNING id, status_code, processed_at, rejection_reason, appointment_at, appointment_kind`,
+        [
+          status, note ?? null, rejection_reason ?? null,
+          appointment_at ? new Date(appointment_at) : null,
+          appointment_until ? new Date(appointment_until) : null,
+          (appointment_kind || (appointment_at ? "specific" : null)) ?? null,
+          session.mid, leadId,
+        ]
       );
 
       await pq().query(
@@ -1239,10 +1305,91 @@ async function startServer() {
           [leadId, me.id, me.full_name, me.role || "manager", `❌ Причина отказа: ${rejection_reason}`]
         );
       }
+      // Auto-comment when appointment scheduled
+      if (statusRow.rows[0].requires_appointment && appointment_at) {
+        const when = new Date(appointment_at).toLocaleString("ru-RU", { timeZone: "Asia/Bishkek", dateStyle: "short", timeStyle: "short" });
+        const kindLabel = appointment_kind === "range" && appointment_until
+          ? `с ${when} до ${new Date(appointment_until).toLocaleString("ru-RU", { timeZone: "Asia/Bishkek", dateStyle: "short", timeStyle: "short" })}`
+          : appointment_kind === "within_day"
+            ? `в течение дня ${new Date(appointment_at).toLocaleDateString("ru-RU", { timeZone: "Asia/Bishkek" })}`
+            : `${when}`;
+        await pq().query(
+          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [leadId, me.id, me.full_name, me.role || "manager", `📅 Запланирован визит в офис: ${kindLabel}`]
+        );
+      }
 
       res.json({ ok: true, lead: updated.rows[0] });
     } catch (err) {
       console.error("[lidy/status]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Single-lead detail (fast lookup for the drawer)
+  app.get("/api/lidy/leads/:id", requireManager, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      const { rows } = await pq().query(
+        `SELECT l.*, ls.label AS status_label, ls.color AS status_color,
+                ls.is_terminal AS status_is_terminal, ls.is_semi_closed AS status_is_semi_closed,
+                ls.requires_appointment AS status_requires_appointment,
+                m.full_name AS manager_name, m.login AS manager_login, m.archived_at AS manager_archived_at,
+                pt.full_name AS pending_transfer_to_name,
+                pby.full_name AS pending_transfer_by_name,
+                ev.name AS event_name
+         FROM leads l
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN managers m ON m.id = l.assigned_manager_id
+         LEFT JOIN managers pt ON pt.id = l.pending_transfer_to_id
+         LEFT JOIN managers pby ON pby.id = l.pending_transfer_by_id
+         LEFT JOIN events ev ON ev.id = l.event_id
+         WHERE l.id = $1`,
+        [leadId]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ lead: rows[0] });
+    } catch (err) {
+      console.error("[lidy/lead GET]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Find related leads (same phone OR email) — for dedup / "same client" hint
+  app.get("/api/lidy/leads/:id/related", requireManager, async (req, res) => {
+    try {
+      const leadId = Number(req.params.id);
+      const main = await pq().query(`SELECT phone, email FROM leads WHERE id = $1`, [leadId]);
+      if (main.rows.length === 0) return res.status(404).json({ error: "Not found" });
+      const phone = (main.rows[0].phone || "").replace(/\D/g, "");
+      const email = (main.rows[0].email || "").toLowerCase().trim();
+      if (!phone && !email) return res.json({ related: [] });
+      const conds: string[] = [];
+      const params: any[] = [leadId];
+      if (phone) {
+        conds.push(`regexp_replace(phone, '\\D', '', 'g') = $${params.length + 1}`);
+        params.push(phone);
+      }
+      if (email) {
+        conds.push(`LOWER(email) = $${params.length + 1}`);
+        params.push(email);
+      }
+      const { rows } = await pq().query(
+        `SELECT l.id, l.received_at, l.name, l.phone, l.email, l.country, l.source,
+                l.status_code, ls.label AS status_label, ls.color AS status_color,
+                m.full_name AS manager_name
+         FROM leads l
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN managers m ON m.id = l.assigned_manager_id
+         WHERE l.id <> $1 AND (${conds.join(" OR ")})
+         ORDER BY l.received_at DESC
+         LIMIT 20`,
+        params
+      );
+      res.json({ related: rows });
+    } catch (err) {
+      console.error("[lidy/lead/related]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
@@ -1841,7 +1988,7 @@ async function startServer() {
 
   app.get("/api/lidy/statuses", requireManager, async (_req, res) => {
     try {
-      const { rows } = await pq().query(`SELECT code, label, color, is_terminal, requires_reason, sort FROM lead_statuses ORDER BY sort ASC, label ASC`);
+      const { rows } = await pq().query(`SELECT code, label, color, is_terminal, requires_reason, requires_appointment, is_semi_closed, sort FROM lead_statuses ORDER BY sort ASC, label ASC`);
       res.json({ statuses: rows });
     } catch (err) {
       console.error("[lidy/statuses]", err);

@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 
-// ─────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  TYPES
+// ═════════════════════════════════════════════════════════════════════
 interface Manager {
     id: number;
     login: string;
@@ -32,6 +32,8 @@ interface Lead {
     status_label?: string;
     status_color?: string;
     status_is_terminal?: boolean;
+    status_is_semi_closed?: boolean;
+    status_requires_appointment?: boolean;
     notes?: string;
     rejection_reason?: string | null;
     sla_deadline_at: string | null;
@@ -44,7 +46,6 @@ interface Lead {
     pending_transfer_to_name?: string | null;
     pending_transfer_at?: string | null;
     pending_transfer_by_name?: string | null;
-    // Extended fields
     event_id?: number | null;
     event_name?: string | null;
     event_name_snapshot?: string | null;
@@ -55,6 +56,9 @@ interface Lead {
     english_level?: string | null;
     birth_year?: number | null;
     current_education?: string | null;
+    appointment_at?: string | null;
+    appointment_until?: string | null;
+    appointment_kind?: string | null;
 }
 interface StatusOption {
     code: string;
@@ -62,6 +66,8 @@ interface StatusOption {
     color?: string;
     is_terminal: boolean;
     requires_reason?: boolean;
+    requires_appointment?: boolean;
+    is_semi_closed?: boolean;
     sort: number;
 }
 interface CommentRec {
@@ -73,39 +79,17 @@ interface CommentRec {
     created_at: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Material + neumorphism + bento primitives
-// (was brutalist; softened to material-light with subtle neumorphism)
-// ─────────────────────────────────────────────────────────────────────
-const SHADOW = 'shadow-[0_4px_20px_-4px_rgba(15,23,42,0.12),0_1px_3px_rgba(15,23,42,0.06)]';
-const SHADOW_HOVER = 'hover:shadow-[0_10px_30px_-6px_rgba(15,23,42,0.18)] hover:-translate-y-[1px]';
-const BORDER = 'border border-slate-200/80';
-const BTN = `${BORDER} rounded-xl ${SHADOW} ${SHADOW_HOVER} active:translate-y-[1px] active:shadow-sm transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
-const CARD = `bg-white ${BORDER} rounded-2xl ${SHADOW}`;
-
-const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
-    <span className="relative inline-flex group">
-        {children}
-        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 rounded-md border border-slate-200">
-            {text}
-        </span>
-    </span>
-);
-
-// ─────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  HELPERS
+// ═════════════════════════════════════════════════════════════════════
 const formatRel = (iso: string) => {
-    const t = new Date(iso).getTime();
-    const diffMin = Math.round((Date.now() - t) / 60000);
+    const diffMin = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
     if (diffMin < 1) return 'только что';
     if (diffMin < 60) return `${diffMin} мин`;
     const h = Math.round(diffMin / 60);
     if (h < 24) return `${h} ч`;
-    return new Date(iso).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+    return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
 };
-
-// Full date+time in Asia/Bishkek (UTC+6) — what menager-staff actually want to read
 const formatFull = (iso: string) =>
     new Date(iso).toLocaleString('ru-RU', {
         timeZone: 'Asia/Bishkek',
@@ -113,236 +97,893 @@ const formatFull = (iso: string) =>
         hour: '2-digit', minute: '2-digit',
     });
 
-// Returns 'X ч Y мин' for diff between deadline and now (positive = remaining, negative = overdue)
-const formatRemaining = (deadlineIso: string) => {
-    const ms = new Date(deadlineIso).getTime() - Date.now();
-    const overdue = ms < 0;
-    const totalMin = Math.abs(Math.round(ms / 60000));
-    const h = Math.floor(totalMin / 60);
-    const m = totalMin % 60;
-    const parts = [];
-    if (h > 0) parts.push(`${h} ч`);
-    parts.push(`${m} мин`);
-    return { overdue, text: parts.join(' ') };
-};
-
-const formatSla = (deadlineIso: string | null, processedIso?: string | null) => {
-    if (processedIso) return { text: 'обработан', color: 'bg-emerald-300', textColor: 'text-emerald-900' };
-    if (!deadlineIso) return { text: 'в очереди', color: 'bg-orange-300', textColor: 'text-orange-900' };
-    const ms = new Date(deadlineIso).getTime() - Date.now();
-    if (ms < 0) {
-        const overMin = Math.round(-ms / 60000);
-        const h = Math.floor(overMin / 60);
-        const m = overMin % 60;
-        return { text: `Просрочен ${h ? `${h}ч ` : ''}${m}м`, color: 'bg-red-500', textColor: 'text-white' };
-    }
-    const totalMin = Math.round(ms / 60000);
-    const h = Math.floor(totalMin / 60);
-    const m = totalMin % 60;
-    return { text: `${h ? `${h}ч ` : ''}${m}м до SLA`, color: h < 1 ? 'bg-amber-300' : 'bg-cyan-200', textColor: 'text-black' };
-};
-
 function whatsappLink(phone: string, msg?: string): string | null {
     const digits = (phone || '').replace(/\D/g, '');
     if (digits.length < 7 || digits.length > 15) return null;
     return `https://wa.me/${digits}${msg ? `?text=${encodeURIComponent(msg)}` : ''}`;
 }
 
-function sourceBadge(source: string): { label: string; bg: string; text: string } {
-    const s = (source || '').toLowerCase();
-    if (s.includes('whatsapp')) return { label: '💬 WhatsApp', bg: 'bg-[#25D366]', text: 'text-white' };
-    if (s.includes('instagram')) return { label: '📷 Instagram', bg: 'bg-gradient-to-r from-pink-500 to-purple-600', text: 'text-white' };
-    if (s.includes('email') || s.includes('mail')) return { label: '✉ Email', bg: 'bg-blue-500', text: 'text-white' };
-    if (s.includes('modal')) return { label: '🌐 Сайт (поп-ап)', bg: 'bg-slate-600', text: 'text-white' };
-    if (s.includes('apply')) return { label: '🔗 По ссылке', bg: 'bg-violet-500', text: 'text-white' };
-    return { label: '🌐 Сайт', bg: 'bg-slate-500', text: 'text-white' };
+function initials(name: string): string {
+    const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '?';
+    if (parts.length === 1) return parts[0][0]!.toUpperCase();
+    return (parts[0][0]! + parts[1][0]!).toUpperCase();
 }
 
-// Countdown helper for transfer expiry
-const useCountdown = (targetIso: string | null) => {
+// Stable colour from name → consistent avatar background
+function colourFromName(name: string): string {
+    const palette = ['bg-emerald-100 text-emerald-700', 'bg-sky-100 text-sky-700',
+        'bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700',
+        'bg-violet-100 text-violet-700', 'bg-teal-100 text-teal-700',
+        'bg-orange-100 text-orange-700', 'bg-stone-200 text-stone-700'];
+    let h = 0;
+    for (const c of name || '') h = (h * 31 + c.charCodeAt(0)) | 0;
+    return palette[Math.abs(h) % palette.length];
+}
+
+function sourceMeta(source: string): { label: string; icon: string; bg: string; ring: string } {
+    const s = (source || '').toLowerCase();
+    if (s.includes('whatsapp')) return { label: source || 'WhatsApp', icon: '💬', bg: 'bg-green-50 text-green-800 border-green-200', ring: 'ring-green-200' };
+    if (s.includes('instagram')) return { label: source || 'Instagram', icon: '📷', bg: 'bg-pink-50 text-pink-800 border-pink-200', ring: 'ring-pink-200' };
+    if (s.includes('email') || s.includes('mail')) return { label: source || 'Email', icon: '✉', bg: 'bg-sky-50 text-sky-800 border-sky-200', ring: 'ring-sky-200' };
+    if (s.includes('сайт') || s.includes('site') || s.includes('apply')) return { label: source || 'Сайт', icon: '🌐', bg: 'bg-stone-50 text-stone-700 border-stone-200', ring: 'ring-stone-200' };
+    if (s.includes('реклама') || s.includes('ad')) return { label: source || 'Реклама', icon: '📢', bg: 'bg-amber-50 text-amber-800 border-amber-200', ring: 'ring-amber-200' };
+    if (s.includes('друз') || s.includes('referral')) return { label: source || 'Друзья', icon: '👥', bg: 'bg-violet-50 text-violet-800 border-violet-200', ring: 'ring-violet-200' };
+    return { label: source || '—', icon: '🏷', bg: 'bg-stone-100 text-stone-700 border-stone-200', ring: 'ring-stone-200' };
+}
+
+// SLA chip
+function slaChip(deadlineIso: string | null, processedIso?: string | null): { text: string; cls: string } {
+    if (processedIso) return { text: '✓ обработан', cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200' };
+    if (!deadlineIso) return { text: 'в очереди', cls: 'bg-amber-50 text-amber-700 border border-amber-200' };
+    const ms = new Date(deadlineIso).getTime() - Date.now();
+    if (ms < 0) {
+        const overMin = Math.round(-ms / 60000);
+        const h = Math.floor(overMin / 60);
+        const m = overMin % 60;
+        return { text: `⚠ просрочен ${h ? `${h}ч ` : ''}${m}м`, cls: 'bg-rose-50 text-rose-700 border border-rose-200 font-semibold' };
+    }
+    const tot = Math.round(ms / 60000);
+    const h = Math.floor(tot / 60);
+    const m = tot % 60;
+    return {
+        text: `${h ? `${h}ч ` : ''}${m}м до SLA`,
+        cls: h < 1 ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-stone-100 text-stone-600 border border-stone-200',
+    };
+}
+
+function useDebounced<T>(value: T, ms: number): T {
+    const [v, setV] = useState(value);
+    useEffect(() => {
+        const t = window.setTimeout(() => setV(value), ms);
+        return () => window.clearTimeout(t);
+    }, [value, ms]);
+    return v;
+}
+
+function useCountdown(targetIso: string | null) {
     const [now, setNow] = useState(Date.now());
     useEffect(() => {
         if (!targetIso) return;
-        const i = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(i);
+        const t = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(t);
     }, [targetIso]);
     if (!targetIso) return null;
     const ms = new Date(targetIso).getTime() - now;
     if (ms <= 0) return '00:00';
-    const totalSec = Math.floor(ms / 1000);
-    const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
-    const s = (totalSec % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
+    const tot = Math.floor(ms / 1000);
+    return `${String(Math.floor(tot / 60)).padStart(2, '0')}:${String(tot % 60).padStart(2, '0')}`;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  PRIMITIVES
+// ═════════════════════════════════════════════════════════════════════
+const Avatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({ name, size = 'md' }) => {
+    const cls = size === 'sm' ? 'w-7 h-7 text-xs' : size === 'lg' ? 'w-12 h-12 text-base' : 'w-9 h-9 text-sm';
+    return (
+        <div className={`${cls} ${colourFromName(name || '?')} rounded-full flex items-center justify-center font-semibold flex-shrink-0`}>
+            {initials(name || '?')}
+        </div>
+    );
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// Login screen — brutalist
-// ─────────────────────────────────────────────────────────────────────
+const Pill: React.FC<{ children: React.ReactNode; cls?: string }> = ({ children, cls }) => (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md ${cls || 'bg-stone-100 text-stone-700'}`}>{children}</span>
+);
+
+const Btn: React.FC<{ children: React.ReactNode; onClick?: any; variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success'; disabled?: boolean; type?: 'button' | 'submit'; title?: string; className?: string }> = ({ children, onClick, variant = 'secondary', disabled, type = 'button', title, className }) => {
+    const map: Record<string, string> = {
+        primary: 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow disabled:bg-emerald-300',
+        secondary: 'bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 shadow-sm hover:shadow disabled:opacity-50',
+        ghost: 'hover:bg-stone-100 text-stone-700 disabled:opacity-50',
+        danger: 'bg-rose-500 hover:bg-rose-600 text-white shadow-sm disabled:opacity-50',
+        success: 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm disabled:opacity-50',
+    };
+    return (
+        <button type={type} disabled={disabled} onClick={onClick} title={title}
+            className={`inline-flex items-center justify-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition-all ${map[variant]} ${className || ''}`}>
+            {children}
+        </button>
+    );
+};
+
+const StatusBadge: React.FC<{ code: string; label?: string; color?: string }> = ({ code, label, color }) => (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md border" style={{
+        backgroundColor: color ? `${color}15` : '#f5f5f4',
+        borderColor: color ? `${color}40` : '#e7e5e4',
+        color: color || '#44403c',
+    }}>
+        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color || '#a8a29e' }} />
+        {label || code}
+    </span>
+);
+
+// ═════════════════════════════════════════════════════════════════════
+//  LOGIN SCREEN
+// ═════════════════════════════════════════════════════════════════════
 const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed }) => {
     const [login, setLogin] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
-
     const submit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError(null);
-        setLoading(true);
+        e.preventDefault(); setError(null); setLoading(true);
         try {
-            const res = await fetch('/api/lidy/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ login, password }),
-                credentials: 'include',
+            const r = await fetch('/api/lidy/login', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify({ login, password }),
             });
-            const j = await res.json().catch(() => ({}));
-            if (!res.ok) setError(j.error || `Ошибка ${res.status}`);
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) setError(j.error || `Ошибка ${r.status}`);
             else onAuthed(j.manager);
-        } catch (err: any) {
-            setError(err?.message || String(err));
-        } finally {
-            setLoading(false);
-        }
+        } catch (err: any) { setError(err?.message || String(err)); }
+        finally { setLoading(false); }
     };
-
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-lime-200 via-emerald-100 to-cyan-100 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+        <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+            style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfeff 35%, #f8fafc 100%)' }}>
             <div className="absolute inset-0 opacity-30 pointer-events-none" style={{
-                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 24px, rgba(0,0,0,0.05) 24px, rgba(0,0,0,0.05) 25px), repeating-linear-gradient(90deg, transparent, transparent 24px, rgba(0,0,0,0.05) 24px, rgba(0,0,0,0.05) 25px)',
+                backgroundImage: `radial-gradient(circle at 25% 30%, rgba(16,185,129,0.12), transparent 50%),
+                                  radial-gradient(circle at 75% 70%, rgba(56,189,248,0.10), transparent 50%)`,
             }} />
-            <form onSubmit={submit} className={`relative ${CARD} p-8 w-full max-w-md`}>
-                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">
-                    <img src="/ppp.png" alt="" className="w-12 h-auto" />
+            <form onSubmit={submit} className="relative bg-white rounded-2xl shadow-xl border border-stone-200 p-8 w-full max-w-md">
+                <div className="flex items-center gap-3 mb-6 pb-5 border-b border-stone-100">
+                    <img src="/ppp.png" alt="" className="w-11 h-auto" />
                     <div>
-                        <h1 className="text-2xl font-black uppercase tracking-tight">GoGlobal CRM</h1>
-                        <p className="text-xs font-mono text-slate-500">// LOGIN_REQUIRED</p>
+                        <h1 className="text-xl font-bold text-stone-900">GoGlobal CRM</h1>
+                        <p className="text-sm text-stone-500">Вход для менеджеров</p>
                     </div>
                 </div>
-                <label className="block text-xs uppercase tracking-widest font-bold text-black mb-1">Логин</label>
-                <input
-                    type="text" autoFocus autoComplete="username"
-                    className={`w-full ${BORDER} bg-yellow-100 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-white`}
-                    value={login} onChange={e => setLogin(e.target.value)}
-                />
-                <label className="block text-xs uppercase tracking-widest font-bold text-black mb-1">Пароль</label>
-                <input
-                    type="password" autoComplete="current-password"
-                    className={`w-full ${BORDER} bg-yellow-100 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-white`}
-                    value={password} onChange={e => setPassword(e.target.value)}
-                />
-                {error && (
-                    <div className={`${BORDER} bg-red-400 text-black px-3 py-2 mb-4 font-mono text-sm`}>
-                        ⚠ {error}
-                    </div>
-                )}
-                <button type="submit" disabled={loading} className={`${BTN} w-full bg-black text-lime-300 disabled:opacity-50`}>
-                    {loading ? '⏳ ВХОД...' : '→ ВОЙТИ'}
-                </button>
-                <p className="text-xs text-slate-600 mt-4 text-center font-mono">Учётка создаётся в /admin</p>
+                <label className="block text-sm font-medium text-stone-700 mb-1.5">Логин</label>
+                <input type="text" autoFocus autoComplete="username"
+                    className="w-full bg-stone-50 border border-stone-200 px-4 py-2.5 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                    value={login} onChange={e => setLogin(e.target.value)} />
+                <label className="block text-sm font-medium text-stone-700 mb-1.5">Пароль</label>
+                <input type="password" autoComplete="current-password"
+                    className="w-full bg-stone-50 border border-stone-200 px-4 py-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                    value={password} onChange={e => setPassword(e.target.value)} />
+                {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg px-3 py-2 mb-4">⚠ {error}</div>}
+                <Btn type="submit" variant="primary" disabled={loading} className="w-full !py-2.5">
+                    {loading ? 'Вход…' : 'Войти'}
+                </Btn>
             </form>
         </div>
     );
 };
 
-const STUDY_LEVELS = ['Бакалавриат', 'Магистратура', 'PhD / докторантура', 'Foundation / подготовка', 'Языковые курсы', 'Среднее образование'];
-
-const DetailRow: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
-    <div className="flex items-baseline gap-2">
-        <span className="text-xs text-slate-500 whitespace-nowrap">{label}:</span>
-        <span className={`flex-grow text-sm ${value ? 'text-slate-900 font-medium' : 'text-slate-400 italic'}`}>
-            {value || '—'}
-        </span>
-    </div>
-);
-
-// Compact university picker — used inside lead detail editor
-const UniversityPicker: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => {
-    const [data, setData] = useState<any>(null);
-    const [filterRegion, setFilterRegion] = useState<string>('');
-    const [filterCountry, setFilterCountry] = useState<string>('');
-    const [search, setSearch] = useState('');
-    const [open, setOpen] = useState(false);
-
-    useEffect(() => {
-        fetch('/api/data').then(r => r.ok ? r.json() : null).then(setData).catch(() => {});
-    }, []);
-
-    const allUnis = useMemo(() => {
-        const list: { name: string; country: string; region: string }[] = [];
-        for (const c of data?.countries || []) {
-            for (const u of (c.universities || [])) {
-                list.push({ name: u.name, country: c.name, region: c.region });
-            }
-        }
-        return list;
-    }, [data]);
-
-    const regions = data?.siteConfig?.regions || [];
-    const countries = useMemo(() => {
-        const set = new Set<string>();
-        for (const c of data?.countries || []) {
-            if (!filterRegion || c.region === filterRegion) set.add(c.name);
-        }
-        return Array.from(set).sort();
-    }, [data, filterRegion]);
-
-    const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        return allUnis.filter(u => {
-            if (filterRegion && u.region !== filterRegion) return false;
-            if (filterCountry && u.country !== filterCountry) return false;
-            if (q && !u.name.toLowerCase().includes(q) && !u.country.toLowerCase().includes(q)) return false;
-            return true;
-        }).slice(0, 30);
-    }, [allUnis, filterRegion, filterCountry, search]);
-
+// ═════════════════════════════════════════════════════════════════════
+//  APPOINTMENT PICKER (inline form for statuses that require it)
+// ═════════════════════════════════════════════════════════════════════
+const AppointmentForm: React.FC<{
+    onSubmit: (data: { at: string; until?: string; kind: 'specific' | 'range' | 'within_day' }) => void;
+    onCancel: () => void;
+}> = ({ onSubmit, onCancel }) => {
+    const [kind, setKind] = useState<'specific' | 'range' | 'within_day'>('specific');
+    const [at, setAt] = useState('');
+    const [until, setUntil] = useState('');
     return (
-        <div className="relative">
-            <input type="text"
-                value={value}
-                onChange={e => { onChange(e.target.value); setSearch(e.target.value); setOpen(true); }}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setTimeout(() => setOpen(false), 200)}
-                className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                placeholder="Введите или выберите ниже"
-            />
-            {open && (
-                <div className="absolute left-0 right-0 top-full mt-1 z-50 border border-slate-200 rounded-xl bg-white shadow-lg max-h-72 overflow-hidden flex flex-col">
-                    <div className="flex gap-1 p-2 border-b border-slate-200 bg-slate-50">
-                        <select className="text-xs border border-slate-300 rounded px-2 py-1 bg-white"
-                            value={filterRegion} onChange={e => { setFilterRegion(e.target.value); setFilterCountry(''); }}>
-                            <option value="">Все континенты</option>
-                            {regions.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
-                        <select className="text-xs border border-slate-300 rounded px-2 py-1 bg-white flex-grow"
-                            value={filterCountry} onChange={e => setFilterCountry(e.target.value)}>
-                            <option value="">Все страны</option>
-                            {countries.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                    </div>
-                    <div className="overflow-y-auto flex-grow">
-                        {filtered.length === 0 ? (
-                            <div className="p-3 text-sm text-slate-400">Ничего не найдено · можно ввести вручную</div>
-                        ) : (
-                            filtered.map((u, i) => (
-                                <button key={i} type="button"
-                                    onMouseDown={e => { e.preventDefault(); onChange(u.name); setOpen(false); }}
-                                    className="w-full text-left px-3 py-2 hover:bg-slate-100 border-b border-slate-100 last:border-0">
-                                    <div className="text-sm font-medium">{u.name}</div>
-                                    <div className="text-xs text-slate-500">{u.country}</div>
-                                </button>
-                            ))
-                        )}
-                    </div>
+        <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 space-y-3">
+            <div className="text-sm font-semibold text-cyan-900">📅 Когда клиент подойдёт в офис?</div>
+            <div className="flex gap-2">
+                {[
+                    { v: 'specific', l: 'Точная дата и время' },
+                    { v: 'within_day', l: 'В течение дня' },
+                    { v: 'range', l: 'Интервал' },
+                ].map(o => (
+                    <button key={o.v} type="button"
+                        onClick={() => setKind(o.v as any)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${kind === o.v ? 'bg-cyan-600 text-white border-cyan-700' : 'bg-white text-cyan-800 border-cyan-200 hover:bg-cyan-50'}`}>
+                        {o.l}
+                    </button>
+                ))}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="text-xs text-stone-600">
+                    <span className="block mb-1">{kind === 'within_day' ? 'Дата' : 'С (дата и время)'}</span>
+                    <input type={kind === 'within_day' ? 'date' : 'datetime-local'} value={at} onChange={e => setAt(e.target.value)}
+                        className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white" />
+                </label>
+                {kind === 'range' && (
+                    <label className="text-xs text-stone-600">
+                        <span className="block mb-1">По (дата и время)</span>
+                        <input type="datetime-local" value={until} onChange={e => setUntil(e.target.value)}
+                            className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white" />
+                    </label>
+                )}
+            </div>
+            <div className="flex gap-2">
+                <Btn variant="primary" disabled={!at} onClick={() => onSubmit({ at, until: kind === 'range' ? until : undefined, kind })}>
+                    Подтвердить визит
+                </Btn>
+                <Btn variant="ghost" onClick={onCancel}>Отмена</Btn>
+            </div>
+        </div>
+    );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  LEAD ROW (table view)
+// ═════════════════════════════════════════════════════════════════════
+const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ lead, me, onOpen }) => {
+    const sla = slaChip(lead.sla_deadline_at, lead.processed_at);
+    const sm = sourceMeta(lead.source || '');
+    const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
+    const wa = lead.phone ? whatsappLink(lead.phone) : null;
+    return (
+        <tr className={`border-b border-stone-100 hover:bg-stone-50 cursor-pointer ${isIncomingTransfer ? 'bg-fuchsia-50/50' : ''}`} onClick={onOpen}>
+            <td className="py-2 px-3"><Avatar name={lead.name} size="sm" /></td>
+            <td className="py-2 px-3">
+                <div className="font-medium text-stone-900">{lead.name || '— без имени —'}</div>
+                <div className="text-xs text-stone-500">#{lead.id} · {formatRel(lead.received_at)}</div>
+            </td>
+            <td className="py-2 px-3 text-sm">
+                {lead.phone && <div className="font-mono">{lead.phone}</div>}
+                {lead.email && <div className="text-xs text-stone-500 truncate max-w-[200px]">{lead.email}</div>}
+            </td>
+            <td className="py-2 px-3"><StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} /></td>
+            <td className="py-2 px-3">
+                <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border ${sm.bg}`}>
+                    <span>{sm.icon}</span> {sm.label}
+                </span>
+            </td>
+            <td className="py-2 px-3 text-sm text-stone-700">{lead.country || '—'}</td>
+            <td className="py-2 px-3 text-sm text-stone-700">
+                {lead.manager_name || <span className="text-stone-400 italic">не назначен</span>}
+                {lead.manager_archived_at && <Pill cls="bg-stone-200 text-stone-600 ml-1">уволен</Pill>}
+            </td>
+            <td className="py-2 px-3"><Pill cls={sla.cls}>{sla.text}</Pill></td>
+            <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-1">
+                    {wa && <a href={wa} target="_blank" rel="noopener noreferrer" title="WhatsApp" className="text-[#25D366] hover:bg-green-50 p-1.5 rounded">💬</a>}
+                    {lead.phone && <a href={`tel:${lead.phone}`} title="Позвонить" className="text-stone-600 hover:bg-stone-100 p-1.5 rounded">📞</a>}
+                    {lead.email && <a href={`mailto:${lead.email}`} title="Email" className="text-stone-600 hover:bg-stone-100 p-1.5 rounded">✉</a>}
+                </div>
+            </td>
+        </tr>
+    );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  LEAD CARD (cards view)
+// ═════════════════════════════════════════════════════════════════════
+const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ lead, me, onOpen }) => {
+    const sla = slaChip(lead.sla_deadline_at, lead.processed_at);
+    const sm = sourceMeta(lead.source || '');
+    const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
+    const wa = lead.phone ? whatsappLink(lead.phone) : null;
+    return (
+        <div onClick={onOpen}
+            className={`bg-white border rounded-2xl p-4 hover:shadow-md transition-all cursor-pointer relative ${isIncomingTransfer ? 'border-fuchsia-300 ring-2 ring-fuchsia-200' : 'border-stone-200'}`}>
+            {isIncomingTransfer && (
+                <div className="absolute -top-2 -right-2 bg-fuchsia-500 text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shadow">передано</div>
+            )}
+            <div className="flex items-start gap-3 mb-3">
+                <Avatar name={lead.name} />
+                <div className="flex-grow min-w-0">
+                    <div className="font-semibold text-stone-900 truncate">{lead.name || '— без имени —'}</div>
+                    <div className="text-xs text-stone-500">#{lead.id} · {formatRel(lead.received_at)}</div>
+                </div>
+                <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
+            </div>
+            <div className="space-y-1 text-sm">
+                {lead.phone && <div className="font-mono text-stone-700">📞 {lead.phone}</div>}
+                {lead.email && <div className="text-stone-600 truncate">✉ {lead.email}</div>}
+                {lead.country && <div className="text-stone-600">🌍 {lead.country}</div>}
+                {lead.desired_university && <div className="text-stone-600 text-xs truncate">🎓 {lead.desired_university}</div>}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-stone-100">
+                <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border ${sm.bg}`}>
+                    {sm.icon} {sm.label}
+                </span>
+                <Pill cls={sla.cls}>{sla.text}</Pill>
+                {lead.manager_name && (
+                    <Pill cls="bg-stone-50 text-stone-600 border border-stone-200">
+                        👤 {lead.manager_name}{lead.manager_archived_at && ' (уволен)'}
+                    </Pill>
+                )}
+            </div>
+            {wa && (
+                <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
+                    <a href={wa} target="_blank" rel="noopener noreferrer"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1eba56] text-white">
+                        💬 WhatsApp
+                    </a>
+                    <Btn variant="secondary" onClick={onOpen}>📋 Открыть</Btn>
                 </div>
             )}
         </div>
     );
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// Manual create-lead modal
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  PIPELINE VIEW (kanban-style columns by status)
+// ═════════════════════════════════════════════════════════════════════
+const PipelineView: React.FC<{ leads: Lead[]; statuses: StatusOption[]; me: Manager; onOpen: (l: Lead) => void }> = ({ leads, statuses, me, onOpen }) => {
+    const grouped = useMemo(() => {
+        const m: Record<string, Lead[]> = {};
+        for (const s of statuses) m[s.code] = [];
+        for (const l of leads) {
+            if (!m[l.status_code]) m[l.status_code] = [];
+            m[l.status_code].push(l);
+        }
+        return m;
+    }, [leads, statuses]);
+    const orderedStatuses = useMemo(() => [...statuses].sort((a, b) => a.sort - b.sort), [statuses]);
+    return (
+        <div className="flex gap-3 overflow-x-auto pb-4">
+            {orderedStatuses.map(s => {
+                const list = grouped[s.code] || [];
+                return (
+                    <div key={s.code} className="bg-stone-50 border border-stone-200 rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0">
+                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-stone-200">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color || '#a8a29e' }} />
+                                <span className="font-semibold text-sm text-stone-900">{s.label}</span>
+                            </div>
+                            <span className="text-xs text-stone-500 font-mono">{list.length}</span>
+                        </div>
+                        <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                            {list.length === 0 ? (
+                                <div className="text-xs text-stone-400 italic py-4 text-center">—</div>
+                            ) : list.map(l => {
+                                const sla = slaChip(l.sla_deadline_at, l.processed_at);
+                                return (
+                                    <div key={l.id} onClick={() => onOpen(l)}
+                                        className="bg-white border border-stone-200 rounded-lg p-2.5 cursor-pointer hover:shadow-sm transition-all hover:border-emerald-300">
+                                        <div className="flex items-start gap-2 mb-1.5">
+                                            <Avatar name={l.name} size="sm" />
+                                            <div className="flex-grow min-w-0">
+                                                <div className="text-sm font-medium text-stone-900 truncate">{l.name || '—'}</div>
+                                                <div className="text-[10px] text-stone-500">#{l.id} · {formatRel(l.received_at)}</div>
+                                            </div>
+                                        </div>
+                                        {l.phone && <div className="font-mono text-xs text-stone-600">{l.phone}</div>}
+                                        <div className="mt-1"><Pill cls={sla.cls}>{sla.text}</Pill></div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  LEAD DETAIL DRAWER (right side panel)
+// ═════════════════════════════════════════════════════════════════════
+const LeadDetailDrawer: React.FC<{
+    lead: Lead;
+    me: Manager;
+    statuses: StatusOption[];
+    roster: RosterManager[];
+    sourceOptions: string[];
+    onClose: () => void;
+    onRefresh: () => void;
+}> = ({ lead, me, statuses, roster, sourceOptions, onClose, onRefresh }) => {
+    const [tab, setTab] = useState<'overview' | 'activity' | 'related'>('overview');
+    const [comments, setComments] = useState<CommentRec[] | null>(null);
+    const [related, setRelated] = useState<any[] | null>(null);
+    const [newComment, setNewComment] = useState('');
+    const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+    const [appointmentForStatus, setAppointmentForStatus] = useState<string | null>(null);
+    const [rejectionForStatus, setRejectionForStatus] = useState<{ statusCode: string; reason: string } | null>(null);
+    const [editingFields, setEditingFields] = useState(false);
+    const [savingFields, setSavingFields] = useState(false);
+    const [draft, setDraft] = useState({
+        name: lead.name || '', phone: lead.phone || '', email: lead.email || '',
+        country: lead.country || '', desired_university: lead.desired_university || '',
+        study_level: lead.study_level || '', intake_term: lead.intake_term || '',
+        budget: lead.budget || '', english_level: lead.english_level || '',
+        birth_year: lead.birth_year ? String(lead.birth_year) : '',
+        current_education: lead.current_education || '', comment: lead.comment || '',
+    });
+    const [editSource, setEditSource] = useState(false);
+    const [transferTo, setTransferTo] = useState('');
+    const [reassignTo, setReassignTo] = useState('');
+
+    const isTeamlead = me.role === 'teamlead';
+    const isOwner = lead.assigned_manager_id === me.id;
+    const canEdit = isTeamlead || isOwner;
+    const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
+    const isOutgoingTransfer = !!lead.pending_transfer_to_id && lead.pending_transfer_to_id !== me.id;
+    const transferDeadlineIso = lead.pending_transfer_at
+        ? new Date(new Date(lead.pending_transfer_at).getTime() + 10 * 60_000).toISOString()
+        : null;
+    const transferCountdown = useCountdown(transferDeadlineIso);
+    const sla = slaChip(lead.sla_deadline_at, lead.processed_at);
+    const sm = sourceMeta(lead.source || '');
+    const wa = lead.phone ? whatsappLink(lead.phone, 'Здравствуйте! Это GoGlobal по вашей заявке.') : null;
+
+    useEffect(() => {
+        fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setComments(j.comments || [])).catch(() => setComments([]));
+    }, [lead.id]);
+
+    useEffect(() => {
+        if (tab !== 'related' || related !== null) return;
+        fetch(`/api/lidy/leads/${lead.id}/related`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setRelated(j.related || [])).catch(() => setRelated([]));
+    }, [tab, lead.id, related]);
+
+    const submitComment = async () => {
+        const body = newComment.trim(); if (!body) return;
+        const r = await fetch(`/api/lidy/leads/${lead.id}/comments`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ body }),
+        });
+        if (r.ok) {
+            const j = await r.json();
+            setComments(prev => [...(prev || []), j.comment]);
+            setNewComment('');
+        } else alert('Ошибка отправки');
+    };
+
+    const changeStatus = async (code: string, extras?: any) => {
+        setPendingStatus(code);
+        try {
+            const r = await fetch(`/api/lidy/leads/${lead.id}/status`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify({ status: code, ...extras }),
+            });
+            if (!r.ok) {
+                const j = await r.json().catch(() => ({}));
+                alert('Ошибка: ' + (j.error || r.status));
+                return;
+            }
+            // refresh comments + parent
+            const c = await fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' }).then(r => r.json());
+            setComments(c.comments || []);
+            onRefresh();
+        } finally { setPendingStatus(null); }
+    };
+
+    const onStatusClick = (s: StatusOption) => {
+        if (s.requires_appointment) { setAppointmentForStatus(s.code); return; }
+        if (s.requires_reason) { setRejectionForStatus({ statusCode: s.code, reason: '' }); return; }
+        changeStatus(s.code);
+    };
+
+    const changeSource = async (newSource: string) => {
+        await fetch(`/api/lidy/leads/${lead.id}/source`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ source: newSource }),
+        });
+        setEditSource(false);
+        onRefresh();
+    };
+
+    const saveFields = async () => {
+        setSavingFields(true);
+        try {
+            const payload: any = { ...draft };
+            payload.birth_year = draft.birth_year ? Number(draft.birth_year) : null;
+            const r = await fetch(`/api/lidy/leads/${lead.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify(payload),
+            });
+            if (r.ok) { setEditingFields(false); onRefresh(); }
+            else alert('Ошибка сохранения');
+        } finally { setSavingFields(false); }
+    };
+
+    const doTransfer = async (mgrId: number) => {
+        const r = await fetch(`/api/lidy/leads/${lead.id}/transfer`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ manager_id: mgrId }),
+        });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || 'Ошибка'); }
+        else { setTransferTo(''); onRefresh(); }
+    };
+    const doReassign = async (mgrId: number) => {
+        const r = await fetch(`/api/lidy/leads/${lead.id}/reassign`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include', body: JSON.stringify({ manager_id: mgrId }),
+        });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || 'Ошибка'); }
+        else { setReassignTo(''); onRefresh(); }
+    };
+    const acceptTransfer = async () => {
+        const r = await fetch(`/api/lidy/leads/${lead.id}/transfer/accept`, { method: 'POST', credentials: 'include' });
+        if (r.ok) onRefresh();
+    };
+    const rejectTransfer = async () => {
+        const r = await fetch(`/api/lidy/leads/${lead.id}/transfer/reject`, { method: 'POST', credentials: 'include' });
+        if (r.ok) onRefresh();
+    };
+    const deleteLead = async () => {
+        if (!confirm(`⚠️ Удалить лид #${lead.id}?\nКомментарии и история тоже удалятся. Действие необратимо.`)) return;
+        const r = await fetch(`/api/lidy/leads/${lead.id}`, { method: 'DELETE', credentials: 'include' });
+        if (r.ok) { onClose(); onRefresh(); }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex" onClick={onClose}>
+            <div className="flex-grow bg-stone-900/30 backdrop-blur-[2px]" />
+            <div className="w-full md:w-[640px] bg-stone-50 h-full overflow-y-auto shadow-2xl border-l border-stone-200" onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div className="sticky top-0 z-10 bg-white border-b border-stone-200 px-5 py-4">
+                    <div className="flex items-start gap-3">
+                        <Avatar name={lead.name} size="lg" />
+                        <div className="flex-grow min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h2 className="text-xl font-bold text-stone-900 truncate">{lead.name || '— без имени —'}</h2>
+                                <span className="text-sm font-mono text-stone-400">#{lead.id}</span>
+                            </div>
+                            <div className="text-xs text-stone-500 mt-0.5">Поступил {formatFull(lead.received_at)}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                                <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
+                                <Pill cls={sla.cls}>{sla.text}</Pill>
+                                {canEdit ? (
+                                    <button onClick={() => setEditSource(!editSource)}
+                                        className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border ${sm.bg} hover:brightness-95`}>
+                                        {sm.icon} {sm.label} <span className="opacity-60">✎</span>
+                                    </button>
+                                ) : (
+                                    <Pill cls={sm.bg}>{sm.icon} {sm.label}</Pill>
+                                )}
+                            </div>
+                            {editSource && (
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                    {sourceOptions.map(opt => (
+                                        <button key={opt} onClick={() => changeSource(opt)}
+                                            className={`text-xs px-2 py-1 rounded-md border ${lead.source === opt ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white border-stone-300 hover:bg-stone-50'}`}>
+                                            {opt}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-2xl leading-none">×</button>
+                    </div>
+
+                    {/* Quick actions */}
+                    <div className="flex gap-2 mt-3 flex-wrap">
+                        {wa && <a href={wa} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1eba56] text-white">
+                            💬 WhatsApp
+                        </a>}
+                        {lead.phone && <a href={`tel:${lead.phone}`}
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-stone-200 hover:bg-stone-50 text-stone-700">
+                            📞 Позвонить
+                        </a>}
+                        {lead.email && <a href={`mailto:${lead.email}`}
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-stone-200 hover:bg-stone-50 text-stone-700">
+                            ✉ Email
+                        </a>}
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="flex gap-1 mt-4 border-b border-stone-200 -mb-4">
+                        {[
+                            { v: 'overview', l: 'Обзор' },
+                            { v: 'activity', l: 'История' },
+                            { v: 'related', l: 'Связанные' },
+                        ].map(t => (
+                            <button key={t.v} onClick={() => setTab(t.v as any)}
+                                className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === t.v ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-stone-500 hover:text-stone-700'}`}>
+                                {t.l}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Body */}
+                <div className="p-5 space-y-4">
+                    {/* Transfer banners */}
+                    {isIncomingTransfer && (
+                        <div className="bg-fuchsia-50 border border-fuchsia-200 rounded-xl p-4">
+                            <div className="font-semibold text-fuchsia-900">🤝 Вам передал лид {lead.pending_transfer_by_name}</div>
+                            <div className="text-sm text-fuchsia-700 mt-1">Решите за <strong>{transferCountdown}</strong>, иначе лид вернётся автору</div>
+                            <div className="flex gap-2 mt-3">
+                                <Btn variant="success" onClick={acceptTransfer}>✓ Принять</Btn>
+                                <Btn variant="danger" onClick={rejectTransfer}>✗ Отказать</Btn>
+                            </div>
+                        </div>
+                    )}
+                    {isOutgoingTransfer && (
+                        <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 flex items-center justify-between">
+                            <div className="text-sm text-violet-900">
+                                ⏱ Передан <strong>{lead.pending_transfer_to_name}</strong> — ждёт принятия (<strong>{transferCountdown}</strong>)
+                            </div>
+                            {(isOwner || isTeamlead) && <Btn variant="ghost" onClick={rejectTransfer}>↩ Отменить</Btn>}
+                        </div>
+                    )}
+
+                    {tab === 'overview' && (
+                        <>
+                            {/* Status change */}
+                            {canEdit && !isIncomingTransfer && (
+                                <section className="bg-white border border-stone-200 rounded-xl p-4">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">🎯 Сменить статус</div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {statuses.map(s => (
+                                            <button key={s.code} disabled={pendingStatus !== null}
+                                                onClick={() => onStatusClick(s)}
+                                                title={s.is_terminal ? 'Закрывает лид' : s.requires_appointment ? 'Запросит дату визита' : s.requires_reason ? 'Запросит причину' : ''}
+                                                className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.status_code === s.code ? 'text-white shadow-sm' : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'}`}
+                                                style={lead.status_code === s.code ? { backgroundColor: s.color || '#10b981', borderColor: s.color || '#10b981' } : undefined}>
+                                                {pendingStatus === s.code ? '…' : s.label}
+                                                {s.is_terminal && ' ✓'}
+                                                {s.requires_appointment && ' 📅'}
+                                                {s.requires_reason && ' ✎'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {appointmentForStatus && (
+                                        <div className="mt-3">
+                                            <AppointmentForm
+                                                onSubmit={(data) => {
+                                                    const code = appointmentForStatus;
+                                                    setAppointmentForStatus(null);
+                                                    changeStatus(code, { appointment_at: data.at, appointment_until: data.until, appointment_kind: data.kind });
+                                                }}
+                                                onCancel={() => setAppointmentForStatus(null)} />
+                                        </div>
+                                    )}
+                                    {rejectionForStatus && (
+                                        <div className="mt-3 bg-rose-50 border border-rose-200 rounded-xl p-3">
+                                            <div className="text-sm font-semibold text-rose-900 mb-2">❌ Причина для «{statuses.find(s => s.code === rejectionForStatus.statusCode)?.label}»</div>
+                                            <textarea autoFocus rows={3}
+                                                className="w-full text-sm border border-rose-300 rounded-lg bg-white p-2 mb-2"
+                                                value={rejectionForStatus.reason}
+                                                onChange={e => setRejectionForStatus(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                                                placeholder="Клиент передумал / выбрал другое агентство…" />
+                                            <div className="flex gap-2">
+                                                <Btn variant="danger" disabled={!rejectionForStatus.reason.trim()}
+                                                    onClick={() => {
+                                                        const r = rejectionForStatus;
+                                                        setRejectionForStatus(null);
+                                                        changeStatus(r.statusCode, { rejection_reason: r.reason });
+                                                    }}>Подтвердить отказ</Btn>
+                                                <Btn variant="ghost" onClick={() => setRejectionForStatus(null)}>Отмена</Btn>
+                                            </div>
+                                        </div>
+                                    )}
+                                </section>
+                            )}
+
+                            {/* Appointment */}
+                            {lead.appointment_at && (
+                                <section className="bg-cyan-50 border border-cyan-200 rounded-xl p-4">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-cyan-700 mb-1">📅 Запланирован визит в офис</div>
+                                    <div className="text-sm text-cyan-900 font-semibold">
+                                        {lead.appointment_kind === 'within_day'
+                                            ? `В течение дня ${new Date(lead.appointment_at).toLocaleDateString('ru-RU')}`
+                                            : lead.appointment_kind === 'range' && lead.appointment_until
+                                                ? `С ${formatFull(lead.appointment_at)} до ${formatFull(lead.appointment_until)}`
+                                                : formatFull(lead.appointment_at)}
+                                    </div>
+                                </section>
+                            )}
+
+                            {/* Rejection reason */}
+                            {lead.rejection_reason && (
+                                <section className="bg-rose-50 border border-rose-200 rounded-xl p-4">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-rose-700 mb-1">❌ Причина отказа</div>
+                                    <div className="text-sm text-rose-900">{lead.rejection_reason}</div>
+                                </section>
+                            )}
+
+                            {/* Customer info card */}
+                            <section className="bg-white border border-stone-200 rounded-xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-stone-500">📋 Информация о клиенте</div>
+                                    {canEdit && (
+                                        <button onClick={() => setEditingFields(!editingFields)} className="text-xs text-emerald-700 hover:underline">
+                                            {editingFields ? 'Отмена' : 'Редактировать'}
+                                        </button>
+                                    )}
+                                </div>
+                                {editingFields ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                        {[
+                                            ['name', 'Имя'], ['phone', 'Телефон'], ['email', 'Email'],
+                                            ['country', 'Страна'], ['desired_university', 'Желаемый ВУЗ'],
+                                            ['study_level', 'Уровень'], ['intake_term', 'Когда поступает'],
+                                            ['budget', 'Бюджет'], ['english_level', 'Английский'],
+                                            ['birth_year', 'Год рождения'], ['current_education', 'Текущее образование'],
+                                        ].map(([k, l]) => (
+                                            <label key={k}>
+                                                <span className="block text-xs text-stone-500 mb-1">{l}</span>
+                                                <input className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    value={(draft as any)[k]} onChange={e => setDraft(prev => ({ ...prev, [k]: e.target.value }))} />
+                                            </label>
+                                        ))}
+                                        <label className="md:col-span-2">
+                                            <span className="block text-xs text-stone-500 mb-1">Комментарий клиента</span>
+                                            <textarea rows={2} className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white"
+                                                value={draft.comment} onChange={e => setDraft(prev => ({ ...prev, comment: e.target.value }))} />
+                                        </label>
+                                        <Btn variant="primary" onClick={saveFields} disabled={savingFields} className="md:col-span-2">
+                                            {savingFields ? 'Сохранение…' : '💾 Сохранить'}
+                                        </Btn>
+                                    </div>
+                                ) : (
+                                    <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                        <Field label="📞 Телефон" value={lead.phone} />
+                                        <Field label="✉ Email" value={lead.email} />
+                                        <Field label="🌍 Страна" value={lead.country} />
+                                        <Field label="🎓 Желаемый ВУЗ" value={lead.desired_university} />
+                                        <Field label="📚 Уровень" value={lead.study_level} />
+                                        <Field label="🗓 Поступление" value={lead.intake_term} />
+                                        <Field label="💰 Бюджет" value={lead.budget} />
+                                        <Field label="🇬🇧 Английский" value={lead.english_level} />
+                                        <Field label="🎂 Год рождения" value={lead.birth_year ? String(lead.birth_year) : null} />
+                                        <Field label="📖 Образование" value={lead.current_education} />
+                                        <Field label="👨‍💼 Менеджер" value={lead.manager_name} />
+                                        <Field label="📥 Получен" value={formatFull(lead.received_at)} />
+                                        {lead.sla_deadline_at && !lead.processed_at && <Field label="⏰ SLA до" value={formatFull(lead.sla_deadline_at)} />}
+                                        {lead.event_name && <Field label="🎟 Событие" value={lead.event_name} />}
+                                    </dl>
+                                )}
+                                {lead.comment && (
+                                    <div className="mt-3 pt-3 border-t border-stone-100">
+                                        <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-1">💬 Комментарий клиента</div>
+                                        <p className="text-sm text-stone-700">{lead.comment}</p>
+                                    </div>
+                                )}
+                            </section>
+
+                            {/* Transfer / Reassign */}
+                            {(isOwner || isTeamlead) && (
+                                <section className="bg-white border border-stone-200 rounded-xl p-4 space-y-3">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-stone-500">⇄ Передача лида</div>
+                                    {isOwner && !lead.pending_transfer_to_id && (
+                                        <div>
+                                            <div className="text-xs text-stone-500 mb-1">Передать другому менеджеру (10 мин на принятие)</div>
+                                            <div className="flex gap-2">
+                                                <select className="flex-grow border border-stone-300 rounded-lg px-2 py-1.5 bg-white text-sm"
+                                                    value={transferTo} onChange={e => setTransferTo(e.target.value)}>
+                                                    <option value="">— выбрать —</option>
+                                                    {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at && m.id !== me.id).map(m => (
+                                                        <option key={m.id} value={m.id}>{m.full_name} {m.is_online ? '🟢' : '⚪'}</option>
+                                                    ))}
+                                                </select>
+                                                <Btn variant="primary" disabled={!transferTo} onClick={() => doTransfer(Number(transferTo))}>🤝 Передать</Btn>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {isTeamlead && (
+                                        <>
+                                            {lead.assigned_manager_id !== me.id && (
+                                                <Btn variant="secondary" onClick={() => doReassign(me.id)}>👤 Взять лид себе</Btn>
+                                            )}
+                                            <div>
+                                                <div className="text-xs text-stone-500 mb-1">Переназначить (без подтверждения)</div>
+                                                <div className="flex gap-2">
+                                                    <select className="flex-grow border border-stone-300 rounded-lg px-2 py-1.5 bg-white text-sm"
+                                                        value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
+                                                        <option value="">— выбрать —</option>
+                                                        {roster.filter(m => (m.active !== false) && !m.archived_at && m.id !== lead.assigned_manager_id).map(m => (
+                                                            <option key={m.id} value={m.id}>{m.full_name} {m.is_online ? '🟢' : '⚪'} {m.role === 'teamlead' ? '👑' : ''}</option>
+                                                        ))}
+                                                    </select>
+                                                    <Btn variant="secondary" disabled={!reassignTo} onClick={() => doReassign(Number(reassignTo))}>🔄 Переназначить</Btn>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                </section>
+                            )}
+
+                            {isTeamlead && (
+                                <Btn variant="danger" onClick={deleteLead}>🗑 Удалить лид</Btn>
+                            )}
+                        </>
+                    )}
+
+                    {tab === 'activity' && (
+                        <section className="bg-white border border-stone-200 rounded-xl p-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">📜 История событий</div>
+                            <div className="space-y-3">
+                                {comments === null ? (
+                                    <div className="text-sm text-stone-400">Загрузка…</div>
+                                ) : comments.length === 0 ? (
+                                    <div className="text-sm text-stone-400 italic">Событий пока нет</div>
+                                ) : (
+                                    comments.slice().reverse().map(c => (
+                                        <div key={c.id} className="flex gap-3">
+                                            <Avatar name={c.author_name} size="sm" />
+                                            <div className="flex-grow">
+                                                <div className="flex items-baseline gap-2 flex-wrap">
+                                                    <span className="font-semibold text-sm text-stone-900">{c.author_name}</span>
+                                                    {c.author_role === 'teamlead' && <Pill cls="bg-violet-100 text-violet-700">тимлид</Pill>}
+                                                    <span className="text-xs text-stone-400 ml-auto">{formatRel(c.created_at)}</span>
+                                                </div>
+                                                <p className="text-sm text-stone-700 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            {canEdit && (
+                                <div className="mt-4 pt-4 border-t border-stone-100 flex gap-2">
+                                    <textarea rows={2}
+                                        className="flex-grow text-sm border border-stone-300 rounded-lg bg-stone-50 focus:bg-white p-2"
+                                        value={newComment} onChange={e => setNewComment(e.target.value)}
+                                        placeholder="Оставить комментарий…" />
+                                    <Btn variant="primary" onClick={submitComment} disabled={!newComment.trim()}>
+                                        Отправить
+                                    </Btn>
+                                </div>
+                            )}
+                        </section>
+                    )}
+
+                    {tab === 'related' && (
+                        <section className="bg-white border border-stone-200 rounded-xl p-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">
+                                🔗 Тот же клиент (по телефону или email)
+                            </div>
+                            {related === null ? (
+                                <div className="text-sm text-stone-400">Загрузка…</div>
+                            ) : related.length === 0 ? (
+                                <div className="text-sm text-stone-400 italic">Других лидов с такими контактами нет</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {related.map((r: any) => (
+                                        <div key={r.id} className="border border-stone-200 rounded-lg p-3 hover:bg-stone-50">
+                                            <div className="flex items-center gap-3">
+                                                <Avatar name={r.name} size="sm" />
+                                                <div className="flex-grow min-w-0">
+                                                    <div className="text-sm font-medium text-stone-900">{r.name || '— без имени —'} <span className="text-xs text-stone-400">#{r.id}</span></div>
+                                                    <div className="text-xs text-stone-500">
+                                                        {r.phone && <span className="font-mono">{r.phone}</span>}
+                                                        {r.phone && r.email && <span> · </span>}
+                                                        {r.email}
+                                                    </div>
+                                                </div>
+                                                <StatusBadge code={r.status_code} label={r.status_label} color={r.status_color} />
+                                            </div>
+                                            <div className="flex items-center gap-2 mt-1.5 text-xs text-stone-500">
+                                                <span>{formatRel(r.received_at)}</span>
+                                                {r.manager_name && <span>· 👤 {r.manager_name}</span>}
+                                                {r.source && <span>· 🏷 {r.source}</span>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </section>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const Field: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
+    <div>
+        <dt className="text-xs text-stone-500">{label}</dt>
+        <dd className={`text-sm ${value ? 'text-stone-900 font-medium' : 'text-stone-400 italic'}`}>{value || '—'}</dd>
+    </div>
+);
+
+// ═════════════════════════════════════════════════════════════════════
+//  CREATE LEAD MODAL
+// ═════════════════════════════════════════════════════════════════════
 const CreateLeadModal: React.FC<{
     onClose: () => void;
     onCreated: () => void;
@@ -351,75 +992,55 @@ const CreateLeadModal: React.FC<{
     isTeamlead: boolean;
 }> = ({ onClose, onCreated, sourceOptions, roster, isTeamlead }) => {
     const [form, setForm] = useState({
-        name: '', phone: '', email: '', country: '', comment: '',
-        source: '', desired_university: '', study_level: '', intake_term: '',
+        name: '', phone: '', email: '', country: '', comment: '', source: '',
+        desired_university: '', study_level: '', intake_term: '',
         budget: '', english_level: '', birth_year: '', current_education: '',
         assigned_manager_id: '',
     });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
-    const set = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
-
+    const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
     const submit = async () => {
-        if (!form.source) { setError('Укажите источник лида'); return; }
-        if (!form.name && !form.phone && !form.email) { setError('Нужно хотя бы имя, телефон или email'); return; }
+        if (!form.source) { setError('Укажите источник'); return; }
+        if (!form.name && !form.phone && !form.email) { setError('Нужно имя, телефон или email'); return; }
         setSaving(true); setError(null);
         try {
             const payload: any = { ...form };
             payload.birth_year = form.birth_year ? Number(form.birth_year) : undefined;
             if (!form.assigned_manager_id) delete payload.assigned_manager_id;
             const r = await fetch('/api/lidy/leads', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(payload),
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify(payload),
             });
             const j = await r.json().catch(() => ({}));
             if (!r.ok) { setError(j.error || 'Ошибка'); return; }
-            onCreated();
-            onClose();
+            onCreated(); onClose();
         } finally { setSaving(false); }
     };
-
     return (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
-            onClick={onClose}>
-            <div className={`${CARD} max-w-2xl w-full my-8`} onClick={e => e.stopPropagation()}>
-                <div className="border-b border-slate-200 p-4 flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-slate-900">📞 Создать лид вручную</h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
+        <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
+            <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 max-w-2xl w-full my-8" onClick={e => e.stopPropagation()}>
+                <div className="border-b border-stone-200 px-5 py-4 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-stone-900">📞 Создать лид вручную</h3>
+                    <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-2xl leading-none">×</button>
                 </div>
                 <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                    <p className="md:col-span-2 text-xs text-slate-500">Используй для звонков, WhatsApp-переписок или личных встреч, где клиент не заполнял онлайн-форму.</p>
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Имя</span>
-                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                            value={form.name} onChange={e => set('name', e.target.value)} placeholder="Айбек" />
-                    </label>
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Телефон</span>
-                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono"
-                            value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+996 ..." />
-                    </label>
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Email</span>
-                        <input type="email" className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                            value={form.email} onChange={e => set('email', e.target.value)} />
-                    </label>
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Страна для обучения</span>
-                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                            value={form.country} onChange={e => set('country', e.target.value)} placeholder="США / Германия..." />
-                    </label>
+                    {error && <div className="md:col-span-2 bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-lg">⚠ {error}</div>}
+                    {[
+                        ['name', 'Имя', 'Айбек', 'text'], ['phone', 'Телефон', '+996…', 'tel'],
+                        ['email', 'Email', 'mail@…', 'email'], ['country', 'Страна', 'США', 'text'],
+                        ['desired_university', 'Желаемый ВУЗ', '', 'text'], ['intake_term', 'Когда поступает', 'Осень 2026', 'text'],
+                        ['budget', 'Бюджет', '$15k–30k', 'text'], ['english_level', 'Английский', 'B2 / IELTS 6.5', 'text'],
+                    ].map(([k, l, ph, t]) => (
+                        <label key={k}>
+                            <span className="block text-xs text-stone-500 mb-1">{l}</span>
+                            <input type={t} className="w-full border border-stone-300 rounded-lg px-3 py-2"
+                                placeholder={ph} value={(form as any)[k]} onChange={e => set(k, e.target.value)} />
+                        </label>
+                    ))}
                     <label className="md:col-span-2">
-                        <span className="block text-xs text-slate-500 mb-1">Желаемый университет</span>
-                        <UniversityPicker value={form.desired_university}
-                            onChange={v => set('desired_university', v)} />
-                    </label>
-                    <label className="md:col-span-2">
-                        <span className="block text-xs text-slate-500 mb-1">Источник <span className="text-red-500">*</span></span>
-                        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                        <span className="block text-xs text-stone-500 mb-1">Источник <span className="text-rose-500">*</span></span>
+                        <select className="w-full border border-stone-300 rounded-lg px-3 py-2 bg-white"
                             value={form.source} onChange={e => set('source', e.target.value)}>
                             <option value="">— выберите —</option>
                             {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
@@ -427,721 +1048,74 @@ const CreateLeadModal: React.FC<{
                     </label>
                     {isTeamlead && (
                         <label className="md:col-span-2">
-                            <span className="block text-xs text-slate-500 mb-1">Назначить менеджеру (по умолчанию — себе)</span>
-                            <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                            <span className="block text-xs text-stone-500 mb-1">Назначить (по умолчанию — себе)</span>
+                            <select className="w-full border border-stone-300 rounded-lg px-3 py-2 bg-white"
                                 value={form.assigned_manager_id} onChange={e => set('assigned_manager_id', e.target.value)}>
                                 <option value="">— себе —</option>
-                                {roster.filter(m => m.role === 'manager' && m.active && !m.archived_at).map(m => (
+                                {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at).map(m => (
                                     <option key={m.id} value={m.id}>{m.full_name} {m.is_online ? '🟢' : '⚪'}</option>
                                 ))}
                             </select>
                         </label>
                     )}
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Уровень программы</span>
-                        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
-                            value={form.study_level} onChange={e => set('study_level', e.target.value)}>
-                            <option value="">—</option>
-                            {STUDY_LEVELS.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </label>
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Когда поступает</span>
-                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                            placeholder="Осень 2026" value={form.intake_term}
-                            onChange={e => set('intake_term', e.target.value)} />
-                    </label>
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Бюджет</span>
-                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                            placeholder="$15k–$30k / год" value={form.budget}
-                            onChange={e => set('budget', e.target.value)} />
-                    </label>
-                    <label>
-                        <span className="block text-xs text-slate-500 mb-1">Английский</span>
-                        <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                            placeholder="B2 / IELTS 6.5" value={form.english_level}
-                            onChange={e => set('english_level', e.target.value)} />
-                    </label>
                     <label className="md:col-span-2">
-                        <span className="block text-xs text-slate-500 mb-1">Комментарий клиента</span>
-                        <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                        <span className="block text-xs text-stone-500 mb-1">Комментарий</span>
+                        <textarea rows={2} className="w-full border border-stone-300 rounded-lg px-3 py-2"
                             value={form.comment} onChange={e => set('comment', e.target.value)} />
                     </label>
-                    {error && <div className="md:col-span-2 bg-red-50 border border-red-200 text-red-700 p-2 rounded-lg text-sm">⚠ {error}</div>}
                 </div>
-                <div className="border-t border-slate-200 p-4 flex justify-end gap-2">
-                    <button onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium">Отмена</button>
-                    <button onClick={submit} disabled={saving}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
-                        {saving ? '💾 ...' : '💾 Создать лид'}
-                    </button>
+                <div className="border-t border-stone-200 px-5 py-3 flex justify-end gap-2">
+                    <Btn variant="ghost" onClick={onClose}>Отмена</Btn>
+                    <Btn variant="primary" onClick={submit} disabled={saving}>{saving ? 'Сохранение…' : '💾 Создать'}</Btn>
                 </div>
             </div>
         </div>
     );
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// Lead card — material + bento
-// ─────────────────────────────────────────────────────────────────────
-const LeadCard: React.FC<{
-    lead: Lead;
-    statuses: StatusOption[];
-    me: Manager;
-    onChangeStatus: (id: number, status: string, note?: string, rejectionReason?: string) => Promise<void>;
-    onChangeSource: (leadId: number, newSource: string) => Promise<void>;
-    roster: RosterManager[];
-    sourceOptions: string[];
-    onReassign: (leadId: number, newManagerId: number) => Promise<void>;
-    onTransfer: (leadId: number, newManagerId: number) => Promise<void>;
-    onTransferAccept: (leadId: number) => Promise<void>;
-    onTransferReject: (leadId: number) => Promise<void>;
-    onDelete: (leadId: number) => Promise<void>;
-    waMessage: string;
-}> = ({ lead, statuses, me, onChangeStatus, onChangeSource, roster, sourceOptions, onReassign, onTransfer, onTransferAccept, onTransferReject, onDelete, waMessage }) => {
-    const [open, setOpen] = useState(false);
-    const [note, setNote] = useState(lead.notes || '');
-    const [pendingStatus, setPendingStatus] = useState<string | null>(null);
-    const [reassignTo, setReassignTo] = useState<string>('');
-    const [transferTo, setTransferTo] = useState<string>('');
-    const [editSourceMode, setEditSourceMode] = useState(false);
-    const [pendingRejection, setPendingRejection] = useState<{ statusCode: string; reason: string } | null>(null);
-    const [comments, setComments] = useState<CommentRec[] | null>(null);
-    const [newComment, setNewComment] = useState('');
-    const [postingComment, setPostingComment] = useState(false);
-    const [editFields, setEditFields] = useState(false);
-    const [draftFields, setDraftFields] = useState({
-        name: lead.name || '',
-        phone: lead.phone || '',
-        email: lead.email || '',
-        country: lead.country || '',
-        comment: lead.comment || '',
-        desired_university: lead.desired_university || '',
-        study_level: lead.study_level || '',
-        intake_term: lead.intake_term || '',
-        budget: lead.budget || '',
-        english_level: lead.english_level || '',
-        birth_year: lead.birth_year ? String(lead.birth_year) : '',
-        current_education: lead.current_education || '',
-    });
-    const [savingFields, setSavingFields] = useState(false);
-
-    const saveFields = async () => {
-        setSavingFields(true);
-        try {
-            const payload: any = { ...draftFields };
-            if (payload.birth_year === '') payload.birth_year = null;
-            else payload.birth_year = Number(payload.birth_year) || null;
-            const r = await fetch(`/api/lidy/leads/${lead.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(payload),
-            });
-            if (!r.ok) {
-                const j = await r.json().catch(() => ({}));
-                alert('Ошибка: ' + (j.error || r.status));
-            } else {
-                setEditFields(false);
-            }
-        } finally { setSavingFields(false); }
-    };
-    const isTeamlead = me.role === 'teamlead';
-    const isOwner = lead.assigned_manager_id === me.id;
-    const sla = formatSla(lead.sla_deadline_at, lead.processed_at);
-    const wa = lead.phone ? whatsappLink(lead.phone, waMessage) : null;
-    const isProcessed = !!lead.processed_at;
-    const isQueued = !lead.assigned_manager_id;
-    const canComment = isTeamlead || isOwner;
-    const canEditSource = isTeamlead || isOwner;
-
-    // Lazy-load comments when card opens
-    useEffect(() => {
-        if (!open || comments !== null) return;
-        fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' })
-            .then(r => r.json())
-            .then(j => setComments(j.comments || []))
-            .catch(() => setComments([]));
-    }, [open, lead.id, comments]);
-
-    const submitComment = async () => {
-        const body = newComment.trim();
-        if (!body) return;
-        setPostingComment(true);
-        try {
-            const r = await fetch(`/api/lidy/leads/${lead.id}/comments`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ body }),
-            });
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) { alert('Ошибка: ' + (j.error || r.status)); return; }
-            setComments(prev => [...(prev || []), j.comment]);
-            setNewComment('');
-        } finally { setPostingComment(false); }
-    };
-
-    // Pending transfer state
-    const transferDeadlineIso = lead.pending_transfer_at
-        ? new Date(new Date(lead.pending_transfer_at).getTime() + 10 * 60_000).toISOString()
-        : null;
-    const transferCountdown = useCountdown(transferDeadlineIso);
-    const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
-    const isOutgoingTransfer = !!lead.pending_transfer_to_id && lead.pending_transfer_to_id !== me.id;
-
-    const statusColor = lead.status_color || '#3b82f6';
-
-    return (
-        <div className={`${CARD} relative overflow-hidden`}>
-            {/* Top row: status block + assignee + sla */}
-            <div className="grid grid-cols-[auto_1fr_auto] border-b border-slate-200">
-                {/* ID block */}
-                <div className="bg-black text-lime-300 px-4 py-3 font-mono font-bold flex items-center border-r border-slate-200">
-                    #{lead.id}
-                </div>
-                {/* Status + processed badge */}
-                <div className="px-3 py-2 flex items-center gap-2 flex-wrap min-w-0">
-                    <span
-                        className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 text-white"
-                        style={{ backgroundColor: statusColor }}
-                    >
-                        {lead.status_label || lead.status_code}
-                    </span>
-                    {(() => {
-                        const sb = sourceBadge(lead.source || '');
-                        return canEditSource ? (
-                            <Tooltip text="Кликни чтобы изменить источник">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); setEditSourceMode(true); setOpen(true); }}
-                                    className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 ${sb.bg} ${sb.text} hover:brightness-110`}
-                                >
-                                    {sb.label} ✎
-                                </button>
-                            </Tooltip>
-                        ) : (
-                            <Tooltip text={`Источник лида: ${lead.source || 'неизвестен'}`}>
-                                <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 ${sb.bg} ${sb.text}`}>
-                                    {sb.label}
-                                </span>
-                            </Tooltip>
-                        );
-                    })()}
-                    {isProcessed ? (
-                        <Tooltip text="Лид закрыт менеджером">
-                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 bg-emerald-400 text-black">
-                                ✓ Обработан
-                            </span>
-                        </Tooltip>
-                    ) : (
-                        <Tooltip text="Лид ещё в работе или не взят">
-                            <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md border border-slate-200 bg-amber-300 text-black">
-                                ⏳ Не обработан
-                            </span>
-                        </Tooltip>
-                    )}
-                    {/* Assignee badge */}
-                    {lead.manager_name ? (
-                        <Tooltip text={`Назначен на ${lead.manager_name}${lead.manager_archived_at ? ' (уволен)' : ''}`}>
-                            <span className={`text-xs font-bold px-2 py-1 rounded-md border border-slate-200 ${lead.manager_archived_at ? 'bg-slate-300 line-through text-slate-700' : 'bg-cyan-200 text-black'}`}>
-                                👤 {lead.manager_name}{lead.manager_archived_at && ' (уволен)'}
-                            </span>
-                        </Tooltip>
-                    ) : (
-                        <span className="text-xs font-bold px-2 py-1 rounded-md border border-slate-200 bg-orange-400 text-black">
-                            ⏳ Без менеджера
-                        </span>
-                    )}
-                    {wa && (
-                        <Tooltip text="Открыть WhatsApp клиента">
-                            <a href={wa} target="_blank" rel="noopener noreferrer"
-                                onClick={e => e.stopPropagation()}
-                                className="text-xs font-bold px-2 py-1 rounded-md border border-slate-200 bg-[#25D366] text-black hover:bg-[#1eba56]">
-                                💬 WA
-                            </a>
-                        </Tooltip>
-                    )}
-                </div>
-                {/* SLA + dates right */}
-                <div className={`px-3 py-2 flex flex-col items-end justify-center border-l border-slate-200 ${sla.color} ${sla.textColor} text-right`}>
-                    <span className="font-mono text-xs uppercase font-bold">{sla.text}</span>
-                    <span className="font-mono text-[10px] opacity-80 mt-0.5">📥 {formatFull(lead.received_at)}</span>
-                    {lead.sla_deadline_at && !lead.processed_at && (
-                        <span className="font-mono text-[10px] opacity-80">⏰ до {formatFull(lead.sla_deadline_at)}</span>
-                    )}
-                </div>
-            </div>
-
-            {/* Secondary badges row: event + university preview */}
-            {(lead.event_name || lead.event_name_snapshot || lead.desired_university || lead.study_level || lead.intake_term) && (
-                <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex flex-wrap gap-2 text-xs">
-                    {(lead.event_name || lead.event_name_snapshot) && (
-                        <span className="bg-violet-100 border border-violet-300 text-violet-800 px-2 py-1 rounded-md font-medium">
-                            🎟 {lead.event_name || lead.event_name_snapshot}
-                        </span>
-                    )}
-                    {lead.desired_university && (
-                        <span className="bg-blue-100 border border-blue-300 text-blue-900 px-2 py-1 rounded-md font-medium">
-                            🎓 {lead.desired_university}
-                        </span>
-                    )}
-                    {lead.study_level && (
-                        <span className="bg-slate-100 border border-slate-300 text-slate-700 px-2 py-1 rounded-md">
-                            📚 {lead.study_level}
-                        </span>
-                    )}
-                    {lead.intake_term && (
-                        <span className="bg-amber-100 border border-amber-300 text-amber-900 px-2 py-1 rounded-md">
-                            🗓 {lead.intake_term}
-                        </span>
-                    )}
-                </div>
-            )}
-
-            {/* Pending transfer banners */}
-            {isIncomingTransfer && (
-                <div className="bg-fuchsia-300 border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3">
-                    <div>
-                        <div className="font-bold text-sm">🤝 ВАМ ПЕРЕДАЛИ ЛИД от {lead.pending_transfer_by_name}</div>
-                        <div className="font-mono text-xs">Решите за <strong>{transferCountdown}</strong> или вернётся обратно</div>
-                    </div>
-                    <div className="flex gap-2">
-                        <button onClick={() => onTransferAccept(lead.id)} className={`${BTN} bg-emerald-400 text-black`}>
-                            ✓ Принять
-                        </button>
-                        <button onClick={() => onTransferReject(lead.id)} className={`${BTN} bg-red-400 text-black`}>
-                            ✗ Отказать
-                        </button>
-                    </div>
-                </div>
-            )}
-            {isOutgoingTransfer && (
-                <div className="bg-violet-300 border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3">
-                    <div className="font-mono text-xs">
-                        ⏱ Передан <strong>{lead.pending_transfer_to_name}</strong> — ждёт принятия (<strong>{transferCountdown}</strong>)
-                    </div>
-                    {(isOwner || isTeamlead) && (
-                        <button onClick={() => onTransferReject(lead.id)} className={`${BTN} bg-white text-black`}>
-                            ↩ Отменить
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {/* Main content */}
-            <div className="p-4 cursor-pointer" onClick={() => setOpen(!open)}>
-                <div className="font-bold text-lg mb-1">{lead.name || '— без имени —'}</div>
-                <div className="text-sm text-slate-700 flex flex-wrap gap-x-4 gap-y-1 font-mono">
-                    {lead.phone && (
-                        <a href={`tel:${lead.phone}`} className="hover:underline" onClick={e => e.stopPropagation()}>
-                            📞 {lead.phone}
-                        </a>
-                    )}
-                    {lead.email && (
-                        <a href={`mailto:${lead.email}`} className="hover:underline" onClick={e => e.stopPropagation()}>
-                            ✉ {lead.email}
-                        </a>
-                    )}
-                    {lead.country && <span>🌍 {lead.country}</span>}
-                </div>
-                {lead.comment && !open && (
-                    <p className="text-sm text-slate-600 mt-2 truncate">💬 {lead.comment}</p>
-                )}
-                <button className="text-xs font-mono text-slate-500 mt-2 hover:underline">
-                    {open ? '▲ свернуть' : '▼ развернуть для действий'}
-                </button>
-            </div>
-
-            {open && (
-                <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-4">
-                    {lead.comment && (
-                        <div>
-                            <div className="text-xs font-bold uppercase tracking-widest mb-1 text-slate-500">💬 Комментарий клиента</div>
-                            <p className={`text-sm ${BORDER} rounded-lg bg-white p-3`}>{lead.comment}</p>
-                        </div>
-                    )}
-
-                    {lead.rejection_reason && (
-                        <div>
-                            <div className="text-xs font-bold uppercase tracking-widest mb-1 text-red-700">❌ Причина отказа</div>
-                            <p className={`text-sm ${BORDER} rounded-lg bg-red-50 border-red-200 p-3 text-red-900`}>{lead.rejection_reason}</p>
-                        </div>
-                    )}
-
-                    {/* Detailed fields panel */}
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <div className="text-xs font-bold uppercase tracking-widest text-slate-500">📋 Детали клиента</div>
-                            {canEditSource && (
-                                <button onClick={() => setEditFields(!editFields)}
-                                    className="text-xs text-brand-600 hover:underline font-medium">
-                                    {editFields ? '× Отменить' : '✎ Редактировать'}
-                                </button>
-                            )}
-                        </div>
-
-                        {editFields ? (
-                            <div className={`${BORDER} rounded-xl bg-white p-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm`}>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Имя</span>
-                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        value={draftFields.name}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, name: e.target.value }))} />
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Телефон</span>
-                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white font-mono"
-                                        value={draftFields.phone}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, phone: e.target.value }))} />
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Email</span>
-                                    <input type="email" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        value={draftFields.email}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, email: e.target.value }))} />
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Страна для обучения</span>
-                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        value={draftFields.country}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, country: e.target.value }))} />
-                                </label>
-                                <label className="md:col-span-2">
-                                    <span className="block text-xs text-slate-500 mb-1">Комментарий клиента</span>
-                                    <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        value={draftFields.comment}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, comment: e.target.value }))} />
-                                </label>
-                                <hr className="md:col-span-2" />
-                                <label className="md:col-span-2">
-                                    <span className="block text-xs text-slate-500 mb-1">Желаемый университет</span>
-                                    <UniversityPicker
-                                        value={draftFields.desired_university}
-                                        onChange={v => setDraftFields(prev => ({ ...prev, desired_university: v }))}
-                                    />
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Уровень программы</span>
-                                    <select className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        value={draftFields.study_level}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, study_level: e.target.value }))}>
-                                        <option value="">— не указано —</option>
-                                        {STUDY_LEVELS.map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Когда поступает</span>
-                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        placeholder="Осень 2026"
-                                        value={draftFields.intake_term}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, intake_term: e.target.value }))} />
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Бюджет</span>
-                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        placeholder="$15k–$30k / год"
-                                        value={draftFields.budget}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, budget: e.target.value }))} />
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Английский</span>
-                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        placeholder="B2 / IELTS 6.5"
-                                        value={draftFields.english_level}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, english_level: e.target.value }))} />
-                                </label>
-                                <label>
-                                    <span className="block text-xs text-slate-500 mb-1">Год рождения</span>
-                                    <input type="number" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        placeholder="2005"
-                                        value={draftFields.birth_year}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, birth_year: e.target.value }))} />
-                                </label>
-                                <label className="md:col-span-2">
-                                    <span className="block text-xs text-slate-500 mb-1">Текущее образование</span>
-                                    <input type="text" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
-                                        placeholder="11 класс / 2 курс / окончил вуз..."
-                                        value={draftFields.current_education}
-                                        onChange={e => setDraftFields(prev => ({ ...prev, current_education: e.target.value }))} />
-                                </label>
-                                <button onClick={saveFields} disabled={savingFields}
-                                    className="md:col-span-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-bold disabled:opacity-50">
-                                    {savingFields ? 'Сохранение...' : '💾 Сохранить детали'}
-                                </button>
-                            </div>
-                        ) : (
-                            <div className={`${BORDER} rounded-xl bg-white p-3 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm`}>
-                                <DetailRow label="🎓 Университет" value={lead.desired_university} />
-                                <DetailRow label="📚 Уровень" value={lead.study_level} />
-                                <DetailRow label="🗓 Поступление" value={lead.intake_term} />
-                                <DetailRow label="💰 Бюджет" value={lead.budget} />
-                                <DetailRow label="🇬🇧 Английский" value={lead.english_level} />
-                                <DetailRow label="🎂 Год рождения" value={lead.birth_year ? String(lead.birth_year) : null} />
-                                <DetailRow label="📖 Образование" value={lead.current_education} />
-                                <DetailRow label="📥 Получен" value={formatFull(lead.received_at)} />
-                                {lead.sla_deadline_at && (
-                                    <DetailRow label="⏰ SLA до" value={formatFull(lead.sla_deadline_at)} />
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Source editor */}
-                    {editSourceMode && canEditSource && (
-                        <div className={`${BORDER} rounded-xl bg-white p-3`}>
-                            <div className="text-xs font-bold uppercase tracking-widest mb-2 text-slate-500">🏷 Изменить источник лида</div>
-                            <div className="flex flex-wrap gap-2">
-                                {sourceOptions.map(opt => (
-                                    <button key={opt} type="button"
-                                        onClick={async () => {
-                                            await onChangeSource(lead.id, opt);
-                                            setEditSourceMode(false);
-                                        }}
-                                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${lead.source === opt ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-slate-300 hover:bg-slate-100'}`}>
-                                        {opt}
-                                    </button>
-                                ))}
-                                <button type="button" onClick={() => setEditSourceMode(false)}
-                                    className="text-xs text-slate-500 hover:underline px-2 py-1.5">Отменить</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Status buttons */}
-                    {(isOwner || isTeamlead || isQueued) && !isIncomingTransfer && (
-                        <div>
-                            <div className="text-xs font-bold uppercase tracking-widest mb-2 text-slate-500">🎯 Сменить статус</div>
-                            <div className="flex flex-wrap gap-2">
-                                {statuses.map(s => (
-                                    <Tooltip key={s.code} text={
-                                        s.requires_reason ? 'Закроет лид и попросит указать причину'
-                                            : s.is_terminal ? 'Закрывает лид (обработан)'
-                                                : 'Промежуточный статус'
-                                    }>
-                                        <button
-                                            type="button"
-                                            disabled={pendingStatus !== null}
-                                            onClick={async () => {
-                                                if (s.requires_reason) {
-                                                    setPendingRejection({ statusCode: s.code, reason: '' });
-                                                    return;
-                                                }
-                                                setPendingStatus(s.code);
-                                                try { await onChangeStatus(lead.id, s.code, note); }
-                                                finally { setPendingStatus(null); }
-                                            }}
-                                            className={`${BORDER} ${SHADOW} ${SHADOW_HOVER} active:shadow-none active:translate-y-[1px] transition-all text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg ${lead.status_code === s.code ? 'text-white' : 'bg-white text-black'}`}
-                                            style={lead.status_code === s.code ? { backgroundColor: s.color || '#3b82f6' } : undefined}
-                                        >
-                                            {pendingStatus === s.code ? '...' : s.label}
-                                            {s.is_terminal && ' ✓'}
-                                            {s.requires_reason && ' ✎'}
-                                        </button>
-                                    </Tooltip>
-                                ))}
-                            </div>
-
-                            {/* Rejection reason inline form */}
-                            {pendingRejection && (
-                                <div className={`${BORDER} rounded-xl bg-red-50 border-red-200 p-3 mt-3 space-y-2`}>
-                                    <div className="text-xs font-bold uppercase tracking-widest text-red-700">
-                                        ❌ Причина для статуса «{statuses.find(s => s.code === pendingRejection.statusCode)?.label}»
-                                    </div>
-                                    <textarea
-                                        autoFocus rows={3}
-                                        className="w-full text-sm border border-red-300 rounded-lg bg-white p-2 focus:ring-2 focus:ring-red-500"
-                                        value={pendingRejection.reason}
-                                        onChange={e => setPendingRejection(prev => prev ? { ...prev, reason: e.target.value } : null)}
-                                        placeholder="Например: клиент передумал / нашёл другое агентство / недостаточный бюджет..."
-                                    />
-                                    <div className="flex gap-2">
-                                        <button type="button"
-                                            disabled={!pendingRejection.reason.trim()}
-                                            onClick={async () => {
-                                                const code = pendingRejection.statusCode;
-                                                const reason = pendingRejection.reason.trim();
-                                                setPendingStatus(code);
-                                                try {
-                                                    await onChangeStatus(lead.id, code, note, reason);
-                                                    setPendingRejection(null);
-                                                } finally { setPendingStatus(null); }
-                                            }}
-                                            className="bg-red-600 hover:bg-red-700 disabled:opacity-30 text-white text-sm font-bold px-4 py-2 rounded-lg">
-                                            Подтвердить отказ
-                                        </button>
-                                        <button type="button" onClick={() => setPendingRejection(null)}
-                                            className="text-slate-600 text-sm hover:underline">Отменить</button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Notes / Comments thread */}
-                    <div>
-                        <div className="text-xs font-bold uppercase tracking-widest mb-2 text-slate-500">💬 Комментарии команды</div>
-                        <div className={`${BORDER} rounded-xl bg-white divide-y divide-slate-100 max-h-72 overflow-y-auto`}>
-                            {comments === null ? (
-                                <div className="p-3 text-sm text-slate-400">Загрузка...</div>
-                            ) : comments.length === 0 ? (
-                                <div className="p-3 text-sm text-slate-400 italic">Комментариев пока нет</div>
-                            ) : (
-                                comments.map(c => (
-                                    <div key={c.id} className="p-3">
-                                        <div className="flex items-baseline gap-2 mb-1">
-                                            <span className="font-bold text-sm text-slate-900">{c.author_name}</span>
-                                            {c.author_role === 'teamlead' && <span className="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">тимлид</span>}
-                                            <span className="text-xs text-slate-400 ml-auto">{formatRel(c.created_at)}</span>
-                                        </div>
-                                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{c.body}</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                        {canComment && (
-                            <div className="flex gap-2 mt-2">
-                                <textarea
-                                    rows={2}
-                                    className={`flex-grow text-sm ${BORDER} rounded-lg bg-white p-2`}
-                                    value={newComment} onChange={e => setNewComment(e.target.value)}
-                                    placeholder="Оставить комментарий…"
-                                />
-                                <button type="button" disabled={postingComment || !newComment.trim()}
-                                    onClick={submitComment}
-                                    className={`${BTN} bg-brand-600 text-white disabled:opacity-30 self-start`}>
-                                    {postingComment ? '...' : '↩ Отправить'}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Manager-to-manager transfer (any manager who owns it) */}
-                    {isOwner && !lead.pending_transfer_to_id && (
-                        <div>
-                            <div className="text-xs font-bold uppercase tracking-widest mb-2">🤝 Передать другому менеджеру (10 мин на принятие)</div>
-                            <div className="flex gap-2">
-                                <select className={`${BORDER} bg-white px-2 py-1.5 text-sm flex-grow font-mono`}
-                                    value={transferTo} onChange={e => setTransferTo(e.target.value)}>
-                                    <option value="">— выбрать менеджера —</option>
-                                    {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at && m.id !== me.id).map(m => (
-                                        <option key={m.id} value={m.id}>
-                                            {m.full_name} {m.is_online ? '🟢 в сети' : '⚪ не в сети'}
-                                        </option>
-                                    ))}
-                                </select>
-                                <button type="button" disabled={!transferTo}
-                                    onClick={async () => {
-                                        await onTransfer(lead.id, Number(transferTo));
-                                        setTransferTo('');
-                                    }}
-                                    className={`${BTN} bg-fuchsia-400 text-black disabled:opacity-30`}>
-                                    🤝 Передать
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Teamlead-only: delete */}
-                    {isTeamlead && (
-                        <div className="border-t border-dashed border-slate-300 pt-3">
-                            <Tooltip text="Полное удаление лида и всех комментариев. Действие необратимо!">
-                                <button type="button"
-                                    onClick={() => {
-                                        if (confirm(`⚠️ Удалить лид #${lead.id} (${lead.name || 'без имени'})?\n\nКомментарии и история тоже будут удалены. Действие НЕОБРАТИМО.`)) {
-                                            onDelete(lead.id);
-                                        }
-                                    }}
-                                    className={`${BTN} bg-red-600 hover:bg-red-700 text-white`}>
-                                    🗑 Удалить лид
-                                </button>
-                            </Tooltip>
-                        </div>
-                    )}
-
-                    {/* Teamlead-only: hard reassign + take-to-self */}
-                    {isTeamlead && lead.assigned_manager_id !== me.id && (
-                        <div className="border-t border-dashed border-slate-300 pt-3">
-                            <Tooltip text="Назначить этот лид на себя (тимлид)">
-                                <button type="button"
-                                    onClick={() => onReassign(lead.id, me.id)}
-                                    className={`${BTN} bg-violet-500 hover:bg-violet-600 text-white`}>
-                                    👤 Взять лид себе
-                                </button>
-                            </Tooltip>
-                        </div>
-                    )}
-                    {isTeamlead && (
-                        <div className="border-t border-dashed border-slate-300 pt-3">
-                            <div className="text-xs font-bold uppercase tracking-widest mb-2">🔄 Переназначить (тимлид, без подтверждения)</div>
-                            <div className="flex gap-2">
-                                <select className={`${BORDER} bg-white px-2 py-1.5 text-sm flex-grow font-mono`}
-                                    value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
-                                    <option value="">— выбрать менеджера или тимлида —</option>
-                                    {roster.filter(m => m.active && !m.archived_at && m.id !== lead.assigned_manager_id).map(m => (
-                                        <option key={m.id} value={m.id}>
-                                            {m.full_name} {m.is_online ? '🟢' : '⚪'} {m.role === 'teamlead' ? '👑' : ''}
-                                        </option>
-                                    ))}
-                                </select>
-                                <button type="button" disabled={!reassignTo}
-                                    onClick={async () => {
-                                        await onReassign(lead.id, Number(reassignTo));
-                                        setReassignTo('');
-                                    }}
-                                    className={`${BTN} bg-violet-400 text-black disabled:opacity-30`}>
-                                    🔄 Передать
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
-
-// ─────────────────────────────────────────────────────────────────────
-// Roster panel for teamlead — bento style
-// ─────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  ROSTER PANEL (teamlead-only)
+// ═════════════════════════════════════════════════════════════════════
 const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
-    <div className={`${CARD} p-4`}>
-        <div className="text-xs font-black uppercase tracking-widest mb-3 flex items-center gap-2">
-            <span className="bg-black text-lime-300 px-2 py-0.5 font-mono">TEAM</span> за 30 дней
-        </div>
+    <div className="bg-white border border-stone-200 rounded-xl p-4">
+        <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">👥 Команда — 30 дней</div>
         <div className="overflow-x-auto">
             <table className="w-full text-sm">
                 <thead>
-                    <tr className="text-left border-b border-slate-200 bg-yellow-100">
-                        <th className="py-2 px-2 text-xs font-black uppercase">Менеджер</th>
-                        <th className="text-center text-xs font-black uppercase px-2">Статус</th>
-                        <th className="text-right text-xs font-black uppercase px-2">Всего</th>
-                        <th className="text-right text-xs font-black uppercase px-2">Откр</th>
-                        <th className="text-right text-xs font-black uppercase px-2">Закр</th>
-                        <th className="text-right text-xs font-black uppercase px-2">SLA✗</th>
+                    <tr className="text-left text-xs text-stone-500 border-b border-stone-200">
+                        <th className="py-2">Менеджер</th>
+                        <th className="text-center">Статус</th>
+                        <th className="text-right">Всего</th>
+                        <th className="text-right">Открыто</th>
+                        <th className="text-right">Закрыто</th>
+                        <th className="text-right">SLA✗</th>
                     </tr>
                 </thead>
                 <tbody>
                     {roster.map(m => (
-                        <tr key={m.id} className={`border-b border-black/20 ${m.archived_at ? 'bg-slate-200/50' : ''}`}>
-                            <td className="py-2 px-2">
-                                <div className="font-bold flex items-center gap-1">
-                                    {m.full_name}
-                                    {m.role === 'teamlead' && <span className="text-[10px] bg-violet-400 px-1.5 border border-black">тимлид</span>}
-                                    {m.archived_at && <span className="text-[10px] bg-slate-400 text-white px-1.5 border border-black">УВОЛЕН</span>}
+                        <tr key={m.id} className={`border-b border-stone-100 ${m.archived_at ? 'opacity-50' : ''}`}>
+                            <td className="py-2">
+                                <div className="flex items-center gap-2">
+                                    <Avatar name={m.full_name} size="sm" />
+                                    <div>
+                                        <div className="font-medium text-stone-900">
+                                            {m.full_name}
+                                            {m.role === 'teamlead' && <Pill cls="bg-violet-100 text-violet-700 ml-1">тимлид</Pill>}
+                                            {m.archived_at && <Pill cls="bg-stone-200 text-stone-600 ml-1">УВОЛЕН</Pill>}
+                                        </div>
+                                        <div className="text-xs text-stone-500 font-mono">{m.login}</div>
+                                    </div>
                                 </div>
-                                <div className="text-xs font-mono text-slate-500">{m.login}</div>
                             </td>
-                            <td className="text-center px-2">
-                                {m.archived_at ? <span title="Уволен">⛔</span>
-                                    : !m.active ? <span title="Деактивирован">⛔</span>
-                                        : m.is_online ? <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span></span>
-                                            : <span className="inline-flex items-center gap-1"><span className="w-2 h-2 bg-slate-300 rounded-full inline-block"></span></span>}
+                            <td className="text-center">
+                                {m.archived_at || !m.active ? '⛔'
+                                    : m.is_online ? <span className="text-emerald-500">●</span>
+                                        : <span className="text-stone-300">○</span>}
                             </td>
-                            <td className="text-right px-2 font-mono font-bold">{m.total30 ?? 0}</td>
-                            <td className="text-right px-2 font-mono">{m.open ?? 0}</td>
-                            <td className="text-right px-2 font-mono text-emerald-700">{m.closed30 ?? 0}</td>
-                            <td className={`text-right px-2 font-mono ${(m.overdue ?? 0) > 0 ? 'text-red-700 font-black' : 'text-slate-400'}`}>{m.overdue ?? 0}</td>
+                            <td className="text-right font-mono">{m.total30 ?? 0}</td>
+                            <td className="text-right font-mono">{m.open ?? 0}</td>
+                            <td className="text-right font-mono text-emerald-700">{m.closed30 ?? 0}</td>
+                            <td className={`text-right font-mono ${(m.overdue ?? 0) > 0 ? 'text-rose-700 font-bold' : 'text-stone-400'}`}>{m.overdue ?? 0}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -1150,153 +1124,95 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
     </div>
 );
 
-// ─────────────────────────────────────────────────────────────────────
-// Dashboard
-// ─────────────────────────────────────────────────────────────────────
-const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: (m: Manager) => void; waMessage: string; sourceOptions: string[] }> = ({ manager, onLogout, onMeUpdate, waMessage, sourceOptions }) => {
+// ═════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ═════════════════════════════════════════════════════════════════════
+const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: (m: Manager) => void; sourceOptions: string[] }> = ({ manager, onLogout, onMeUpdate, sourceOptions }) => {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [statuses, setStatuses] = useState<StatusOption[]>([]);
     const [roster, setRoster] = useState<RosterManager[]>([]);
     const isTeamlead = manager.role === 'teamlead';
+
+    // View + filters
+    const [view, setView] = useState<'cards' | 'table' | 'pipeline'>('cards');
     const [scope, setScope] = useState<'mine' | 'all'>(isTeamlead ? 'all' : 'mine');
-    const [filterStatus, setFilterStatus] = useState<string>('');
+    const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounced(search, 300);
+    const [filterStatus, setFilterStatus] = useState('');
+    const [filterSource, setFilterSource] = useState('');
+    const [filterCountry, setFilterCountry] = useState('');
+    const [filterUniversity, setFilterUniversity] = useState('');
+    const [filterLevel, setFilterLevel] = useState('');
+    const [filterManagerId, setFilterManagerId] = useState('');
+    const [filterFrom, setFilterFrom] = useState('');
+    const [filterTo, setFilterTo] = useState('');
     const [overdueOnly, setOverdueOnly] = useState(false);
     const [includeClosed, setIncludeClosed] = useState(false);
-    const [filterManagerId, setFilterManagerId] = useState<string>('');
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+
+    // UI state
+    const [openLead, setOpenLead] = useState<Lead | null>(null);
+    const [showCreate, setShowCreate] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [togglingOnline, setTogglingOnline] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(false);
-    const [lastRefreshAt, setLastRefreshAt] = useState<number | null>(null);
-    const [showCreateLead, setShowCreateLead] = useState(false);
+    const [lastRefresh, setLastRefresh] = useState<number | null>(null);
+
     const isOnline = manager.is_online !== false;
 
-    const load = async () => {
-        setLoading(true);
-        setError(null);
+    const load = useCallback(async () => {
+        setLoading(true); setError(null);
         try {
-            const params = new URLSearchParams();
-            if (scope === 'all') params.set('scope', 'all');
-            if (filterStatus) params.set('status', filterStatus);
-            if (overdueOnly) params.set('overdue', '1');
-            if (filterManagerId) params.set('manager_id', filterManagerId);
-            if (includeClosed) params.set('include_closed', '1');
-            const [leadsRes, stRes, rosterRes] = await Promise.all([
-                fetch(`/api/lidy/leads?${params.toString()}`, { credentials: 'include' }),
+            const p = new URLSearchParams();
+            if (scope === 'all') p.set('scope', 'all');
+            if (filterStatus) p.set('status', filterStatus);
+            if (filterSource) p.set('source', filterSource);
+            if (filterCountry) p.set('country', filterCountry);
+            if (filterUniversity) p.set('university', filterUniversity);
+            if (filterLevel) p.set('study_level', filterLevel);
+            if (filterManagerId) p.set('manager_id', filterManagerId);
+            if (filterFrom) p.set('from', filterFrom);
+            if (filterTo) p.set('to', filterTo);
+            if (overdueOnly) p.set('overdue', '1');
+            if (includeClosed) p.set('include_closed', '1');
+            if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
+            const [lR, sR, rR] = await Promise.all([
+                fetch(`/api/lidy/leads?${p.toString()}`, { credentials: 'include' }),
                 fetch('/api/lidy/statuses', { credentials: 'include' }),
                 fetch('/api/lidy/managers', { credentials: 'include' }),
             ]);
-            if (!leadsRes.ok) throw new Error(`Leads HTTP ${leadsRes.status}`);
-            const lj = await leadsRes.json();
-            const sj = await stRes.json();
-            const rj = await rosterRes.json();
-            setLeads(lj.leads || []);
-            setStatuses(sj.statuses || []);
-            setRoster(rj.managers || []);
+            if (!lR.ok) throw new Error(`HTTP ${lR.status}`);
+            const lj = await lR.json(); const sj = await sR.json(); const rj = await rR.json();
+            setLeads(lj.leads || []); setStatuses(sj.statuses || []); setRoster(rj.managers || []);
+            setLastRefresh(Date.now());
         } catch (e: any) {
             setError(e?.message || String(e));
-        } finally {
-            setLoading(false);
-        }
-    };
+        } finally { setLoading(false); }
+    }, [scope, filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
+        filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, debouncedSearch]);
 
-    useEffect(() => { load().then(() => setLastRefreshAt(Date.now())); }, [scope, filterStatus, overdueOnly, filterManagerId, includeClosed]);
+    useEffect(() => { load(); }, [load]);
     useEffect(() => {
         if (!autoRefresh) return;
-        const t = window.setInterval(() => {
-            load().then(() => setLastRefreshAt(Date.now()));
-        }, 15000);
+        const t = window.setInterval(load, 15000);
         return () => window.clearInterval(t);
-    }, [autoRefresh, scope, filterStatus, overdueOnly, filterManagerId, includeClosed]);
-
-    const onChangeStatus = async (id: number, status: string, note?: string, rejection_reason?: string) => {
-        const res = await fetch(`/api/lidy/leads/${id}/status`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', body: JSON.stringify({ status, note, rejection_reason }),
-        });
-        if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (j.error || res.status));
-        } else await load();
-    };
-
-    const onChangeSource = async (id: number, source: string) => {
-        const res = await fetch(`/api/lidy/leads/${id}/source`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', body: JSON.stringify({ source }),
-        });
-        if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (j.error || res.status));
-        } else await load();
-    };
-
-    const onDelete = async (id: number) => {
-        const res = await fetch(`/api/lidy/leads/${id}`, {
-            method: 'DELETE', credentials: 'include',
-        });
-        if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (j.error || res.status));
-        } else await load();
-    };
-    const onReassign = async (leadId: number, mgrId: number) => {
-        const res = await fetch(`/api/lidy/leads/${leadId}/reassign`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', body: JSON.stringify({ manager_id: mgrId }),
-        });
-        if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (j.error || res.status));
-        } else await load();
-    };
-    const onTransfer = async (leadId: number, mgrId: number) => {
-        const res = await fetch(`/api/lidy/leads/${leadId}/transfer`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', body: JSON.stringify({ manager_id: mgrId }),
-        });
-        if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (j.error || res.status));
-        } else await load();
-    };
-    const onTransferAccept = async (leadId: number) => {
-        const res = await fetch(`/api/lidy/leads/${leadId}/transfer/accept`, {
-            method: 'POST', credentials: 'include',
-        });
-        if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (j.error || res.status));
-        } else await load();
-    };
-    const onTransferReject = async (leadId: number) => {
-        const res = await fetch(`/api/lidy/leads/${leadId}/transfer/reject`, {
-            method: 'POST', credentials: 'include',
-        });
-        if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            alert('Ошибка: ' + (j.error || res.status));
-        } else await load();
-    };
+    }, [autoRefresh, load]);
 
     const toggleOnline = async () => {
         setTogglingOnline(true);
         try {
-            const res = await fetch('/api/lidy/me/status', {
+            const r = await fetch('/api/lidy/me/status', {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 credentials: 'include', body: JSON.stringify({ is_online: !isOnline }),
             });
-            const j = await res.json().catch(() => ({}));
-            if (res.ok) {
+            const j = await r.json().catch(() => ({}));
+            if (r.ok) {
                 onMeUpdate({ ...manager, is_online: j.manager?.is_online });
-                if (j.redistribution?.assigned > 0) {
-                    alert(`Распределено ${j.redistribution.assigned} ожидавших лидов`);
-                }
-                await load();
-            } else alert('Ошибка: ' + (j.error || res.status));
-        } finally {
-            setTogglingOnline(false);
-        }
+                if (j.redistribution?.assigned > 0) alert(`Распределено ${j.redistribution.assigned} ожидавших лидов`);
+                load();
+            }
+        } finally { setTogglingOnline(false); }
     };
 
     const counters = useMemo(() => {
@@ -1304,223 +1220,333 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         const open = leads.filter(l => !l.processed_at).length;
         const overdue = leads.filter(l => !l.processed_at && l.sla_deadline_at && new Date(l.sla_deadline_at).getTime() < Date.now()).length;
         const queued = leads.filter(l => !l.assigned_manager_id).length;
-        const incomingTransfers = leads.filter(l => l.pending_transfer_to_id === manager.id).length;
-        return { total, open, overdue, queued, incomingTransfers };
+        const incoming = leads.filter(l => l.pending_transfer_to_id === manager.id).length;
+        return { total, open, overdue, queued, incoming };
     }, [leads, manager.id]);
 
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
-            {/* Subtle grid background */}
-            <div className="fixed inset-0 pointer-events-none opacity-[0.06]" style={{
-                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
-            }} />
+    // Available countries from current leads
+    const uniqueCountries = useMemo(() => {
+        const set = new Set<string>();
+        for (const l of leads) if (l.country) set.add(l.country);
+        return Array.from(set).sort();
+    }, [leads]);
 
-            {/* Header */}
-            <div className="sticky top-0 z-30 bg-slate-900 text-lime-300 border-b border-slate-800 shadow-md">
-                <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-3">
-                        <img src="/ppp.png" alt="" className="h-9 w-auto invert" />
-                        <div>
-                            <div className="font-black tracking-tight text-lg flex items-center gap-2">
-                                CRM
-                                {isTeamlead && <span className="text-[10px] bg-fuchsia-400 text-black px-2 py-0.5 rounded-md font-mono uppercase">TEAMLEAD</span>}
-                            </div>
-                            <div className="text-xs font-mono opacity-70">{manager.full_name} · @{manager.login}</div>
-                        </div>
+    const STUDY_LEVELS = ['Бакалавриат', 'Магистратура', 'PhD / докторантура', 'Foundation / подготовка', 'Языковые курсы', 'Среднее образование'];
+
+    const activeFiltersCount = [filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
+        filterManagerId, filterFrom, filterTo].filter(Boolean).length + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0);
+
+    const resetFilters = () => {
+        setFilterStatus(''); setFilterSource(''); setFilterCountry(''); setFilterUniversity('');
+        setFilterLevel(''); setFilterManagerId(''); setFilterFrom(''); setFilterTo('');
+        setOverdueOnly(false); setIncludeClosed(false); setSearch('');
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(180deg, #fafaf9 0%, #f5f5f4 100%)' }}>
+            {/* Top bar */}
+            <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-stone-200">
+                <div className="max-w-[1600px] mx-auto px-4 py-2.5 flex items-center gap-3">
+                    <button onClick={() => setSidebarOpen(!sidebarOpen)}
+                        className="p-2 hover:bg-stone-100 rounded-lg" title={sidebarOpen ? 'Свернуть фильтры' : 'Развернуть фильтры'}>
+                        <span className="block w-5 h-0.5 bg-stone-700 mb-1" />
+                        <span className="block w-5 h-0.5 bg-stone-700 mb-1" />
+                        <span className="block w-5 h-0.5 bg-stone-700" />
+                    </button>
+                    <img src="/ppp.png" alt="" className="h-7 w-auto" />
+                    <div className="hidden md:block">
+                        <div className="font-bold text-stone-900 leading-none">CRM</div>
+                        <div className="text-xs text-stone-500">{manager.full_name}{isTeamlead && ' · тимлид'}</div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <Tooltip text={isOnline ? 'Лиды распределяются на меня. Нажми чтобы выйти из распределения.' : 'Лиды НЕ распределяются. Нажми чтобы вернуться в работу.'}>
-                            <button onClick={toggleOnline} disabled={togglingOnline}
-                                className={`${BTN} flex items-center gap-2 ${isOnline ? 'bg-lime-300 text-black' : 'bg-slate-300 text-black'}`}>
-                                <span className={`w-2 h-2 ${isOnline ? 'bg-emerald-600 animate-pulse' : 'bg-slate-600'}`} />
-                                {togglingOnline ? '...' : isOnline ? 'В СЕТИ' : 'НЕ В СЕТИ'}
-                            </button>
-                        </Tooltip>
-                        <Tooltip text={autoRefresh ? 'Авто-обновление каждые 15с (вкл). Клик — выкл.' : 'Авто-обновление выключено. Клик — вкл.'}>
-                            <button onClick={() => setAutoRefresh(v => !v)}
-                                className={`${BTN} flex items-center gap-2 ${autoRefresh ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-slate-700'}`}>
-                                <span className={`relative w-8 h-4 rounded-full transition-colors ${autoRefresh ? 'bg-emerald-500' : 'bg-slate-400'}`}>
-                                    <span className={`absolute top-0.5 ${autoRefresh ? 'left-4' : 'left-0.5'} w-3 h-3 bg-white rounded-full transition-all`} />
-                                </span>
-                                АВТО
-                            </button>
-                        </Tooltip>
-                        <Tooltip text="Обновить список вручную">
-                            <button onClick={() => { load().then(() => setLastRefreshAt(Date.now())); }} className={`${BTN} bg-cyan-300 text-black`}>↻ ОБНОВИТЬ</button>
-                        </Tooltip>
-                        <Tooltip text="Создать лид вручную (для звонков, личных встреч, и т.д.)">
-                            <button onClick={() => setShowCreateLead(true)} className={`${BTN} bg-emerald-300 text-black`}>+ ЛИД</button>
-                        </Tooltip>
-                        <Tooltip text="Выйти из аккаунта">
-                            <button onClick={async () => {
-                                await fetch('/api/lidy/logout', { method: 'POST', credentials: 'include' });
-                                onLogout();
-                            }} className={`${BTN} bg-red-400 text-black`}>EXIT</button>
-                        </Tooltip>
+                    {/* Search */}
+                    <div className="flex-grow max-w-2xl relative">
+                        <input value={search} onChange={e => setSearch(e.target.value)}
+                            placeholder="🔍 Поиск по имени, телефону, email, ВУЗу, комментарию…"
+                            className="w-full bg-stone-100 hover:bg-stone-50 focus:bg-white border border-stone-200 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 rounded-xl px-4 py-2 text-sm transition outline-none" />
+                        {search && (
+                            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700">×</button>
+                        )}
+                    </div>
+                    {/* Actions */}
+                    <div className="flex items-center gap-1.5">
+                        <button onClick={toggleOnline} disabled={togglingOnline}
+                            title={isOnline ? 'Я в сети — лиды распределяются' : 'Я не в сети — лиды не идут'}
+                            className={`inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition ${isOnline ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-stone-100 text-stone-600 border border-stone-200 hover:bg-stone-200'}`}>
+                            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
+                            <span className="hidden md:inline">{isOnline ? 'В сети' : 'Не в сети'}</span>
+                        </button>
+                        <button onClick={() => setAutoRefresh(!autoRefresh)}
+                            title={autoRefresh ? 'Автообновление вкл (15с)' : 'Автообновление выкл'}
+                            className={`p-2 rounded-lg ${autoRefresh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-50'}`}>
+                            <svg className={`w-4 h-4 ${autoRefresh ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        </button>
+                        <Btn variant="secondary" onClick={load} title="Обновить вручную">↻</Btn>
+                        <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Лид</Btn>
+                        <Btn variant="ghost" onClick={async () => { await fetch('/api/lidy/logout', { method: 'POST', credentials: 'include' }); onLogout(); }}>
+                            Выйти
+                        </Btn>
                     </div>
                 </div>
-            </div>
+            </header>
 
-            <div className="relative max-w-7xl mx-auto p-4 space-y-4">
-                {/* Bento KPI grid — varied sizes + polygonal accents */}
-                <div className="grid grid-cols-6 gap-3">
-                    {/* Big tile: total */}
-                    <div className={`${CARD} bg-white p-4 col-span-3 md:col-span-2 row-span-2 relative overflow-hidden`}>
-                        <div className="absolute -top-6 -right-6 w-24 h-24 bg-brand-100 rotate-45" />
-                        <div className="relative">
-                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Всего лидов</div>
-                            <div className="text-5xl font-black font-mono mt-1">{counters.total}</div>
-                            {lastRefreshAt && (
-                                <div className="mt-3 text-[10px] font-mono text-slate-400">
-                                    обн: {new Date(lastRefreshAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            <div className="flex flex-grow">
+                {/* Sidebar */}
+                {sidebarOpen && (
+                    <aside className="w-72 flex-shrink-0 bg-white border-r border-stone-200 p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
+                        {/* Scope */}
+                        {isTeamlead && (
+                            <div>
+                                <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Просмотр</div>
+                                <div className="flex bg-stone-100 p-0.5 rounded-lg">
+                                    <button onClick={() => setScope('all')}
+                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'all' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600 hover:text-stone-900'}`}>
+                                        Все
+                                    </button>
+                                    <button onClick={() => setScope('mine')}
+                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'mine' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600 hover:text-stone-900'}`}>
+                                        Мои
+                                    </button>
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Quick filters */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Быстрые фильтры</div>
+                            <div className="space-y-1.5">
+                                <button onClick={() => setOverdueOnly(!overdueOnly)}
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${overdueOnly ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-stone-50 hover:bg-stone-100 text-stone-700'}`}>
+                                    <span>⏰ Просроченные</span>
+                                    {overdueOnly && <span>✓</span>}
+                                </button>
+                                <button onClick={() => setIncludeClosed(!includeClosed)}
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${includeClosed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-stone-50 hover:bg-stone-100 text-stone-700'}`}>
+                                    <span>📂 Показать закрытые</span>
+                                    {includeClosed && <span>✓</span>}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Status filter */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Статус</div>
+                            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                <option value="">Все статусы</option>
+                                {statuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Source */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Источник</div>
+                            <select value={filterSource} onChange={e => setFilterSource(e.target.value)}
+                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                <option value="">Все источники</option>
+                                {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Country */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Страна</div>
+                            <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
+                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                <option value="">Все страны</option>
+                                {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+
+                        {/* University */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Университет</div>
+                            <input type="text" value={filterUniversity} onChange={e => setFilterUniversity(e.target.value)}
+                                placeholder="Поиск по названию…"
+                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                        </div>
+
+                        {/* Level */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Уровень программы</div>
+                            <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)}
+                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                <option value="">Все уровни</option>
+                                {STUDY_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Manager filter (teamlead, all scope) */}
+                        {isTeamlead && scope === 'all' && (
+                            <div>
+                                <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Менеджер</div>
+                                <select value={filterManagerId} onChange={e => setFilterManagerId(e.target.value)}
+                                    className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                    <option value="">Все</option>
+                                    {roster.filter(m => m.role === 'manager').map(m => (
+                                        <option key={m.id} value={m.id}>{m.full_name}{m.archived_at ? ' (уволен)' : ''}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {/* Date range */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Дата получения</div>
+                            <div className="space-y-1.5">
+                                <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)}
+                                    className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                                <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)}
+                                    className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                            </div>
+                        </div>
+
+                        {activeFiltersCount > 0 && (
+                            <Btn variant="ghost" onClick={resetFilters} className="w-full">
+                                ✕ Сбросить фильтры ({activeFiltersCount})
+                            </Btn>
+                        )}
+                    </aside>
+                )}
+
+                {/* Main content */}
+                <main className="flex-grow p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
+                    {/* KPI tiles */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div className="bg-white border border-stone-200 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-stone-500 uppercase tracking-wider">Всего</div>
+                            <div className="text-2xl font-bold text-stone-900 mt-0.5">{counters.total}</div>
+                            {lastRefresh && <div className="text-[10px] text-stone-400 mt-1">обн: {new Date(lastRefresh).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>}
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-amber-700 uppercase tracking-wider">Открытых</div>
+                            <div className="text-2xl font-bold text-amber-900 mt-0.5">{counters.open}</div>
+                        </div>
+                        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-rose-700 uppercase tracking-wider">Просрочено</div>
+                            <div className="text-2xl font-bold text-rose-900 mt-0.5">{counters.overdue}</div>
+                        </div>
+                        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-orange-700 uppercase tracking-wider">В очереди</div>
+                            <div className="text-2xl font-bold text-orange-900 mt-0.5">{counters.queued}</div>
+                        </div>
+                        <div className={`border rounded-xl p-3 shadow-sm transition ${counters.incoming > 0 ? 'bg-fuchsia-50 border-fuchsia-300 animate-pulse' : 'bg-stone-50 border-stone-200'}`}>
+                            <div className="text-xs text-fuchsia-700 uppercase tracking-wider">Передачи мне</div>
+                            <div className="text-2xl font-bold text-fuchsia-900 mt-0.5">{counters.incoming}</div>
+                        </div>
+                    </div>
+
+                    {/* Roster (teamlead) */}
+                    {isTeamlead && roster.length > 0 && <RosterPanel roster={roster} />}
+
+                    {/* Header bar: results count + view switcher */}
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="text-sm text-stone-600">
+                            {loading ? 'Загрузка…' : `Найдено: ${leads.length}`}
+                            {search.trim() && <span className="ml-2 text-stone-400">по запросу «{search.trim()}»</span>}
+                        </div>
+                        <div className="flex bg-white border border-stone-200 rounded-lg p-0.5 shadow-sm">
+                            {[
+                                { v: 'cards', l: '🪟 Карточки' },
+                                { v: 'table', l: '📋 Таблица' },
+                                { v: 'pipeline', l: '📊 Pipeline' },
+                            ].map(o => (
+                                <button key={o.v} onClick={() => setView(o.v as any)}
+                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-emerald-600 text-white' : 'text-stone-600 hover:bg-stone-100'}`}>
+                                    {o.l}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">⚠ {error}</div>}
+                    {!isOnline && (
+                        <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm">
+                            ⚪ Вы не в сети — новые лиды не распределяются. Переключите тумблер «Не в сети» в шапке.
+                        </div>
+                    )}
+
+                    {loading ? (
+                        <div className="text-center py-12 text-stone-400">Загрузка…</div>
+                    ) : leads.length === 0 ? (
+                        <div className="bg-white border border-stone-200 rounded-xl p-8 text-center">
+                            <div className="text-5xl mb-3">📭</div>
+                            <p className="text-stone-600">
+                                {activeFiltersCount > 0 || search ? 'Нет лидов под текущие фильтры' : (scope === 'mine' ? 'У вас пока нет лидов' : 'Лидов пока нет')}
+                            </p>
+                            {(activeFiltersCount > 0 || search) && (
+                                <Btn variant="ghost" onClick={resetFilters} className="mt-3">Сбросить фильтры</Btn>
                             )}
                         </div>
-                    </div>
-                    {/* Open */}
-                    <div className={`${CARD} bg-gradient-to-br from-amber-200 to-amber-300 p-3 col-span-3 md:col-span-2 relative overflow-hidden`}
-                        style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 8% 100%, 0 85%)' }}>
-                        <div className="text-[10px] font-black uppercase tracking-widest">Открытых</div>
-                        <div className="text-3xl font-black font-mono mt-1">{counters.open}</div>
-                    </div>
-                    {/* Overdue */}
-                    <div className={`${CARD} bg-gradient-to-br from-red-400 to-red-500 p-3 col-span-3 md:col-span-2 relative overflow-hidden text-white`}
-                        style={{ clipPath: 'polygon(0 0, 100% 0, 100% 85%, 92% 100%, 0 100%)' }}>
-                        <div className="text-[10px] font-black uppercase tracking-widest">Просрочено SLA</div>
-                        <div className="text-3xl font-black font-mono mt-1">{counters.overdue}</div>
-                    </div>
-                    {/* Queued */}
-                    <div className={`${CARD} bg-gradient-to-br from-orange-200 to-orange-300 p-3 col-span-3 md:col-span-2 relative overflow-hidden`}>
-                        <div className="text-[10px] font-black uppercase tracking-widest">В очереди</div>
-                        <div className="text-3xl font-black font-mono mt-1">{counters.queued}</div>
-                    </div>
-                    {/* Incoming transfers — pulsing if any */}
-                    <div className={`${CARD} ${counters.incomingTransfers > 0 ? 'bg-gradient-to-br from-fuchsia-400 to-pink-500 text-white animate-pulse' : 'bg-slate-100'} p-3 col-span-3 md:col-span-2 relative overflow-hidden`}
-                        style={{ clipPath: 'polygon(8% 0, 100% 0, 100% 100%, 0 100%, 0 15%)' }}>
-                        <div className="text-[10px] font-black uppercase tracking-widest">Передачи мне</div>
-                        <div className="text-3xl font-black font-mono mt-1">{counters.incomingTransfers}</div>
-                    </div>
-                </div>
-
-                {/* Filters */}
-                <div className={`${CARD} bg-white p-4 flex flex-wrap items-center gap-2`}>
-                    {isTeamlead && (
-                        <>
-                            <Tooltip text="Все лиды команды">
-                                <button className={`${BTN} ${scope === 'all' ? 'bg-black text-lime-300' : 'bg-white text-black'}`} onClick={() => setScope('all')}>ВСЕ</button>
-                            </Tooltip>
-                            <Tooltip text="Только мои лиды">
-                                <button className={`${BTN} ${scope === 'mine' ? 'bg-black text-lime-300' : 'bg-white text-black'}`} onClick={() => setScope('mine')}>МОИ</button>
-                            </Tooltip>
-                        </>
+                    ) : view === 'table' ? (
+                        <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto shadow-sm">
+                            <table className="w-full text-sm">
+                                <thead className="bg-stone-50 text-xs uppercase tracking-wider text-stone-500">
+                                    <tr>
+                                        <th className="py-2 px-3 text-left w-10"></th>
+                                        <th className="py-2 px-3 text-left">Клиент</th>
+                                        <th className="py-2 px-3 text-left">Контакты</th>
+                                        <th className="py-2 px-3 text-left">Статус</th>
+                                        <th className="py-2 px-3 text-left">Источник</th>
+                                        <th className="py-2 px-3 text-left">Страна</th>
+                                        <th className="py-2 px-3 text-left">Менеджер</th>
+                                        <th className="py-2 px-3 text-left">SLA</th>
+                                        <th className="py-2 px-3 text-left w-32">Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {leads.map(l => <LeadRow key={l.id} lead={l} me={manager} onOpen={() => setOpenLead(l)} />)}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : view === 'pipeline' ? (
+                        <PipelineView leads={leads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} />
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                            {leads.map(l => <LeadCard key={l.id} lead={l} me={manager} onOpen={() => setOpenLead(l)} />)}
+                        </div>
                     )}
-                    <Tooltip text="Показать только просроченные">
-                        <button className={`${BTN} ${overdueOnly ? 'bg-red-500 text-white' : 'bg-white text-black'}`} onClick={() => setOverdueOnly(!overdueOnly)}>⏰ ПРОСРОЧЕНЫ</button>
-                    </Tooltip>
-                    <Tooltip text={includeClosed ? 'Показываются закрытые лиды. Клик — скрыть.' : 'По умолчанию закрытые/обработанные лиды скрыты. Клик — показать.'}>
-                        <button className={`${BTN} ${includeClosed ? 'bg-emerald-500 text-white' : 'bg-white text-black'}`}
-                            onClick={() => setIncludeClosed(!includeClosed)}>
-                            {includeClosed ? '📂 С ЗАКРЫТЫМИ' : '📂 ТОЛЬКО АКТИВНЫЕ'}
-                        </button>
-                    </Tooltip>
-                    <select className={`${BORDER} bg-white px-3 py-2 text-sm font-mono`}
-                        value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                        <option value="">Все статусы</option>
-                        {statuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
-                    </select>
-                    {isTeamlead && scope === 'all' && (
-                        <select className={`${BORDER} bg-white px-3 py-2 text-sm font-mono`}
-                            value={filterManagerId} onChange={e => setFilterManagerId(e.target.value)}>
-                            <option value="">Все менеджеры</option>
-                            {roster.filter(m => m.role === 'manager').map(m => (
-                                <option key={m.id} value={m.id}>{m.full_name}{m.archived_at ? ' (уволен)' : ''}</option>
-                            ))}
-                        </select>
-                    )}
-                </div>
-
-                {/* Roster panel for teamlead */}
-                {isTeamlead && roster.length > 0 && <RosterPanel roster={roster} />}
-
-                {showCreateLead && (
-                    <CreateLeadModal
-                        onClose={() => setShowCreateLead(false)}
-                        onCreated={() => load().then(() => setLastRefreshAt(Date.now()))}
-                        sourceOptions={sourceOptions}
-                        roster={roster}
-                        isTeamlead={isTeamlead}
-                    />
-                )}
-
-                {error && (
-                    <div className={`${CARD} bg-red-400 text-black p-3 font-mono text-sm`}>⚠ {error}</div>
-                )}
-                {!isOnline && (
-                    <div className={`${CARD} bg-orange-300 text-black p-3 font-mono text-sm`}>
-                        ⚪ Вы помечены как «не в сети» — новые лиды не распределяются. Кнопка вверху чтобы вернуться.
-                    </div>
-                )}
-
-                {loading ? (
-                    <p className="text-center py-8 font-mono">// LOADING...</p>
-                ) : leads.length === 0 ? (
-                    <div className={`${CARD} bg-white p-8 text-center`}>
-                        <div className="text-6xl mb-3">📭</div>
-                        <p className="font-mono text-slate-600">{scope === 'mine' ? '// NO_LEADS_ASSIGNED' : '// NO_LEADS_FOUND'}</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                        {leads.map(l => (
-                            <LeadCard key={l.id} lead={l} statuses={statuses} me={manager}
-                                onChangeStatus={onChangeStatus}
-                                onChangeSource={onChangeSource}
-                                roster={roster}
-                                sourceOptions={sourceOptions}
-                                onReassign={onReassign}
-                                onTransfer={onTransfer}
-                                onTransferAccept={onTransferAccept}
-                                onTransferReject={onTransferReject}
-                                onDelete={onDelete}
-                                waMessage={waMessage} />
-                        ))}
-                    </div>
-                )}
-
-                <p className="text-center text-xs font-mono text-slate-500 pt-4">
-                    {autoRefresh ? '// AUTO_REFRESH каждые 15с · ' : '// AUTO_REFRESH off · '}
-                    обновление вручную кнопкой ↻
-                </p>
+                </main>
             </div>
+
+            {/* Drawer */}
+            {openLead && (
+                <LeadDetailDrawer lead={openLead} me={manager} statuses={statuses} roster={roster}
+                    sourceOptions={sourceOptions}
+                    onClose={() => setOpenLead(null)} onRefresh={async () => {
+                        await load();
+                        // Re-fetch the open lead to reflect latest changes
+                        const r = await fetch(`/api/lidy/leads/${openLead.id}`, { credentials: 'include' });
+                        if (r.ok) { const j = await r.json(); if (j.lead) setOpenLead(j.lead); }
+                    }} />
+            )}
+
+            {/* Create modal */}
+            {showCreate && (
+                <CreateLeadModal onClose={() => setShowCreate(false)} onCreated={load}
+                    sourceOptions={sourceOptions} roster={roster} isTeamlead={isTeamlead} />
+            )}
         </div>
     );
 };
 
-// ─────────────────────────────────────────────────────────────────────
-// Top-level
-// ─────────────────────────────────────────────────────────────────────
-const DEFAULT_SOURCE_OPTIONS = [
-    'Сайт', 'Instagram', 'WhatsApp', 'Email',
-    'Друзья / знакомые', 'Реклама', 'Поиск Google', 'Другое',
-];
+// ═════════════════════════════════════════════════════════════════════
+//  TOP-LEVEL
+// ═════════════════════════════════════════════════════════════════════
+const DEFAULT_SOURCE_OPTIONS = ['Сайт', 'Instagram', 'WhatsApp', 'Email', 'Друзья / знакомые', 'Реклама', 'Поиск Google', 'Другое'];
 
 const LidyApp: React.FC = () => {
     const [manager, setManager] = useState<Manager | null>(null);
     const [checking, setChecking] = useState(true);
-    const [waMessage] = useState('Здравствуйте! Это GoGlobal по вашей заявке.');
     const [sourceOptions, setSourceOptions] = useState<string[]>(DEFAULT_SOURCE_OPTIONS);
 
-    const checkSession = async () => {
-        try {
-            const res = await fetch('/api/lidy/me', { credentials: 'include' });
-            if (res.ok) {
-                const j = await res.json();
-                setManager(j.manager);
-            } else setManager(null);
-        } catch { setManager(null); }
-        finally { setChecking(false); }
-    };
+    useEffect(() => {
+        fetch('/api/lidy/me', { credentials: 'include' })
+            .then(r => r.ok ? r.json() : null)
+            .then(j => setManager(j?.manager || null))
+            .catch(() => setManager(null))
+            .finally(() => setChecking(false));
+    }, []);
 
-    useEffect(() => { checkSession(); }, []);
     useEffect(() => {
         fetch('/api/data').then(r => r.ok ? r.json() : null).then(j => {
             const opts = j?.siteConfig?.attributionOptions;
@@ -1528,15 +1554,10 @@ const LidyApp: React.FC = () => {
         }).catch(() => {});
     }, []);
 
-    if (checking) {
-        return <div className="min-h-screen flex items-center justify-center bg-slate-50 font-mono">// LOADING...</div>;
-    }
-
+    if (checking) return <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-400">Загрузка…</div>;
     if (!manager) return <LoginScreen onAuthed={setManager} />;
 
-    return (
-        <Dashboard manager={manager} onLogout={() => setManager(null)} onMeUpdate={setManager} waMessage={waMessage} sourceOptions={sourceOptions} />
-    );
+    return <Dashboard manager={manager} onLogout={() => setManager(null)} onMeUpdate={setManager} sourceOptions={sourceOptions} />;
 };
 
 export default LidyApp;
