@@ -2053,7 +2053,11 @@ async function startServer() {
 
   app.get("/api/lidy/statuses", requireManager, async (_req, res) => {
     try {
-      const { rows } = await pq().query(`SELECT code, label, color, is_terminal, requires_reason, requires_appointment, is_semi_closed, sort FROM lead_statuses ORDER BY sort ASC, label ASC`);
+      const { rows } = await pq().query(
+        `SELECT code, label, color, is_terminal, requires_reason, requires_appointment,
+                is_semi_closed, is_client_stage, sort
+         FROM lead_statuses ORDER BY sort ASC, label ASC`
+      );
       res.json({ statuses: rows });
     } catch (err) {
       console.error("[lidy/statuses]", err);
