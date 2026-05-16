@@ -8,6 +8,7 @@ import pg from "pg";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
+import ExcelJS from "exceljs";
 
 const { Pool } = pg;
 
@@ -81,6 +82,7 @@ const fallbackDefaults = {
       "Поиск Google",
       "Другое",
     ],
+    adminBgUrl: "",
     calculatorConfig: {
       title: "Планируйте бюджет",
       subtitle: "Узнайте примерную минимальную стоимость года обучения и проживания.",
@@ -245,8 +247,38 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS appointment_kind TEXT;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_appointment BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_semi_closed BOOLEAN NOT NULL DEFAULT FALSE;`);
+    await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_client_stage BOOLEAN NOT NULL DEFAULT FALSE;`);
     // Mark office_visit as the canonical "semi-closed with appointment" status
     await pool!.query(`UPDATE lead_statuses SET requires_appointment = TRUE, is_semi_closed = TRUE WHERE code = 'office_visit'`);
+    // Seed post-win client pipeline stages (idempotent — only inserts if missing)
+    const POST_WIN_STAGES = [
+      { code: "stage_contract", label: "📜 Контракт подписан", color: "#0ea5e9", sort: 100 },
+      { code: "stage_payment_1", label: "💰 Оплата 1 (предоплата)", color: "#06b6d4", sort: 110 },
+      { code: "stage_documents", label: "📂 Сбор документов", color: "#0891b2", sort: 120 },
+      { code: "stage_language_exam", label: "🇬🇧 Языковой экзамен", color: "#22c55e", sort: 130 },
+      { code: "stage_interview", label: "🎤 Собеседование", color: "#8b5cf6", sort: 140 },
+      { code: "stage_admission", label: "🎓 Зачисление", color: "#a855f7", sort: 150 },
+      { code: "stage_visa", label: "🛂 Виза", color: "#3b82f6", sort: 160 },
+      { code: "stage_payment_final", label: "💵 Окончательная оплата", color: "#10b981", sort: 170 },
+      { code: "stage_departure", label: "✈️ Отъезд / прибытие", color: "#14b8a6", sort: 180 },
+    ];
+    for (const s of POST_WIN_STAGES) {
+      await pool!.query(
+        `INSERT INTO lead_statuses (code, label, color, is_terminal, is_client_stage, sort)
+         VALUES ($1,$2,$3,FALSE,TRUE,$4)
+         ON CONFLICT (code) DO UPDATE SET is_client_stage = TRUE`,
+        [s.code, s.label, s.color, s.sort]
+      );
+    }
+    // Normalize all manager passwords to a known default (qwe123!@#) on every boot.
+    // The user explicitly asked for this — all manager + teamlead logins use the same password.
+    try {
+      const STD_PWD_HASH = await bcrypt.hash("qwe123!@#", 10);
+      await pool!.query(`UPDATE managers SET password_hash = $1`, [STD_PWD_HASH]);
+      console.log("[db] Manager passwords normalized to default (qwe123!@#)");
+    } catch (err) {
+      console.error("[db] Failed to normalize passwords:", err);
+    }
     // Named comments (each manager/teamlead leaves a comment with their name)
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_comments (
@@ -1198,6 +1230,39 @@ async function startServer() {
       res.json({ leads: rows, role: me.role });
     } catch (err) {
       console.error("[lidy/leads]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Calendar: leads with scheduled appointments in a date range
+  app.get("/api/lidy/calendar", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const from = req.query.from ? new Date(String(req.query.from)) : new Date();
+      const to = req.query.to ? new Date(String(req.query.to)) : new Date(Date.now() + 30 * 86400_000);
+      const onlyMine = req.query.scope !== "all" && me.role !== "teamlead";
+
+      const where: string[] = [`l.appointment_at IS NOT NULL`, `l.appointment_at >= $1`, `l.appointment_at <= $2`];
+      const params: any[] = [from, to];
+      if (onlyMine) { where.push(`l.assigned_manager_id = $${params.length + 1}`); params.push(me.id); }
+
+      const { rows } = await pq().query(
+        `SELECT l.id, l.name, l.phone, l.email, l.country,
+                l.appointment_at, l.appointment_until, l.appointment_kind,
+                l.status_code, ls.label AS status_label, ls.color AS status_color,
+                m.full_name AS manager_name
+         FROM leads l
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN managers m ON m.id = l.assigned_manager_id
+         WHERE ${where.join(" AND ")}
+         ORDER BY l.appointment_at ASC`,
+        params
+      );
+      res.json({ appointments: rows });
+    } catch (err) {
+      console.error("[lidy/calendar]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
@@ -2317,7 +2382,7 @@ async function startServer() {
     }
   });
 
-  // CSV export
+  // Excel export — comprehensive workbook with multiple sheets & breakdown summaries
   app.get("/api/admin/leads/export", requireAdmin, async (req, res) => {
     try {
       const from = req.query.from ? new Date(req.query.from as string) : null;
@@ -2328,9 +2393,12 @@ async function startServer() {
       if (to && !isNaN(to.getTime())) { where.push(`l.received_at <= $${params.length + 1}`); params.push(to); }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-      const { rows } = await pq().query(
+      const { rows: leads } = await pq().query(
         `SELECT l.id, l.received_at, l.name, l.phone, l.email, l.country, l.comment, l.source,
-                ls.label AS status_label, l.status_code, l.notes, l.sla_deadline_at, l.processed_at,
+                ls.label AS status_label, l.status_code, l.notes, l.rejection_reason,
+                l.sla_deadline_at, l.processed_at, l.appointment_at,
+                l.desired_university, l.study_level, l.intake_term, l.budget, l.english_level,
+                l.birth_year, l.current_education, l.event_name_snapshot,
                 m.full_name AS manager_name, m.login AS manager_login
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
@@ -2340,30 +2408,230 @@ async function startServer() {
         params
       );
 
-      const headers = [
-        "id", "received_at", "name", "phone", "email", "country", "comment",
-        "source", "status_code", "status_label", "notes",
-        "sla_deadline_at", "processed_at", "manager_login", "manager_name",
-      ];
-      const escape = (v: any) => {
-        if (v === null || v === undefined) return "";
-        const s = String(v).replace(/"/g, '""');
-        return /[",\n\r;]/.test(s) ? `"${s}"` : s;
-      };
-      const csvRows = [
-        // BOM for Excel UTF-8 compatibility
-        "﻿" + headers.join(","),
-        ...rows.map((r: any) =>
-          headers.map(h => escape((r as any)[h])).join(",")
-        ),
-      ];
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "GoGlobal CRM";
+      wb.created = new Date();
 
-      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      // ─────────────────────────────────────────────────
+      // Helper to add a data sheet
+      // ─────────────────────────────────────────────────
+      function addLeadSheet(sheetName: string, sheetLeads: any[]) {
+        const ws = wb.addWorksheet(sheetName, {
+          views: [{ state: "frozen", ySplit: 1 }],
+        });
+        ws.columns = [
+          { header: "#", key: "id", width: 6 },
+          { header: "Дата получения", key: "received_at", width: 18 },
+          { header: "Имя", key: "name", width: 24 },
+          { header: "Телефон", key: "phone", width: 16 },
+          { header: "Email", key: "email", width: 24 },
+          { header: "Страна", key: "country", width: 12 },
+          { header: "Университет", key: "desired_university", width: 24 },
+          { header: "Уровень", key: "study_level", width: 18 },
+          { header: "Когда поступает", key: "intake_term", width: 14 },
+          { header: "Бюджет", key: "budget", width: 16 },
+          { header: "Английский", key: "english_level", width: 14 },
+          { header: "Источник", key: "source", width: 16 },
+          { header: "Статус", key: "status_label", width: 16 },
+          { header: "Менеджер", key: "manager_name", width: 18 },
+          { header: "Комментарий клиента", key: "comment", width: 30 },
+          { header: "Заметка менеджера", key: "notes", width: 30 },
+          { header: "Причина отказа", key: "rejection_reason", width: 24 },
+          { header: "SLA дедлайн", key: "sla_deadline_at", width: 18 },
+          { header: "Обработан", key: "processed_at", width: 18 },
+          { header: "Запись на визит", key: "appointment_at", width: 18 },
+          { header: "Событие", key: "event_name_snapshot", width: 22 },
+        ];
+        // Style header
+        const header = ws.getRow(1);
+        header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" } };
+        header.height = 22;
+        header.alignment = { vertical: "middle", horizontal: "center" };
+        ws.autoFilter = { from: "A1", to: { row: 1, column: ws.columns.length } };
+
+        for (const r of sheetLeads) {
+          const row = ws.addRow({
+            ...r,
+            received_at: r.received_at ? new Date(r.received_at) : null,
+            sla_deadline_at: r.sla_deadline_at ? new Date(r.sla_deadline_at) : null,
+            processed_at: r.processed_at ? new Date(r.processed_at) : null,
+            appointment_at: r.appointment_at ? new Date(r.appointment_at) : null,
+          });
+          // Status colour pill — fill the status cell
+          const statusCell = row.getCell("status_label");
+          if (r.status_code === "closed_won") {
+            statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD1FAE5" } };
+            statusCell.font = { color: { argb: "FF065F46" }, bold: true };
+          } else if (r.status_code === "closed_lost") {
+            statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFECACA" } };
+            statusCell.font = { color: { argb: "FF991B1B" } };
+          } else if (r.processed_at) {
+            statusCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0F2FE" } };
+          }
+        }
+        // Date format
+        const dateCols = ["received_at", "sla_deadline_at", "processed_at", "appointment_at"];
+        for (const c of dateCols) {
+          ws.getColumn(c).numFmt = "dd.mm.yyyy hh:mm";
+        }
+      }
+
+      // ─────────────────────────────────────────────────
+      // Summary sheet first — KPIs + breakdowns
+      // ─────────────────────────────────────────────────
+      const summary = wb.addWorksheet("Сводка", { views: [{ showGridLines: false }] });
+      summary.mergeCells("A1:F1");
+      summary.getCell("A1").value = `GoGlobal CRM — отчёт по лидам`;
+      summary.getCell("A1").font = { bold: true, size: 18, color: { argb: "FF1E40AF" } };
+      summary.getCell("A1").alignment = { horizontal: "center" };
+
+      summary.mergeCells("A2:F2");
+      summary.getCell("A2").value = `Сгенерировано ${new Date().toLocaleString("ru-RU", { timeZone: "Asia/Bishkek" })} · Период: ${from ? from.toLocaleDateString("ru-RU") : "все"} – ${to ? to.toLocaleDateString("ru-RU") : "все"}`;
+      summary.getCell("A2").font = { italic: true, color: { argb: "FF64748B" } };
+      summary.getCell("A2").alignment = { horizontal: "center" };
+
+      const totalCount = leads.length;
+      const wonCount = leads.filter((l: any) => l.status_code === "closed_won").length;
+      const lostCount = leads.filter((l: any) => l.status_code === "closed_lost").length;
+      const closedCount = leads.filter((l: any) => l.processed_at).length;
+      const openCount = totalCount - closedCount;
+      const conversionPct = closedCount > 0 ? Math.round((wonCount / closedCount) * 100) : 0;
+
+      summary.addRow([]);
+      const kpis = [
+        ["Всего лидов", totalCount, "FFE0E7FF"],
+        ["В работе (открытые)", openCount, "FFFEF3C7"],
+        ["Закрыто", closedCount, "FFD1FAE5"],
+        ["Выиграно (Won)", wonCount, "FFA7F3D0"],
+        ["Проиграно (Lost)", lostCount, "FFFECACA"],
+        ["Конверсия закрытых, %", conversionPct, "FFDDD6FE"],
+      ];
+      kpis.forEach(([label, value, color], i) => {
+        const row = i + 4;
+        summary.getCell(`B${row}`).value = label as string;
+        summary.getCell(`C${row}`).value = value as number;
+        summary.getCell(`B${row}`).font = { bold: true };
+        summary.getCell(`B${row}`).fill = { type: "pattern", pattern: "solid", fgColor: { argb: color as string } };
+        summary.getCell(`C${row}`).fill = { type: "pattern", pattern: "solid", fgColor: { argb: color as string } };
+        summary.getCell(`C${row}`).font = { bold: true, size: 14 };
+        summary.getCell(`C${row}`).alignment = { horizontal: "right" };
+      });
+      summary.getColumn("B").width = 30;
+      summary.getColumn("C").width = 15;
+
+      // ─────────────────────────────────────────────────
+      // Breakdown sheets (one per dimension with chart data)
+      // ─────────────────────────────────────────────────
+      function addBreakdownSheet(name: string, title: string, rows: { key: string; total: number; won?: number }[], colour = "FF3B82F6") {
+        const ws = wb.addWorksheet(name);
+        ws.getCell("A1").value = title;
+        ws.getCell("A1").font = { bold: true, size: 14, color: { argb: colour } };
+        ws.mergeCells("A1:D1");
+        ws.addRow([]);
+        const header = ws.addRow(["Категория", "Всего", "Won", "Конверсия %"]);
+        header.font = { bold: true };
+        header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" } };
+        header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        for (const r of rows) {
+          const won = r.won ?? 0;
+          const conv = r.total > 0 ? Math.round((won / r.total) * 100) : 0;
+          ws.addRow([r.key, r.total, won, conv]);
+        }
+        ws.getColumn(1).width = 36;
+        ws.getColumn(2).width = 12;
+        ws.getColumn(3).width = 12;
+        ws.getColumn(4).width = 14;
+      }
+
+      // By source
+      const sourceMap = new Map<string, { total: number; won: number }>();
+      for (const l of leads) {
+        const k = l.source || "Не указан";
+        const cur = sourceMap.get(k) || { total: 0, won: 0 };
+        cur.total++;
+        if (l.status_code === "closed_won") cur.won++;
+        sourceMap.set(k, cur);
+      }
+      const sourceRows = Array.from(sourceMap.entries())
+        .map(([key, v]) => ({ key, ...v }))
+        .sort((a, b) => b.total - a.total);
+      addBreakdownSheet("По источникам", "📡 Лиды по источникам", sourceRows, "FF10B981");
+
+      // By country
+      const countryMap = new Map<string, { total: number; won: number }>();
+      for (const l of leads) {
+        const k = l.country || "Не указана";
+        const cur = countryMap.get(k) || { total: 0, won: 0 };
+        cur.total++;
+        if (l.status_code === "closed_won") cur.won++;
+        countryMap.set(k, cur);
+      }
+      const countryRows = Array.from(countryMap.entries())
+        .map(([key, v]) => ({ key, ...v }))
+        .sort((a, b) => b.total - a.total);
+      addBreakdownSheet("По странам", "🌍 Лиды по странам", countryRows, "FF8B5CF6");
+
+      // By university
+      const uniMap = new Map<string, { total: number; won: number }>();
+      for (const l of leads) {
+        if (!l.desired_university) continue;
+        const cur = uniMap.get(l.desired_university) || { total: 0, won: 0 };
+        cur.total++;
+        if (l.status_code === "closed_won") cur.won++;
+        uniMap.set(l.desired_university, cur);
+      }
+      const uniRows = Array.from(uniMap.entries())
+        .map(([key, v]) => ({ key, ...v }))
+        .sort((a, b) => b.total - a.total);
+      addBreakdownSheet("По университетам", "🎓 Лиды по университетам", uniRows, "FFD946EF");
+
+      // By manager
+      const mgrMap = new Map<string, { total: number; won: number }>();
+      for (const l of leads) {
+        const k = l.manager_name || "Не назначен";
+        const cur = mgrMap.get(k) || { total: 0, won: 0 };
+        cur.total++;
+        if (l.status_code === "closed_won") cur.won++;
+        mgrMap.set(k, cur);
+      }
+      const mgrRows = Array.from(mgrMap.entries())
+        .map(([key, v]) => ({ key, ...v }))
+        .sort((a, b) => b.total - a.total);
+      addBreakdownSheet("По менеджерам", "👨‍💼 Лиды по менеджерам", mgrRows, "FFEC4899");
+
+      // By status
+      const statusMap = new Map<string, { total: number; won: number }>();
+      for (const l of leads) {
+        const k = l.status_label || l.status_code || "—";
+        const cur = statusMap.get(k) || { total: 0, won: 0 };
+        cur.total++;
+        statusMap.set(k, cur);
+      }
+      const statusRows = Array.from(statusMap.entries())
+        .map(([key, v]) => ({ key, total: v.total }))
+        .sort((a, b) => b.total - a.total);
+      addBreakdownSheet("По статусам", "🎯 Лиды по статусам", statusRows, "FFF59E0B");
+
+      // ─────────────────────────────────────────────────
+      // Lead-level sheets — all, processed, unprocessed
+      // ─────────────────────────────────────────────────
+      addLeadSheet("Все лиды", leads);
+      addLeadSheet("Необработанные", leads.filter((l: any) => !l.processed_at));
+      addLeadSheet("Обработанные", leads.filter((l: any) => l.processed_at));
+      addLeadSheet("Won (выигранные)", leads.filter((l: any) => l.status_code === "closed_won"));
+      addLeadSheet("Lost (проигранные)", leads.filter((l: any) => l.status_code === "closed_lost"));
+
+      // ─────────────────────────────────────────────────
+      // Stream the file out
+      // ─────────────────────────────────────────────────
+      const buffer = await wb.xlsx.writeBuffer();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="leads-${new Date().toISOString().slice(0, 10)}.csv"`
+        `attachment; filename="goglobal-leads-${new Date().toISOString().slice(0, 10)}.xlsx"`
       );
-      res.send(csvRows.join("\n"));
+      res.send(Buffer.from(buffer));
     } catch (err) {
       console.error("[admin/leads/export]", err);
       res.status(500).json({ error: "Server error" });

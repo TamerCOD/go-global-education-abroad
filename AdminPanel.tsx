@@ -1159,13 +1159,12 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
         if (from) params.set('from', new Date(from).toISOString());
         if (to) params.set('to', new Date(to).toISOString());
         const url = `/api/admin/leads/export?${params.toString()}`;
-        // Use fetch + blob so we can attach the admin header
         const res = await fetch(url, { headers: { 'X-Admin-Password': password } });
         if (!res.ok) { alert('Ошибка экспорта'); return; }
         const blob = await res.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `goglobal-leads-${new Date().toISOString().slice(0, 10)}.xlsx`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -1391,8 +1390,8 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                     <label className="text-sm">по
                         <input type="date" className="ml-1 border border-slate-300 px-2 py-1 rounded text-sm" value={to} onChange={e => setTo(e.target.value)} />
                     </label>
-                    <button onClick={exportCsv} className="bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 py-1.5 rounded font-medium">
-                        ⬇ Скачать CSV
+                    <button onClick={exportCsv} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-1.5 rounded-lg font-medium shadow-sm">
+                        📊 Скачать Excel (.xlsx)
                     </button>
                     <span className="text-xs text-slate-400">оставьте даты пустыми чтобы выгрузить всё</span>
                 </div>
@@ -1752,13 +1751,24 @@ const AdminPanel: React.FC = () => {
     const setVisibility = (patch: any) => setSC({ visibility: { ...v, ...patch } });
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
-            {/* Subtle grid background */}
-            <div className="fixed inset-0 pointer-events-none opacity-[0.06]" style={{
-                backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
-            }} />
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 relative" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+            {/* Admin-configurable background image */}
+            {(sc as any).adminBgUrl && (
+                <div className="fixed inset-0 pointer-events-none z-0" style={{
+                    backgroundImage: `url("${(sc as any).adminBgUrl}")`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    opacity: 0.18,
+                }} />
+            )}
+            {/* Subtle grid background overlay (only when no custom image) */}
+            {!((sc as any).adminBgUrl) && (
+                <div className="fixed inset-0 pointer-events-none opacity-[0.06] z-0" style={{
+                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
+                }} />
+            )}
 
-            {/* Sticky brutalist header */}
+            {/* Sticky header */}
             <div className="sticky top-0 z-40 bg-slate-900 text-lime-300 border-b border-slate-800 shadow-md">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
                     <h1 className="text-xl font-black uppercase tracking-tight">⚙️ ADMIN_PANEL</h1>
@@ -1774,7 +1784,7 @@ const AdminPanel: React.FC = () => {
                 </div>
             </div>
 
-            <div className="relative max-w-7xl mx-auto p-4">
+            <div className="relative z-10 max-w-7xl mx-auto p-4">
 
                 <Section title="📊 Статистика посещений" subtitle="Только публичный сайт (без админки)" defaultOpen accent="cyan">
                     <AnalyticsWidget password={password} />
@@ -1924,6 +1934,31 @@ const AdminPanel: React.FC = () => {
                             onChange={e => setSC({ loaderTagline: e.target.value })}
                         />
                     </label>
+                </Section>
+
+                <Section title="🎨 Внешний вид админки" subtitle="Фоновое изображение и оформление" accent="violet">
+                    <div className="space-y-3">
+                        <p className="text-sm text-slate-600">
+                            Фоновое изображение применяется только в админке (на главной сайта остаётся брендовое оформление).
+                            Картинка отображается с лёгкой полупрозрачностью, чтобы карточки оставались читаемыми.
+                        </p>
+                        <label className="block">
+                            <span className="block text-sm font-medium text-slate-700 mb-1">Фон админки (URL или загрузка)</span>
+                            <ImageInput
+                                value={(sc as any).adminBgUrl || ''}
+                                password={password}
+                                onChange={v => setSC({ adminBgUrl: v })}
+                                placeholder="URL или загрузите файл"
+                            />
+                            <span className="block text-xs text-slate-500 mt-1">
+                                Оставьте пустым чтобы использовать стандартный градиент. Рекомендую светлые изображения с природой / технологичными узорами.
+                            </span>
+                        </label>
+                        {(sc as any).adminBgUrl && (
+                            <button onClick={() => setSC({ adminBgUrl: '' })}
+                                className="text-xs text-rose-600 hover:underline">× Убрать фон</button>
+                        )}
+                    </div>
                 </Section>
 
                 <Section title="🧮 Калькулятор стоимости обучения" subtitle="Заголовок, чек-лист, услуги и базовые тексты — отображаются на главной" accent="amber">

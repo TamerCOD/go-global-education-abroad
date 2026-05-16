@@ -115,7 +115,7 @@ function colourFromName(name: string): string {
     const palette = ['bg-emerald-100 text-emerald-700', 'bg-sky-100 text-sky-700',
         'bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700',
         'bg-violet-100 text-violet-700', 'bg-teal-100 text-teal-700',
-        'bg-orange-100 text-orange-700', 'bg-stone-200 text-stone-700'];
+        'bg-orange-100 text-orange-700', 'bg-slate-200 text-slate-700'];
     let h = 0;
     for (const c of name || '') h = (h * 31 + c.charCodeAt(0)) | 0;
     return palette[Math.abs(h) % palette.length];
@@ -126,10 +126,10 @@ function sourceMeta(source: string): { label: string; icon: string; bg: string; 
     if (s.includes('whatsapp')) return { label: source || 'WhatsApp', icon: '💬', bg: 'bg-green-50 text-green-800 border-green-200', ring: 'ring-green-200' };
     if (s.includes('instagram')) return { label: source || 'Instagram', icon: '📷', bg: 'bg-pink-50 text-pink-800 border-pink-200', ring: 'ring-pink-200' };
     if (s.includes('email') || s.includes('mail')) return { label: source || 'Email', icon: '✉', bg: 'bg-sky-50 text-sky-800 border-sky-200', ring: 'ring-sky-200' };
-    if (s.includes('сайт') || s.includes('site') || s.includes('apply')) return { label: source || 'Сайт', icon: '🌐', bg: 'bg-stone-50 text-stone-700 border-stone-200', ring: 'ring-stone-200' };
+    if (s.includes('сайт') || s.includes('site') || s.includes('apply')) return { label: source || 'Сайт', icon: '🌐', bg: 'bg-slate-50 text-slate-700 border-slate-200', ring: 'ring-slate-200' };
     if (s.includes('реклама') || s.includes('ad')) return { label: source || 'Реклама', icon: '📢', bg: 'bg-amber-50 text-amber-800 border-amber-200', ring: 'ring-amber-200' };
     if (s.includes('друз') || s.includes('referral')) return { label: source || 'Друзья', icon: '👥', bg: 'bg-violet-50 text-violet-800 border-violet-200', ring: 'ring-violet-200' };
-    return { label: source || '—', icon: '🏷', bg: 'bg-stone-100 text-stone-700 border-stone-200', ring: 'ring-stone-200' };
+    return { label: source || '—', icon: '🏷', bg: 'bg-slate-100 text-slate-700 border-slate-200', ring: 'ring-slate-200' };
 }
 
 // SLA chip
@@ -148,7 +148,7 @@ function slaChip(deadlineIso: string | null, processedIso?: string | null): { te
     const m = tot % 60;
     return {
         text: `${h ? `${h}ч ` : ''}${m}м до SLA`,
-        cls: h < 1 ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-stone-100 text-stone-600 border border-stone-200',
+        cls: h < 1 ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-slate-100 text-slate-600 border border-slate-200',
     };
 }
 
@@ -188,16 +188,16 @@ const Avatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({ name, s
 };
 
 const Pill: React.FC<{ children: React.ReactNode; cls?: string }> = ({ children, cls }) => (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md ${cls || 'bg-stone-100 text-stone-700'}`}>{children}</span>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md ${cls || 'bg-slate-100 text-slate-700'}`}>{children}</span>
 );
 
 const Btn: React.FC<{ children: React.ReactNode; onClick?: any; variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success'; disabled?: boolean; type?: 'button' | 'submit'; title?: string; className?: string }> = ({ children, onClick, variant = 'secondary', disabled, type = 'button', title, className }) => {
     const map: Record<string, string> = {
-        primary: 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow disabled:bg-emerald-300',
-        secondary: 'bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 shadow-sm hover:shadow disabled:opacity-50',
-        ghost: 'hover:bg-stone-100 text-stone-700 disabled:opacity-50',
+        primary: 'bg-sky-600 hover:bg-sky-700 text-white shadow-sm hover:shadow disabled:bg-sky-300',
+        secondary: 'bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 shadow-sm hover:shadow disabled:opacity-50',
+        ghost: 'hover:bg-slate-100 text-slate-700 disabled:opacity-50',
         danger: 'bg-rose-500 hover:bg-rose-600 text-white shadow-sm disabled:opacity-50',
-        success: 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm disabled:opacity-50',
+        success: 'bg-emerald-500 hover:bg-sky-600 text-white shadow-sm disabled:opacity-50',
     };
     return (
         <button type={type} disabled={disabled} onClick={onClick} title={title}
@@ -241,31 +241,34 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
     };
     return (
         <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfeff 35%, #f8fafc 100%)' }}>
-            <div className="absolute inset-0 opacity-30 pointer-events-none" style={{
-                backgroundImage: `radial-gradient(circle at 25% 30%, rgba(16,185,129,0.12), transparent 50%),
-                                  radial-gradient(circle at 75% 70%, rgba(56,189,248,0.10), transparent 50%)`,
+            style={{ background: 'linear-gradient(135deg, #f1f5f9 0%, #e0f2fe 50%, #ede9fe 100%)' }}>
+            <div className="absolute inset-0 opacity-40 pointer-events-none" style={{
+                backgroundImage: `radial-gradient(circle at 20% 30%, rgba(56,189,248,0.18), transparent 50%),
+                                  radial-gradient(circle at 80% 70%, rgba(139,92,246,0.12), transparent 50%),
+                                  linear-gradient(90deg, transparent 49.5%, rgba(56,189,248,0.04) 50%, transparent 50.5%)`,
+                backgroundSize: '100% 100%, 100% 100%, 40px 40px',
             }} />
-            <form onSubmit={submit} className="relative bg-white rounded-2xl shadow-xl border border-stone-200 p-8 w-full max-w-md">
-                <div className="flex items-center gap-3 mb-6 pb-5 border-b border-stone-100">
+            <form onSubmit={submit} className="relative bg-white/95 backdrop-blur rounded-2xl shadow-2xl border border-slate-200 p-8 w-full max-w-md">
+                <div className="flex items-center gap-3 mb-6 pb-5 border-b border-slate-100">
                     <img src="/ppp.png" alt="" className="w-11 h-auto" />
                     <div>
-                        <h1 className="text-xl font-bold text-stone-900">GoGlobal CRM</h1>
-                        <p className="text-sm text-stone-500">Вход для менеджеров</p>
+                        <h1 className="text-xl font-bold text-slate-900">GoGlobal CRM</h1>
+                        <p className="text-sm text-slate-500">Вход для менеджеров</p>
                     </div>
                 </div>
-                <label className="block text-sm font-medium text-stone-700 mb-1.5">Логин</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Логин</label>
                 <input type="text" autoFocus autoComplete="username"
-                    className="w-full bg-stone-50 border border-stone-200 px-4 py-2.5 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                    className="w-full bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition"
                     value={login} onChange={e => setLogin(e.target.value)} />
-                <label className="block text-sm font-medium text-stone-700 mb-1.5">Пароль</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Пароль</label>
                 <input type="password" autoComplete="current-password"
-                    className="w-full bg-stone-50 border border-stone-200 px-4 py-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition"
+                    className="w-full bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition"
                     value={password} onChange={e => setPassword(e.target.value)} />
                 {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg px-3 py-2 mb-4">⚠ {error}</div>}
                 <Btn type="submit" variant="primary" disabled={loading} className="w-full !py-2.5">
                     {loading ? 'Вход…' : 'Войти'}
                 </Btn>
+                <p className="text-xs text-slate-400 text-center mt-4">Единый пароль: <code className="bg-slate-100 px-1.5 py-0.5 rounded">qwe123!@#</code></p>
             </form>
         </div>
     );
@@ -298,16 +301,16 @@ const AppointmentForm: React.FC<{
                 ))}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label className="text-xs text-stone-600">
+                <label className="text-xs text-slate-600">
                     <span className="block mb-1">{kind === 'within_day' ? 'Дата' : 'С (дата и время)'}</span>
                     <input type={kind === 'within_day' ? 'date' : 'datetime-local'} value={at} onChange={e => setAt(e.target.value)}
-                        className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white" />
+                        className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white" />
                 </label>
                 {kind === 'range' && (
-                    <label className="text-xs text-stone-600">
+                    <label className="text-xs text-slate-600">
                         <span className="block mb-1">По (дата и время)</span>
                         <input type="datetime-local" value={until} onChange={e => setUntil(e.target.value)}
-                            className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white" />
+                            className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white" />
                     </label>
                 )}
             </div>
@@ -330,15 +333,15 @@ const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ le
     const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
     return (
-        <tr className={`border-b border-stone-100 hover:bg-stone-50 cursor-pointer ${isIncomingTransfer ? 'bg-fuchsia-50/50' : ''}`} onClick={onOpen}>
+        <tr className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer ${isIncomingTransfer ? 'bg-fuchsia-50/50' : ''}`} onClick={onOpen}>
             <td className="py-2 px-3"><Avatar name={lead.name} size="sm" /></td>
             <td className="py-2 px-3">
-                <div className="font-medium text-stone-900">{lead.name || '— без имени —'}</div>
-                <div className="text-xs text-stone-500">#{lead.id} · {formatRel(lead.received_at)}</div>
+                <div className="font-medium text-slate-900">{lead.name || '— без имени —'}</div>
+                <div className="text-xs text-slate-500">#{lead.id} · {formatRel(lead.received_at)}</div>
             </td>
             <td className="py-2 px-3 text-sm">
                 {lead.phone && <div className="font-mono">{lead.phone}</div>}
-                {lead.email && <div className="text-xs text-stone-500 truncate max-w-[200px]">{lead.email}</div>}
+                {lead.email && <div className="text-xs text-slate-500 truncate max-w-[200px]">{lead.email}</div>}
             </td>
             <td className="py-2 px-3"><StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} /></td>
             <td className="py-2 px-3">
@@ -346,17 +349,17 @@ const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ le
                     <span>{sm.icon}</span> {sm.label}
                 </span>
             </td>
-            <td className="py-2 px-3 text-sm text-stone-700">{lead.country || '—'}</td>
-            <td className="py-2 px-3 text-sm text-stone-700">
-                {lead.manager_name || <span className="text-stone-400 italic">не назначен</span>}
-                {lead.manager_archived_at && <Pill cls="bg-stone-200 text-stone-600 ml-1">уволен</Pill>}
+            <td className="py-2 px-3 text-sm text-slate-700">{lead.country || '—'}</td>
+            <td className="py-2 px-3 text-sm text-slate-700">
+                {lead.manager_name || <span className="text-slate-400 italic">не назначен</span>}
+                {lead.manager_archived_at && <Pill cls="bg-slate-200 text-slate-600 ml-1">уволен</Pill>}
             </td>
             <td className="py-2 px-3"><Pill cls={sla.cls}>{sla.text}</Pill></td>
             <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center gap-1">
                     {wa && <a href={wa} target="_blank" rel="noopener noreferrer" title="WhatsApp" className="text-[#25D366] hover:bg-green-50 p-1.5 rounded">💬</a>}
-                    {lead.phone && <a href={`tel:${lead.phone}`} title="Позвонить" className="text-stone-600 hover:bg-stone-100 p-1.5 rounded">📞</a>}
-                    {lead.email && <a href={`mailto:${lead.email}`} title="Email" className="text-stone-600 hover:bg-stone-100 p-1.5 rounded">✉</a>}
+                    {lead.phone && <a href={`tel:${lead.phone}`} title="Позвонить" className="text-slate-600 hover:bg-slate-100 p-1.5 rounded">📞</a>}
+                    {lead.email && <a href={`mailto:${lead.email}`} title="Email" className="text-slate-600 hover:bg-slate-100 p-1.5 rounded">✉</a>}
                 </div>
             </td>
         </tr>
@@ -373,31 +376,31 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
     return (
         <div onClick={onOpen}
-            className={`bg-white border rounded-2xl p-4 hover:shadow-md transition-all cursor-pointer relative ${isIncomingTransfer ? 'border-fuchsia-300 ring-2 ring-fuchsia-200' : 'border-stone-200'}`}>
+            className={`bg-white border rounded-2xl p-4 hover:shadow-md transition-all cursor-pointer relative ${isIncomingTransfer ? 'border-fuchsia-300 ring-2 ring-fuchsia-200' : 'border-slate-200'}`}>
             {isIncomingTransfer && (
                 <div className="absolute -top-2 -right-2 bg-fuchsia-500 text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shadow">передано</div>
             )}
             <div className="flex items-start gap-3 mb-3">
                 <Avatar name={lead.name} />
                 <div className="flex-grow min-w-0">
-                    <div className="font-semibold text-stone-900 truncate">{lead.name || '— без имени —'}</div>
-                    <div className="text-xs text-stone-500">#{lead.id} · {formatRel(lead.received_at)}</div>
+                    <div className="font-semibold text-slate-900 truncate">{lead.name || '— без имени —'}</div>
+                    <div className="text-xs text-slate-500">#{lead.id} · {formatRel(lead.received_at)}</div>
                 </div>
                 <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
             </div>
             <div className="space-y-1 text-sm">
-                {lead.phone && <div className="font-mono text-stone-700">📞 {lead.phone}</div>}
-                {lead.email && <div className="text-stone-600 truncate">✉ {lead.email}</div>}
-                {lead.country && <div className="text-stone-600">🌍 {lead.country}</div>}
-                {lead.desired_university && <div className="text-stone-600 text-xs truncate">🎓 {lead.desired_university}</div>}
+                {lead.phone && <div className="font-mono text-slate-700">📞 {lead.phone}</div>}
+                {lead.email && <div className="text-slate-600 truncate">✉ {lead.email}</div>}
+                {lead.country && <div className="text-slate-600">🌍 {lead.country}</div>}
+                {lead.desired_university && <div className="text-slate-600 text-xs truncate">🎓 {lead.desired_university}</div>}
             </div>
-            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-stone-100">
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-slate-100">
                 <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border ${sm.bg}`}>
                     {sm.icon} {sm.label}
                 </span>
                 <Pill cls={sla.cls}>{sla.text}</Pill>
                 {lead.manager_name && (
-                    <Pill cls="bg-stone-50 text-stone-600 border border-stone-200">
+                    <Pill cls="bg-slate-50 text-slate-600 border border-slate-200">
                         👤 {lead.manager_name}{lead.manager_archived_at && ' (уволен)'}
                     </Pill>
                 )}
@@ -434,31 +437,120 @@ const PipelineView: React.FC<{ leads: Lead[]; statuses: StatusOption[]; me: Mana
             {orderedStatuses.map(s => {
                 const list = grouped[s.code] || [];
                 return (
-                    <div key={s.code} className="bg-stone-50 border border-stone-200 rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0">
-                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-stone-200">
+                    <div key={s.code} className="bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0">
+                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200">
                             <div className="flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color || '#a8a29e' }} />
-                                <span className="font-semibold text-sm text-stone-900">{s.label}</span>
+                                <span className="font-semibold text-sm text-slate-900">{s.label}</span>
                             </div>
-                            <span className="text-xs text-stone-500 font-mono">{list.length}</span>
+                            <span className="text-xs text-slate-500 font-mono">{list.length}</span>
                         </div>
                         <div className="space-y-2 max-h-[600px] overflow-y-auto">
                             {list.length === 0 ? (
-                                <div className="text-xs text-stone-400 italic py-4 text-center">—</div>
+                                <div className="text-xs text-slate-400 italic py-4 text-center">—</div>
                             ) : list.map(l => {
                                 const sla = slaChip(l.sla_deadline_at, l.processed_at);
                                 return (
                                     <div key={l.id} onClick={() => onOpen(l)}
-                                        className="bg-white border border-stone-200 rounded-lg p-2.5 cursor-pointer hover:shadow-sm transition-all hover:border-emerald-300">
+                                        className="bg-white border border-slate-200 rounded-lg p-2.5 cursor-pointer hover:shadow-sm transition-all hover:border-sky-300">
                                         <div className="flex items-start gap-2 mb-1.5">
                                             <Avatar name={l.name} size="sm" />
                                             <div className="flex-grow min-w-0">
-                                                <div className="text-sm font-medium text-stone-900 truncate">{l.name || '—'}</div>
-                                                <div className="text-[10px] text-stone-500">#{l.id} · {formatRel(l.received_at)}</div>
+                                                <div className="text-sm font-medium text-slate-900 truncate">{l.name || '—'}</div>
+                                                <div className="text-[10px] text-slate-500">#{l.id} · {formatRel(l.received_at)}</div>
                                             </div>
                                         </div>
-                                        {l.phone && <div className="font-mono text-xs text-stone-600">{l.phone}</div>}
+                                        {l.phone && <div className="font-mono text-xs text-slate-600">{l.phone}</div>}
                                         <div className="mt-1"><Pill cls={sla.cls}>{sla.text}</Pill></div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  CALENDAR VIEW — leads with scheduled appointments grouped by day
+// ═════════════════════════════════════════════════════════════════════
+const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void }> = ({ appointments, onOpen }) => {
+    // Group by date (Asia/Bishkek)
+    const grouped = useMemo(() => {
+        const map = new Map<string, any[]>();
+        for (const a of appointments) {
+            const d = new Date(a.appointment_at);
+            const key = d.toLocaleDateString('ru-RU', { timeZone: 'Asia/Bishkek' });
+            if (!map.has(key)) map.set(key, []);
+            map.get(key)!.push(a);
+        }
+        return Array.from(map.entries()).sort((a, b) => {
+            // sort by first appointment time
+            const da = new Date(a[1][0].appointment_at).getTime();
+            const db = new Date(b[1][0].appointment_at).getTime();
+            return da - db;
+        });
+    }, [appointments]);
+
+    if (appointments.length === 0) {
+        return (
+            <div className="bg-white border border-slate-200 rounded-xl p-12 text-center shadow-sm">
+                <div className="text-5xl mb-3">📅</div>
+                <p className="text-slate-600">Запланированных визитов пока нет.</p>
+                <p className="text-xs text-slate-400 mt-1">Когда менеджер выберет статус «Подойдёт в офис», встреча появится здесь.</p>
+            </div>
+        );
+    }
+
+    const todayKey = new Date().toLocaleDateString('ru-RU', { timeZone: 'Asia/Bishkek' });
+
+    return (
+        <div className="space-y-3">
+            {grouped.map(([dateKey, list]) => {
+                const date = new Date(list[0].appointment_at);
+                const isToday = dateKey === todayKey;
+                const weekday = date.toLocaleDateString('ru-RU', { weekday: 'long' });
+                return (
+                    <div key={dateKey} className={`bg-white border ${isToday ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-200'} rounded-xl overflow-hidden shadow-sm`}>
+                        <div className={`px-4 py-2 border-b ${isToday ? 'bg-sky-50 border-sky-200' : 'bg-slate-50 border-slate-200'}`}>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <span className="font-semibold text-slate-900">{dateKey}</span>
+                                    <span className="text-xs text-slate-500 ml-2">· {weekday}</span>
+                                    {isToday && <span className="text-xs bg-sky-600 text-white px-2 py-0.5 rounded ml-2">сегодня</span>}
+                                </div>
+                                <span className="text-xs text-slate-500 font-mono">{list.length} визит(ов)</span>
+                            </div>
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                            {list.map(a => {
+                                const t = new Date(a.appointment_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' });
+                                const wa = a.phone ? whatsappLink(a.phone) : null;
+                                return (
+                                    <div key={a.id} className="px-4 py-3 hover:bg-slate-50 cursor-pointer flex items-center gap-3"
+                                        onClick={() => onOpen(a.id)}>
+                                        <div className="text-center min-w-[60px]">
+                                            <div className="font-mono text-lg font-bold text-slate-900">{t}</div>
+                                            {a.appointment_kind === 'within_day' && <div className="text-[10px] text-slate-400">в течение дня</div>}
+                                            {a.appointment_kind === 'range' && <div className="text-[10px] text-slate-400">интервал</div>}
+                                        </div>
+                                        <Avatar name={a.name} size="sm" />
+                                        <div className="flex-grow min-w-0">
+                                            <div className="font-medium text-slate-900 truncate">{a.name || '— без имени —'}</div>
+                                            <div className="text-xs text-slate-500 flex flex-wrap gap-x-3">
+                                                {a.phone && <span className="font-mono">{a.phone}</span>}
+                                                {a.country && <span>🌍 {a.country}</span>}
+                                                {a.manager_name && <span>👤 {a.manager_name}</span>}
+                                            </div>
+                                        </div>
+                                        <StatusBadge code={a.status_code} label={a.status_label} color={a.status_color} />
+                                        {wa && (
+                                            <a href={wa} target="_blank" rel="noopener noreferrer"
+                                                onClick={e => e.stopPropagation()}
+                                                className="text-[#25D366] hover:bg-green-50 p-1.5 rounded" title="WhatsApp">💬</a>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -479,9 +571,11 @@ const LeadDetailDrawer: React.FC<{
     statuses: StatusOption[];
     roster: RosterManager[];
     sourceOptions: string[];
+    mode: 'side' | 'center';
+    onToggleMode: () => void;
     onClose: () => void;
     onRefresh: () => void;
-}> = ({ lead, me, statuses, roster, sourceOptions, onClose, onRefresh }) => {
+}> = ({ lead, me, statuses, roster, sourceOptions, mode, onToggleMode, onClose, onRefresh }) => {
     const [tab, setTab] = useState<'overview' | 'activity' | 'related'>('overview');
     const [comments, setComments] = useState<CommentRec[] | null>(null);
     const [related, setRelated] = useState<any[] | null>(null);
@@ -618,20 +712,24 @@ const LeadDetailDrawer: React.FC<{
         if (r.ok) { onClose(); onRefresh(); }
     };
 
+    const isCenter = mode === 'center';
     return (
-        <div className="fixed inset-0 z-50 flex" onClick={onClose}>
-            <div className="flex-grow bg-stone-900/30 backdrop-blur-[2px]" />
-            <div className="w-full md:w-[640px] bg-stone-50 h-full overflow-y-auto shadow-2xl border-l border-stone-200" onClick={e => e.stopPropagation()}>
+        <div className={`fixed inset-0 z-50 ${isCenter ? 'flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[2px]' : 'flex'}`} onClick={onClose}>
+            {!isCenter && <div className="flex-grow bg-slate-900/30 backdrop-blur-[2px]" />}
+            <div className={`bg-slate-50 overflow-y-auto shadow-2xl border-slate-200 ${isCenter
+                ? 'w-full max-w-3xl max-h-[92vh] rounded-2xl border'
+                : 'w-full md:w-[640px] h-full border-l'}`}
+                onClick={e => e.stopPropagation()}>
                 {/* Header */}
-                <div className="sticky top-0 z-10 bg-white border-b border-stone-200 px-5 py-4">
+                <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-5 py-4">
                     <div className="flex items-start gap-3">
                         <Avatar name={lead.name} size="lg" />
                         <div className="flex-grow min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="text-xl font-bold text-stone-900 truncate">{lead.name || '— без имени —'}</h2>
-                                <span className="text-sm font-mono text-stone-400">#{lead.id}</span>
+                                <h2 className="text-xl font-bold text-slate-900 truncate">{lead.name || '— без имени —'}</h2>
+                                <span className="text-sm font-mono text-slate-400">#{lead.id}</span>
                             </div>
-                            <div className="text-xs text-stone-500 mt-0.5">Поступил {formatFull(lead.received_at)}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">Поступил {formatFull(lead.received_at)}</div>
                             <div className="flex items-center gap-1.5 flex-wrap mt-2">
                                 <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
                                 <Pill cls={sla.cls}>{sla.text}</Pill>
@@ -648,14 +746,21 @@ const LeadDetailDrawer: React.FC<{
                                 <div className="mt-2 flex flex-wrap gap-1">
                                     {sourceOptions.map(opt => (
                                         <button key={opt} onClick={() => changeSource(opt)}
-                                            className={`text-xs px-2 py-1 rounded-md border ${lead.source === opt ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white border-stone-300 hover:bg-stone-50'}`}>
+                                            className={`text-xs px-2 py-1 rounded-md border ${lead.source === opt ? 'bg-sky-600 text-white border-sky-700' : 'bg-white border-slate-300 hover:bg-slate-50'}`}>
                                             {opt}
                                         </button>
                                     ))}
                                 </div>
                             )}
                         </div>
-                        <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-2xl leading-none">×</button>
+                        <div className="flex flex-col items-end gap-2">
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+                            <button onClick={onToggleMode}
+                                title={mode === 'side' ? 'Открыть по центру' : 'Открыть сбоку'}
+                                className="text-slate-400 hover:text-slate-700 text-xs px-2 py-0.5 border border-slate-200 rounded hover:bg-slate-100">
+                                {mode === 'side' ? '⛶ центр' : '⇥ сбоку'}
+                            </button>
+                        </div>
                     </div>
 
                     {/* Quick actions */}
@@ -665,24 +770,24 @@ const LeadDetailDrawer: React.FC<{
                             💬 WhatsApp
                         </a>}
                         {lead.phone && <a href={`tel:${lead.phone}`}
-                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-stone-200 hover:bg-stone-50 text-stone-700">
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-700">
                             📞 Позвонить
                         </a>}
                         {lead.email && <a href={`mailto:${lead.email}`}
-                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-stone-200 hover:bg-stone-50 text-stone-700">
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-700">
                             ✉ Email
                         </a>}
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex gap-1 mt-4 border-b border-stone-200 -mb-4">
+                    <div className="flex gap-1 mt-4 border-b border-slate-200 -mb-4">
                         {[
                             { v: 'overview', l: 'Обзор' },
                             { v: 'activity', l: 'История' },
                             { v: 'related', l: 'Связанные' },
                         ].map(t => (
                             <button key={t.v} onClick={() => setTab(t.v as any)}
-                                className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === t.v ? 'border-emerald-600 text-emerald-700' : 'border-transparent text-stone-500 hover:text-stone-700'}`}>
+                                className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === t.v ? 'border-sky-600 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                                 {t.l}
                             </button>
                         ))}
@@ -715,14 +820,14 @@ const LeadDetailDrawer: React.FC<{
                         <>
                             {/* Status change */}
                             {canEdit && !isIncomingTransfer && (
-                                <section className="bg-white border border-stone-200 rounded-xl p-4">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">🎯 Сменить статус</div>
+                                <section className="bg-white border border-slate-200 rounded-xl p-4">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🎯 Сменить статус</div>
                                     <div className="flex flex-wrap gap-1.5">
                                         {statuses.map(s => (
                                             <button key={s.code} disabled={pendingStatus !== null}
                                                 onClick={() => onStatusClick(s)}
                                                 title={s.is_terminal ? 'Закрывает лид' : s.requires_appointment ? 'Запросит дату визита' : s.requires_reason ? 'Запросит причину' : ''}
-                                                className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.status_code === s.code ? 'text-white shadow-sm' : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'}`}
+                                                className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.status_code === s.code ? 'text-white shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
                                                 style={lead.status_code === s.code ? { backgroundColor: s.color || '#10b981', borderColor: s.color || '#10b981' } : undefined}>
                                                 {pendingStatus === s.code ? '…' : s.label}
                                                 {s.is_terminal && ' ✓'}
@@ -787,11 +892,11 @@ const LeadDetailDrawer: React.FC<{
                             )}
 
                             {/* Customer info card */}
-                            <section className="bg-white border border-stone-200 rounded-xl p-4">
+                            <section className="bg-white border border-slate-200 rounded-xl p-4">
                                 <div className="flex items-center justify-between mb-3">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-stone-500">📋 Информация о клиенте</div>
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">📋 Информация о клиенте</div>
                                     {canEdit && (
-                                        <button onClick={() => setEditingFields(!editingFields)} className="text-xs text-emerald-700 hover:underline">
+                                        <button onClick={() => setEditingFields(!editingFields)} className="text-xs text-sky-700 hover:underline">
                                             {editingFields ? 'Отмена' : 'Редактировать'}
                                         </button>
                                     )}
@@ -806,14 +911,14 @@ const LeadDetailDrawer: React.FC<{
                                             ['birth_year', 'Год рождения'], ['current_education', 'Текущее образование'],
                                         ].map(([k, l]) => (
                                             <label key={k}>
-                                                <span className="block text-xs text-stone-500 mb-1">{l}</span>
-                                                <input className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white"
+                                                <span className="block text-xs text-slate-500 mb-1">{l}</span>
+                                                <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
                                                     value={(draft as any)[k]} onChange={e => setDraft(prev => ({ ...prev, [k]: e.target.value }))} />
                                             </label>
                                         ))}
                                         <label className="md:col-span-2">
-                                            <span className="block text-xs text-stone-500 mb-1">Комментарий клиента</span>
-                                            <textarea rows={2} className="w-full border border-stone-300 rounded-lg px-2 py-1.5 bg-white"
+                                            <span className="block text-xs text-slate-500 mb-1">Комментарий клиента</span>
+                                            <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
                                                 value={draft.comment} onChange={e => setDraft(prev => ({ ...prev, comment: e.target.value }))} />
                                         </label>
                                         <Btn variant="primary" onClick={saveFields} disabled={savingFields} className="md:col-span-2">
@@ -839,22 +944,22 @@ const LeadDetailDrawer: React.FC<{
                                     </dl>
                                 )}
                                 {lead.comment && (
-                                    <div className="mt-3 pt-3 border-t border-stone-100">
-                                        <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-1">💬 Комментарий клиента</div>
-                                        <p className="text-sm text-stone-700">{lead.comment}</p>
+                                    <div className="mt-3 pt-3 border-t border-slate-100">
+                                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-1">💬 Комментарий клиента</div>
+                                        <p className="text-sm text-slate-700">{lead.comment}</p>
                                     </div>
                                 )}
                             </section>
 
                             {/* Transfer / Reassign */}
                             {(isOwner || isTeamlead) && (
-                                <section className="bg-white border border-stone-200 rounded-xl p-4 space-y-3">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-stone-500">⇄ Передача лида</div>
+                                <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">⇄ Передача лида</div>
                                     {isOwner && !lead.pending_transfer_to_id && (
                                         <div>
-                                            <div className="text-xs text-stone-500 mb-1">Передать другому менеджеру (10 мин на принятие)</div>
+                                            <div className="text-xs text-slate-500 mb-1">Передать другому менеджеру (10 мин на принятие)</div>
                                             <div className="flex gap-2">
-                                                <select className="flex-grow border border-stone-300 rounded-lg px-2 py-1.5 bg-white text-sm"
+                                                <select className="flex-grow border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-sm"
                                                     value={transferTo} onChange={e => setTransferTo(e.target.value)}>
                                                     <option value="">— выбрать —</option>
                                                     {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at && m.id !== me.id).map(m => (
@@ -871,9 +976,9 @@ const LeadDetailDrawer: React.FC<{
                                                 <Btn variant="secondary" onClick={() => doReassign(me.id)}>👤 Взять лид себе</Btn>
                                             )}
                                             <div>
-                                                <div className="text-xs text-stone-500 mb-1">Переназначить (без подтверждения)</div>
+                                                <div className="text-xs text-slate-500 mb-1">Переназначить (без подтверждения)</div>
                                                 <div className="flex gap-2">
-                                                    <select className="flex-grow border border-stone-300 rounded-lg px-2 py-1.5 bg-white text-sm"
+                                                    <select className="flex-grow border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-sm"
                                                         value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
                                                         <option value="">— выбрать —</option>
                                                         {roster.filter(m => (m.active !== false) && !m.archived_at && m.id !== lead.assigned_manager_id).map(m => (
@@ -895,33 +1000,33 @@ const LeadDetailDrawer: React.FC<{
                     )}
 
                     {tab === 'activity' && (
-                        <section className="bg-white border border-stone-200 rounded-xl p-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">📜 История событий</div>
+                        <section className="bg-white border border-slate-200 rounded-xl p-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">📜 История событий</div>
                             <div className="space-y-3">
                                 {comments === null ? (
-                                    <div className="text-sm text-stone-400">Загрузка…</div>
+                                    <div className="text-sm text-slate-400">Загрузка…</div>
                                 ) : comments.length === 0 ? (
-                                    <div className="text-sm text-stone-400 italic">Событий пока нет</div>
+                                    <div className="text-sm text-slate-400 italic">Событий пока нет</div>
                                 ) : (
                                     comments.slice().reverse().map(c => (
                                         <div key={c.id} className="flex gap-3">
                                             <Avatar name={c.author_name} size="sm" />
                                             <div className="flex-grow">
                                                 <div className="flex items-baseline gap-2 flex-wrap">
-                                                    <span className="font-semibold text-sm text-stone-900">{c.author_name}</span>
+                                                    <span className="font-semibold text-sm text-slate-900">{c.author_name}</span>
                                                     {c.author_role === 'teamlead' && <Pill cls="bg-violet-100 text-violet-700">тимлид</Pill>}
-                                                    <span className="text-xs text-stone-400 ml-auto">{formatRel(c.created_at)}</span>
+                                                    <span className="text-xs text-slate-400 ml-auto">{formatRel(c.created_at)}</span>
                                                 </div>
-                                                <p className="text-sm text-stone-700 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                                                <p className="text-sm text-slate-700 whitespace-pre-wrap mt-0.5">{c.body}</p>
                                             </div>
                                         </div>
                                     ))
                                 )}
                             </div>
                             {canEdit && (
-                                <div className="mt-4 pt-4 border-t border-stone-100 flex gap-2">
+                                <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2">
                                     <textarea rows={2}
-                                        className="flex-grow text-sm border border-stone-300 rounded-lg bg-stone-50 focus:bg-white p-2"
+                                        className="flex-grow text-sm border border-slate-300 rounded-lg bg-slate-50 focus:bg-white p-2"
                                         value={newComment} onChange={e => setNewComment(e.target.value)}
                                         placeholder="Оставить комментарий…" />
                                     <Btn variant="primary" onClick={submitComment} disabled={!newComment.trim()}>
@@ -933,23 +1038,23 @@ const LeadDetailDrawer: React.FC<{
                     )}
 
                     {tab === 'related' && (
-                        <section className="bg-white border border-stone-200 rounded-xl p-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">
+                        <section className="bg-white border border-slate-200 rounded-xl p-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">
                                 🔗 Тот же клиент (по телефону или email)
                             </div>
                             {related === null ? (
-                                <div className="text-sm text-stone-400">Загрузка…</div>
+                                <div className="text-sm text-slate-400">Загрузка…</div>
                             ) : related.length === 0 ? (
-                                <div className="text-sm text-stone-400 italic">Других лидов с такими контактами нет</div>
+                                <div className="text-sm text-slate-400 italic">Других лидов с такими контактами нет</div>
                             ) : (
                                 <div className="space-y-2">
                                     {related.map((r: any) => (
-                                        <div key={r.id} className="border border-stone-200 rounded-lg p-3 hover:bg-stone-50">
+                                        <div key={r.id} className="border border-slate-200 rounded-lg p-3 hover:bg-slate-50">
                                             <div className="flex items-center gap-3">
                                                 <Avatar name={r.name} size="sm" />
                                                 <div className="flex-grow min-w-0">
-                                                    <div className="text-sm font-medium text-stone-900">{r.name || '— без имени —'} <span className="text-xs text-stone-400">#{r.id}</span></div>
-                                                    <div className="text-xs text-stone-500">
+                                                    <div className="text-sm font-medium text-slate-900">{r.name || '— без имени —'} <span className="text-xs text-slate-400">#{r.id}</span></div>
+                                                    <div className="text-xs text-slate-500">
                                                         {r.phone && <span className="font-mono">{r.phone}</span>}
                                                         {r.phone && r.email && <span> · </span>}
                                                         {r.email}
@@ -957,7 +1062,7 @@ const LeadDetailDrawer: React.FC<{
                                                 </div>
                                                 <StatusBadge code={r.status_code} label={r.status_label} color={r.status_color} />
                                             </div>
-                                            <div className="flex items-center gap-2 mt-1.5 text-xs text-stone-500">
+                                            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
                                                 <span>{formatRel(r.received_at)}</span>
                                                 {r.manager_name && <span>· 👤 {r.manager_name}</span>}
                                                 {r.source && <span>· 🏷 {r.source}</span>}
@@ -976,8 +1081,8 @@ const LeadDetailDrawer: React.FC<{
 
 const Field: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
     <div>
-        <dt className="text-xs text-stone-500">{label}</dt>
-        <dd className={`text-sm ${value ? 'text-stone-900 font-medium' : 'text-stone-400 italic'}`}>{value || '—'}</dd>
+        <dt className="text-xs text-slate-500">{label}</dt>
+        <dd className={`text-sm ${value ? 'text-slate-900 font-medium' : 'text-slate-400 italic'}`}>{value || '—'}</dd>
     </div>
 );
 
@@ -1018,11 +1123,11 @@ const CreateLeadModal: React.FC<{
         } finally { setSaving(false); }
     };
     return (
-        <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 max-w-2xl w-full my-8" onClick={e => e.stopPropagation()}>
-                <div className="border-b border-stone-200 px-5 py-4 flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-stone-900">📞 Создать лид вручную</h3>
-                    <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-2xl leading-none">×</button>
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full my-8" onClick={e => e.stopPropagation()}>
+                <div className="border-b border-slate-200 px-5 py-4 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-900">📞 Создать лид вручную</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
                 </div>
                 <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                     {error && <div className="md:col-span-2 bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-lg">⚠ {error}</div>}
@@ -1033,14 +1138,14 @@ const CreateLeadModal: React.FC<{
                         ['budget', 'Бюджет', '$15k–30k', 'text'], ['english_level', 'Английский', 'B2 / IELTS 6.5', 'text'],
                     ].map(([k, l, ph, t]) => (
                         <label key={k}>
-                            <span className="block text-xs text-stone-500 mb-1">{l}</span>
-                            <input type={t} className="w-full border border-stone-300 rounded-lg px-3 py-2"
+                            <span className="block text-xs text-slate-500 mb-1">{l}</span>
+                            <input type={t} className="w-full border border-slate-300 rounded-lg px-3 py-2"
                                 placeholder={ph} value={(form as any)[k]} onChange={e => set(k, e.target.value)} />
                         </label>
                     ))}
                     <label className="md:col-span-2">
-                        <span className="block text-xs text-stone-500 mb-1">Источник <span className="text-rose-500">*</span></span>
-                        <select className="w-full border border-stone-300 rounded-lg px-3 py-2 bg-white"
+                        <span className="block text-xs text-slate-500 mb-1">Источник <span className="text-rose-500">*</span></span>
+                        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
                             value={form.source} onChange={e => set('source', e.target.value)}>
                             <option value="">— выберите —</option>
                             {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1048,8 +1153,8 @@ const CreateLeadModal: React.FC<{
                     </label>
                     {isTeamlead && (
                         <label className="md:col-span-2">
-                            <span className="block text-xs text-stone-500 mb-1">Назначить (по умолчанию — себе)</span>
-                            <select className="w-full border border-stone-300 rounded-lg px-3 py-2 bg-white"
+                            <span className="block text-xs text-slate-500 mb-1">Назначить (по умолчанию — себе)</span>
+                            <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
                                 value={form.assigned_manager_id} onChange={e => set('assigned_manager_id', e.target.value)}>
                                 <option value="">— себе —</option>
                                 {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at).map(m => (
@@ -1059,12 +1164,12 @@ const CreateLeadModal: React.FC<{
                         </label>
                     )}
                     <label className="md:col-span-2">
-                        <span className="block text-xs text-stone-500 mb-1">Комментарий</span>
-                        <textarea rows={2} className="w-full border border-stone-300 rounded-lg px-3 py-2"
+                        <span className="block text-xs text-slate-500 mb-1">Комментарий</span>
+                        <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
                             value={form.comment} onChange={e => set('comment', e.target.value)} />
                     </label>
                 </div>
-                <div className="border-t border-stone-200 px-5 py-3 flex justify-end gap-2">
+                <div className="border-t border-slate-200 px-5 py-3 flex justify-end gap-2">
                     <Btn variant="ghost" onClick={onClose}>Отмена</Btn>
                     <Btn variant="primary" onClick={submit} disabled={saving}>{saving ? 'Сохранение…' : '💾 Создать'}</Btn>
                 </div>
@@ -1077,12 +1182,12 @@ const CreateLeadModal: React.FC<{
 //  ROSTER PANEL (teamlead-only)
 // ═════════════════════════════════════════════════════════════════════
 const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
-    <div className="bg-white border border-stone-200 rounded-xl p-4">
-        <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-3">👥 Команда — 30 дней</div>
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">👥 Команда — 30 дней</div>
         <div className="overflow-x-auto">
             <table className="w-full text-sm">
                 <thead>
-                    <tr className="text-left text-xs text-stone-500 border-b border-stone-200">
+                    <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
                         <th className="py-2">Менеджер</th>
                         <th className="text-center">Статус</th>
                         <th className="text-right">Всего</th>
@@ -1093,29 +1198,29 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
                 </thead>
                 <tbody>
                     {roster.map(m => (
-                        <tr key={m.id} className={`border-b border-stone-100 ${m.archived_at ? 'opacity-50' : ''}`}>
+                        <tr key={m.id} className={`border-b border-slate-100 ${m.archived_at ? 'opacity-50' : ''}`}>
                             <td className="py-2">
                                 <div className="flex items-center gap-2">
                                     <Avatar name={m.full_name} size="sm" />
                                     <div>
-                                        <div className="font-medium text-stone-900">
+                                        <div className="font-medium text-slate-900">
                                             {m.full_name}
                                             {m.role === 'teamlead' && <Pill cls="bg-violet-100 text-violet-700 ml-1">тимлид</Pill>}
-                                            {m.archived_at && <Pill cls="bg-stone-200 text-stone-600 ml-1">УВОЛЕН</Pill>}
+                                            {m.archived_at && <Pill cls="bg-slate-200 text-slate-600 ml-1">УВОЛЕН</Pill>}
                                         </div>
-                                        <div className="text-xs text-stone-500 font-mono">{m.login}</div>
+                                        <div className="text-xs text-slate-500 font-mono">{m.login}</div>
                                     </div>
                                 </div>
                             </td>
                             <td className="text-center">
                                 {m.archived_at || !m.active ? '⛔'
                                     : m.is_online ? <span className="text-emerald-500">●</span>
-                                        : <span className="text-stone-300">○</span>}
+                                        : <span className="text-slate-300">○</span>}
                             </td>
                             <td className="text-right font-mono">{m.total30 ?? 0}</td>
                             <td className="text-right font-mono">{m.open ?? 0}</td>
                             <td className="text-right font-mono text-emerald-700">{m.closed30 ?? 0}</td>
-                            <td className={`text-right font-mono ${(m.overdue ?? 0) > 0 ? 'text-rose-700 font-bold' : 'text-stone-400'}`}>{m.overdue ?? 0}</td>
+                            <td className={`text-right font-mono ${(m.overdue ?? 0) > 0 ? 'text-rose-700 font-bold' : 'text-slate-400'}`}>{m.overdue ?? 0}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -1134,7 +1239,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const isTeamlead = manager.role === 'teamlead';
 
     // View + filters
-    const [view, setView] = useState<'cards' | 'table' | 'pipeline'>('cards');
+    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'calendar'>('cards');
+    const [drawerMode, setDrawerMode] = useState<'side' | 'center'>('side');
+    const [calendarData, setCalendarData] = useState<any[]>([]);
     const [scope, setScope] = useState<'mine' | 'all'>(isTeamlead ? 'all' : 'mine');
     const [search, setSearch] = useState('');
     const debouncedSearch = useDebounced(search, 300);
@@ -1199,6 +1306,20 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         return () => window.clearInterval(t);
     }, [autoRefresh, load]);
 
+    // Load calendar data when calendar view active
+    useEffect(() => {
+        if (view !== 'calendar') return;
+        const from = new Date(); from.setHours(0, 0, 0, 0);
+        const to = new Date(); to.setDate(to.getDate() + 60); to.setHours(23, 59, 59, 999);
+        const p = new URLSearchParams();
+        p.set('from', from.toISOString()); p.set('to', to.toISOString());
+        if (scope === 'all') p.set('scope', 'all');
+        fetch(`/api/lidy/calendar?${p.toString()}`, { credentials: 'include' })
+            .then(r => r.ok ? r.json() : { appointments: [] })
+            .then(j => setCalendarData(j.appointments || []))
+            .catch(() => setCalendarData([]));
+    }, [view, scope, lastRefresh]);
+
     const toggleOnline = async () => {
         setTogglingOnline(true);
         try {
@@ -1243,41 +1364,46 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     };
 
     return (
-        <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(180deg, #fafaf9 0%, #f5f5f4 100%)' }}>
+        <div className="min-h-screen flex flex-col relative" style={{ background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' }}>
+            <div className="fixed inset-0 pointer-events-none opacity-[0.05] z-0" style={{
+                backgroundImage: `linear-gradient(rgba(15,23,42,0.6) 1px, transparent 1px),
+                                  linear-gradient(90deg, rgba(15,23,42,0.6) 1px, transparent 1px)`,
+                backgroundSize: '32px 32px',
+            }} />
             {/* Top bar */}
-            <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-stone-200">
+            <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
                 <div className="max-w-[1600px] mx-auto px-4 py-2.5 flex items-center gap-3">
                     <button onClick={() => setSidebarOpen(!sidebarOpen)}
-                        className="p-2 hover:bg-stone-100 rounded-lg" title={sidebarOpen ? 'Свернуть фильтры' : 'Развернуть фильтры'}>
-                        <span className="block w-5 h-0.5 bg-stone-700 mb-1" />
-                        <span className="block w-5 h-0.5 bg-stone-700 mb-1" />
-                        <span className="block w-5 h-0.5 bg-stone-700" />
+                        className="p-2 hover:bg-slate-100 rounded-lg" title={sidebarOpen ? 'Свернуть фильтры' : 'Развернуть фильтры'}>
+                        <span className="block w-5 h-0.5 bg-slate-700 mb-1" />
+                        <span className="block w-5 h-0.5 bg-slate-700 mb-1" />
+                        <span className="block w-5 h-0.5 bg-slate-700" />
                     </button>
                     <img src="/ppp.png" alt="" className="h-7 w-auto" />
                     <div className="hidden md:block">
-                        <div className="font-bold text-stone-900 leading-none">CRM</div>
-                        <div className="text-xs text-stone-500">{manager.full_name}{isTeamlead && ' · тимлид'}</div>
+                        <div className="font-bold text-slate-900 leading-none">CRM</div>
+                        <div className="text-xs text-slate-500">{manager.full_name}{isTeamlead && ' · тимлид'}</div>
                     </div>
                     {/* Search */}
                     <div className="flex-grow max-w-2xl relative">
                         <input value={search} onChange={e => setSearch(e.target.value)}
                             placeholder="🔍 Поиск по имени, телефону, email, ВУЗу, комментарию…"
-                            className="w-full bg-stone-100 hover:bg-stone-50 focus:bg-white border border-stone-200 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 rounded-xl px-4 py-2 text-sm transition outline-none" />
+                            className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-100 rounded-xl px-4 py-2 text-sm transition outline-none" />
                         {search && (
-                            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700">×</button>
+                            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">×</button>
                         )}
                     </div>
                     {/* Actions */}
                     <div className="flex items-center gap-1.5">
                         <button onClick={toggleOnline} disabled={togglingOnline}
                             title={isOnline ? 'Я в сети — лиды распределяются' : 'Я не в сети — лиды не идут'}
-                            className={`inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition ${isOnline ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-stone-100 text-stone-600 border border-stone-200 hover:bg-stone-200'}`}>
-                            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`} />
+                            className={`inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition ${isOnline ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'}`}>
+                            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
                             <span className="hidden md:inline">{isOnline ? 'В сети' : 'Не в сети'}</span>
                         </button>
                         <button onClick={() => setAutoRefresh(!autoRefresh)}
                             title={autoRefresh ? 'Автообновление вкл (15с)' : 'Автообновление выкл'}
-                            className={`p-2 rounded-lg ${autoRefresh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-50'}`}>
+                            className={`p-2 rounded-lg ${autoRefresh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                             <svg className={`w-4 h-4 ${autoRefresh ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         </button>
                         <Btn variant="secondary" onClick={load} title="Обновить вручную">↻</Btn>
@@ -1292,18 +1418,18 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             <div className="flex flex-grow">
                 {/* Sidebar */}
                 {sidebarOpen && (
-                    <aside className="w-72 flex-shrink-0 bg-white border-r border-stone-200 p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
+                    <aside className="w-72 flex-shrink-0 bg-white border-r border-slate-200 p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
                         {/* Scope */}
                         {isTeamlead && (
                             <div>
-                                <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Просмотр</div>
-                                <div className="flex bg-stone-100 p-0.5 rounded-lg">
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Просмотр</div>
+                                <div className="flex bg-slate-100 p-0.5 rounded-lg">
                                     <button onClick={() => setScope('all')}
-                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'all' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600 hover:text-stone-900'}`}>
+                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'all' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>
                                         Все
                                     </button>
                                     <button onClick={() => setScope('mine')}
-                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'mine' ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600 hover:text-stone-900'}`}>
+                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'mine' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>
                                         Мои
                                     </button>
                                 </div>
@@ -1312,15 +1438,15 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Quick filters */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Быстрые фильтры</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Быстрые фильтры</div>
                             <div className="space-y-1.5">
                                 <button onClick={() => setOverdueOnly(!overdueOnly)}
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${overdueOnly ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-stone-50 hover:bg-stone-100 text-stone-700'}`}>
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${overdueOnly ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
                                     <span>⏰ Просроченные</span>
                                     {overdueOnly && <span>✓</span>}
                                 </button>
                                 <button onClick={() => setIncludeClosed(!includeClosed)}
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${includeClosed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-stone-50 hover:bg-stone-100 text-stone-700'}`}>
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${includeClosed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
                                     <span>📂 Показать закрытые</span>
                                     {includeClosed && <span>✓</span>}
                                 </button>
@@ -1329,9 +1455,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Status filter */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Статус</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Статус</div>
                             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
                                 <option value="">Все статусы</option>
                                 {statuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                             </select>
@@ -1339,9 +1465,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Source */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Источник</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Источник</div>
                             <select value={filterSource} onChange={e => setFilterSource(e.target.value)}
-                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
                                 <option value="">Все источники</option>
                                 {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
@@ -1349,9 +1475,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Country */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Страна</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Страна</div>
                             <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
-                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
                                 <option value="">Все страны</option>
                                 {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
@@ -1359,17 +1485,17 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* University */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Университет</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Университет</div>
                             <input type="text" value={filterUniversity} onChange={e => setFilterUniversity(e.target.value)}
                                 placeholder="Поиск по названию…"
-                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
                         </div>
 
                         {/* Level */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Уровень программы</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Уровень программы</div>
                             <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)}
-                                className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
                                 <option value="">Все уровни</option>
                                 {STUDY_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
                             </select>
@@ -1378,9 +1504,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         {/* Manager filter (teamlead, all scope) */}
                         {isTeamlead && scope === 'all' && (
                             <div>
-                                <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Менеджер</div>
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Менеджер</div>
                                 <select value={filterManagerId} onChange={e => setFilterManagerId(e.target.value)}
-                                    className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
                                     <option value="">Все</option>
                                     {roster.filter(m => m.role === 'manager').map(m => (
                                         <option key={m.id} value={m.id}>{m.full_name}{m.archived_at ? ' (уволен)' : ''}</option>
@@ -1391,12 +1517,12 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Date range */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-stone-500 mb-2">Дата получения</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Дата получения</div>
                             <div className="space-y-1.5">
                                 <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)}
-                                    className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
                                 <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)}
-                                    className="w-full border border-stone-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
                             </div>
                         </div>
 
@@ -1412,10 +1538,10 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                 <main className="flex-grow p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
                     {/* KPI tiles */}
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div className="bg-white border border-stone-200 rounded-xl p-3 shadow-sm">
-                            <div className="text-xs text-stone-500 uppercase tracking-wider">Всего</div>
-                            <div className="text-2xl font-bold text-stone-900 mt-0.5">{counters.total}</div>
-                            {lastRefresh && <div className="text-[10px] text-stone-400 mt-1">обн: {new Date(lastRefresh).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>}
+                        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-slate-500 uppercase tracking-wider">Всего</div>
+                            <div className="text-2xl font-bold text-slate-900 mt-0.5">{counters.total}</div>
+                            {lastRefresh && <div className="text-[10px] text-slate-400 mt-1">обн: {new Date(lastRefresh).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>}
                         </div>
                         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm">
                             <div className="text-xs text-amber-700 uppercase tracking-wider">Открытых</div>
@@ -1429,7 +1555,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             <div className="text-xs text-orange-700 uppercase tracking-wider">В очереди</div>
                             <div className="text-2xl font-bold text-orange-900 mt-0.5">{counters.queued}</div>
                         </div>
-                        <div className={`border rounded-xl p-3 shadow-sm transition ${counters.incoming > 0 ? 'bg-fuchsia-50 border-fuchsia-300 animate-pulse' : 'bg-stone-50 border-stone-200'}`}>
+                        <div className={`border rounded-xl p-3 shadow-sm transition ${counters.incoming > 0 ? 'bg-fuchsia-50 border-fuchsia-300 animate-pulse' : 'bg-slate-50 border-slate-200'}`}>
                             <div className="text-xs text-fuchsia-700 uppercase tracking-wider">Передачи мне</div>
                             <div className="text-2xl font-bold text-fuchsia-900 mt-0.5">{counters.incoming}</div>
                         </div>
@@ -1440,18 +1566,19 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                     {/* Header bar: results count + view switcher */}
                     <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="text-sm text-stone-600">
+                        <div className="text-sm text-slate-600">
                             {loading ? 'Загрузка…' : `Найдено: ${leads.length}`}
-                            {search.trim() && <span className="ml-2 text-stone-400">по запросу «{search.trim()}»</span>}
+                            {search.trim() && <span className="ml-2 text-slate-400">по запросу «{search.trim()}»</span>}
                         </div>
-                        <div className="flex bg-white border border-stone-200 rounded-lg p-0.5 shadow-sm">
+                        <div className="flex bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
                             {[
                                 { v: 'cards', l: '🪟 Карточки' },
                                 { v: 'table', l: '📋 Таблица' },
                                 { v: 'pipeline', l: '📊 Pipeline' },
+                                { v: 'calendar', l: '📅 Календарь' },
                             ].map(o => (
                                 <button key={o.v} onClick={() => setView(o.v as any)}
-                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-emerald-600 text-white' : 'text-stone-600 hover:bg-stone-100'}`}>
+                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
                                     {o.l}
                                 </button>
                             ))}
@@ -1466,11 +1593,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     )}
 
                     {loading ? (
-                        <div className="text-center py-12 text-stone-400">Загрузка…</div>
+                        <div className="text-center py-12 text-slate-400">Загрузка…</div>
                     ) : leads.length === 0 ? (
-                        <div className="bg-white border border-stone-200 rounded-xl p-8 text-center">
+                        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
                             <div className="text-5xl mb-3">📭</div>
-                            <p className="text-stone-600">
+                            <p className="text-slate-600">
                                 {activeFiltersCount > 0 || search ? 'Нет лидов под текущие фильтры' : (scope === 'mine' ? 'У вас пока нет лидов' : 'Лидов пока нет')}
                             </p>
                             {(activeFiltersCount > 0 || search) && (
@@ -1478,9 +1605,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             )}
                         </div>
                     ) : view === 'table' ? (
-                        <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto shadow-sm">
+                        <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
                             <table className="w-full text-sm">
-                                <thead className="bg-stone-50 text-xs uppercase tracking-wider text-stone-500">
+                                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                                     <tr>
                                         <th className="py-2 px-3 text-left w-10"></th>
                                         <th className="py-2 px-3 text-left">Клиент</th>
@@ -1500,6 +1627,12 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         </div>
                     ) : view === 'pipeline' ? (
                         <PipelineView leads={leads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} />
+                    ) : view === 'calendar' ? (
+                        <CalendarView appointments={calendarData} onOpen={async (id) => {
+                            // Fetch single lead and open drawer
+                            const r = await fetch(`/api/lidy/leads/${id}`, { credentials: 'include' });
+                            if (r.ok) { const j = await r.json(); setOpenLead(j.lead); }
+                        }} />
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                             {leads.map(l => <LeadCard key={l.id} lead={l} me={manager} onOpen={() => setOpenLead(l)} />)}
@@ -1512,6 +1645,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             {openLead && (
                 <LeadDetailDrawer lead={openLead} me={manager} statuses={statuses} roster={roster}
                     sourceOptions={sourceOptions}
+                    mode={drawerMode}
+                    onToggleMode={() => setDrawerMode(m => m === 'side' ? 'center' : 'side')}
                     onClose={() => setOpenLead(null)} onRefresh={async () => {
                         await load();
                         // Re-fetch the open lead to reflect latest changes
@@ -1554,7 +1689,7 @@ const LidyApp: React.FC = () => {
         }).catch(() => {});
     }, []);
 
-    if (checking) return <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-400">Загрузка…</div>;
+    if (checking) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Загрузка…</div>;
     if (!manager) return <LoginScreen onAuthed={setManager} />;
 
     return <Dashboard manager={manager} onLogout={() => setManager(null)} onMeUpdate={setManager} sourceOptions={sourceOptions} />;
