@@ -2185,25 +2185,32 @@ async function startServer() {
   });
 
   app.get("/api/admin/lead-statuses", requireAdmin, async (_req, res) => {
-    const { rows } = await pq().query(`SELECT code, label, color, is_terminal, requires_reason, sort FROM lead_statuses ORDER BY sort, label`);
+    const { rows } = await pq().query(
+      `SELECT code, label, color, is_terminal, requires_reason, requires_appointment,
+              is_semi_closed, is_client_stage, sort FROM lead_statuses ORDER BY sort, label`
+    );
     res.json({ statuses: rows });
   });
 
   app.post("/api/admin/lead-statuses", requireAdmin, async (req, res) => {
     try {
-      const { code, label, color, is_terminal, requires_reason, sort } = req.body || {};
+      const { code, label, color, is_terminal, requires_reason, requires_appointment, is_semi_closed, is_client_stage, sort } = req.body || {};
       if (!code || !label) return res.status(400).json({ error: "Missing code/label" });
       const { rows } = await pq().query(
-        `INSERT INTO lead_statuses (code, label, color, is_terminal, requires_reason, sort)
-         VALUES ($1,$2,$3,COALESCE($4,FALSE),COALESCE($5,FALSE),COALESCE($6,0))
+        `INSERT INTO lead_statuses (code, label, color, is_terminal, requires_reason,
+                                    requires_appointment, is_semi_closed, is_client_stage, sort)
+         VALUES ($1,$2,$3,COALESCE($4,FALSE),COALESCE($5,FALSE),COALESCE($6,FALSE),COALESCE($7,FALSE),COALESCE($8,FALSE),COALESCE($9,0))
          ON CONFLICT (code) DO UPDATE SET
            label = EXCLUDED.label,
            color = EXCLUDED.color,
            is_terminal = EXCLUDED.is_terminal,
            requires_reason = EXCLUDED.requires_reason,
+           requires_appointment = EXCLUDED.requires_appointment,
+           is_semi_closed = EXCLUDED.is_semi_closed,
+           is_client_stage = EXCLUDED.is_client_stage,
            sort = EXCLUDED.sort
          RETURNING *`,
-        [code, label, color || null, is_terminal, requires_reason, sort]
+        [code, label, color || null, is_terminal, requires_reason, requires_appointment, is_semi_closed, is_client_stage, sort]
       );
       res.json({ status: rows[0] });
     } catch (err) {

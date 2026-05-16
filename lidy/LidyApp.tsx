@@ -268,7 +268,6 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
                 <Btn type="submit" variant="primary" disabled={loading} className="w-full !py-2.5">
                     {loading ? 'Вход…' : 'Войти'}
                 </Btn>
-                <p className="text-xs text-slate-400 text-center mt-4">Единый пароль: <code className="bg-slate-100 px-1.5 py-0.5 rounded">qwe123!@#</code></p>
             </form>
         </div>
     );
@@ -474,9 +473,12 @@ const PipelineView: React.FC<{ leads: Lead[]; statuses: StatusOption[]; me: Mana
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  CALENDAR VIEW — leads with scheduled appointments grouped by day
+//  CALENDAR VIEW — list / week / month modes
 // ═════════════════════════════════════════════════════════════════════
 const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void }> = ({ appointments, onOpen }) => {
+    const [mode, setMode] = useState<'list' | 'week' | 'month'>('list');
+    const [anchor, setAnchor] = useState(() => new Date());
+
     // Group by date (Asia/Bishkek)
     const grouped = useMemo(() => {
         const map = new Map<string, any[]>();
@@ -487,27 +489,191 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
             map.get(key)!.push(a);
         }
         return Array.from(map.entries()).sort((a, b) => {
-            // sort by first appointment time
             const da = new Date(a[1][0].appointment_at).getTime();
             const db = new Date(b[1][0].appointment_at).getTime();
             return da - db;
         });
     }, [appointments]);
 
-    if (appointments.length === 0) {
+    const todayKey = new Date().toLocaleDateString('ru-RU', { timeZone: 'Asia/Bishkek' });
+    const dateKeyOf = (d: Date) => d.toLocaleDateString('ru-RU', { timeZone: 'Asia/Bishkek' });
+
+    // Quick lookup: dateKey → list of appointments
+    const byDateKey = useMemo(() => {
+        const m = new Map<string, any[]>();
+        for (const a of appointments) {
+            const k = dateKeyOf(new Date(a.appointment_at));
+            if (!m.has(k)) m.set(k, []);
+            m.get(k)!.push(a);
+        }
+        return m;
+    }, [appointments]);
+
+    const renderHeader = () => {
+        const title =
+            mode === 'month'
+                ? anchor.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+                : mode === 'week'
+                    ? (() => {
+                        const start = new Date(anchor);
+                        const dow = start.getDay() === 0 ? 6 : start.getDay() - 1; // Mon-based
+                        start.setDate(start.getDate() - dow);
+                        const end = new Date(start);
+                        end.setDate(end.getDate() + 6);
+                        return `${start.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })} — ${end.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })}`;
+                    })()
+                    : 'Все запланированные визиты';
+        const shift = (dir: number) => {
+            const d = new Date(anchor);
+            if (mode === 'month') d.setMonth(d.getMonth() + dir);
+            else if (mode === 'week') d.setDate(d.getDate() + 7 * dir);
+            else d.setDate(d.getDate() + dir);
+            setAnchor(d);
+        };
         return (
-            <div className="bg-white border border-slate-200 rounded-xl p-12 text-center shadow-sm">
-                <div className="text-5xl mb-3">📅</div>
-                <p className="text-slate-600">Запланированных визитов пока нет.</p>
-                <p className="text-xs text-slate-400 mt-1">Когда менеджер выберет статус «Подойдёт в офис», встреча появится здесь.</p>
+            <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                    {mode !== 'list' && (
+                        <>
+                            <button onClick={() => shift(-1)} className="px-2 py-1 hover:bg-slate-100 rounded">‹</button>
+                            <button onClick={() => setAnchor(new Date())} className="text-sm px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded">сегодня</button>
+                            <button onClick={() => shift(1)} className="px-2 py-1 hover:bg-slate-100 rounded">›</button>
+                        </>
+                    )}
+                    <span className="font-semibold text-slate-900 ml-2 capitalize">{title}</span>
+                </div>
+                <div className="flex bg-slate-100 rounded-lg p-0.5">
+                    {[
+                        { v: 'list', l: '📋 Список' },
+                        { v: 'week', l: '📆 Неделя' },
+                        { v: 'month', l: '🗓 Месяц' },
+                    ].map(o => (
+                        <button key={o.v} onClick={() => setMode(o.v as any)}
+                            className={`text-sm px-3 py-1 rounded-md transition ${mode === o.v ? 'bg-white shadow-sm text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>
+                            {o.l}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    // MONTH grid — 6 rows × 7 cols
+    if (mode === 'month') {
+        const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+        const firstDow = first.getDay() === 0 ? 6 : first.getDay() - 1;
+        const start = new Date(first);
+        start.setDate(start.getDate() - firstDow);
+        const cells: { date: Date; outside: boolean }[] = [];
+        for (let i = 0; i < 42; i++) {
+            const d = new Date(start);
+            d.setDate(start.getDate() + i);
+            cells.push({ date: d, outside: d.getMonth() !== anchor.getMonth() });
+        }
+        return (
+            <div>
+                {renderHeader()}
+                <div className="grid grid-cols-7 gap-1 bg-white border border-slate-200 rounded-xl p-2 shadow-sm">
+                    {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => (
+                        <div key={d} className="text-xs font-semibold text-slate-500 text-center py-1">{d}</div>
+                    ))}
+                    {cells.map(({ date, outside }, i) => {
+                        const k = dateKeyOf(date);
+                        const list = byDateKey.get(k) || [];
+                        const isToday = k === todayKey;
+                        return (
+                            <div key={i} className={`min-h-[90px] rounded-lg p-1.5 border ${outside ? 'bg-slate-50 border-slate-100 opacity-50' : isToday ? 'bg-sky-50 border-sky-300' : 'bg-white border-slate-200'} hover:border-sky-300 transition`}>
+                                <div className={`text-xs font-semibold ${isToday ? 'text-sky-700' : 'text-slate-600'}`}>{date.getDate()}</div>
+                                <div className="space-y-0.5 mt-1">
+                                    {list.slice(0, 3).map(a => {
+                                        const t = new Date(a.appointment_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' });
+                                        return (
+                                            <button key={a.id} onClick={() => onOpen(a.id)}
+                                                className="block w-full text-left text-[10px] px-1.5 py-0.5 rounded truncate hover:bg-sky-100 transition"
+                                                style={{ backgroundColor: (a.status_color || '#0ea5e9') + '20', color: a.status_color || '#0369a1' }}
+                                                title={`${a.name || '—'} · ${t}`}>
+                                                <span className="font-mono mr-1">{t}</span>{a.name || '—'}
+                                            </button>
+                                        );
+                                    })}
+                                    {list.length > 3 && <div className="text-[10px] text-slate-400">+{list.length - 3} ещё</div>}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
         );
     }
 
-    const todayKey = new Date().toLocaleDateString('ru-RU', { timeZone: 'Asia/Bishkek' });
+    // WEEK view
+    if (mode === 'week') {
+        const start = new Date(anchor);
+        const dow = start.getDay() === 0 ? 6 : start.getDay() - 1;
+        start.setDate(start.getDate() - dow);
+        const days: Date[] = [];
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(start);
+            d.setDate(start.getDate() + i);
+            days.push(d);
+        }
+        return (
+            <div>
+                {renderHeader()}
+                <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
+                    {days.map(d => {
+                        const k = dateKeyOf(d);
+                        const list = byDateKey.get(k) || [];
+                        const isToday = k === todayKey;
+                        return (
+                            <div key={k} className={`bg-white border ${isToday ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-200'} rounded-xl p-2 shadow-sm min-h-[140px]`}>
+                                <div className={`text-xs font-semibold mb-2 ${isToday ? 'text-sky-700' : 'text-slate-700'}`}>
+                                    {d.toLocaleDateString('ru-RU', { weekday: 'short', day: '2-digit', month: 'short' })}
+                                    {isToday && <span className="ml-1 text-[10px] bg-sky-600 text-white px-1.5 rounded">сегодня</span>}
+                                </div>
+                                {list.length === 0 ? (
+                                    <div className="text-xs text-slate-400 italic">—</div>
+                                ) : (
+                                    <div className="space-y-1">
+                                        {list.map(a => {
+                                            const t = new Date(a.appointment_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' });
+                                            return (
+                                                <button key={a.id} onClick={() => onOpen(a.id)}
+                                                    className="block w-full text-left text-xs rounded-md p-1.5 hover:bg-sky-50 border border-slate-100">
+                                                    <div className="font-mono font-bold" style={{ color: a.status_color || '#0369a1' }}>{t}</div>
+                                                    <div className="truncate text-slate-800">{a.name || '—'}</div>
+                                                    {a.phone && <div className="text-[10px] text-slate-500">{a.phone}</div>}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    // LIST mode (default)
+    if (appointments.length === 0) {
+        return (
+            <div>
+                {renderHeader()}
+                <div className="bg-white border border-slate-200 rounded-xl p-12 text-center shadow-sm">
+                    <div className="text-5xl mb-3">📅</div>
+                    <p className="text-slate-600">Запланированных визитов пока нет.</p>
+                    <p className="text-xs text-slate-400 mt-1">Когда менеджер выберет статус «Подойдёт в офис», встреча появится здесь.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="space-y-3">
+        <div>
+            {renderHeader()}
+            <div className="space-y-3">
             {grouped.map(([dateKey, list]) => {
                 const date = new Date(list[0].appointment_at);
                 const isToday = dateKey === todayKey;
@@ -558,6 +724,7 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
                     </div>
                 );
             })}
+            </div>
         </div>
     );
 };
@@ -821,9 +988,10 @@ const LeadDetailDrawer: React.FC<{
                             {/* Status change */}
                             {canEdit && !isIncomingTransfer && (
                                 <section className="bg-white border border-slate-200 rounded-xl p-4">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🎯 Сменить статус</div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {statuses.map(s => (
+                                    {/* Lead processing statuses */}
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🎯 Обработка лида</div>
+                                    <div className="flex flex-wrap gap-1.5 mb-4">
+                                        {statuses.filter(s => !s.is_client_stage).map(s => (
                                             <button key={s.code} disabled={pendingStatus !== null}
                                                 onClick={() => onStatusClick(s)}
                                                 title={s.is_terminal ? 'Закрывает лид' : s.requires_appointment ? 'Запросит дату визита' : s.requires_reason ? 'Запросит причину' : ''}
@@ -836,6 +1004,25 @@ const LeadDetailDrawer: React.FC<{
                                             </button>
                                         ))}
                                     </div>
+                                    {/* Client pipeline stages (after won) */}
+                                    {statuses.filter(s => s.is_client_stage).length > 0 && (
+                                        <>
+                                            <div className="text-xs uppercase tracking-wider font-semibold text-sky-700 mb-2 mt-2 pt-3 border-t border-slate-100">
+                                                🎓 Этапы клиента (после выигрыша)
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {statuses.filter(s => s.is_client_stage).map(s => (
+                                                    <button key={s.code} disabled={pendingStatus !== null}
+                                                        onClick={() => onStatusClick(s)}
+                                                        title="Этап ведения клиента после получения заявки"
+                                                        className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.status_code === s.code ? 'text-white shadow-sm' : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'}`}
+                                                        style={lead.status_code === s.code ? { backgroundColor: s.color || '#0ea5e9', borderColor: s.color || '#0ea5e9' } : undefined}>
+                                                        {pendingStatus === s.code ? '…' : s.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
                                     {appointmentForStatus && (
                                         <div className="mt-3">
                                             <AppointmentForm

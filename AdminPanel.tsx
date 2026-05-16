@@ -812,6 +812,9 @@ interface LeadStatusRec {
     color?: string;
     is_terminal: boolean;
     requires_reason?: boolean;
+    requires_appointment?: boolean;
+    is_semi_closed?: boolean;
+    is_client_stage?: boolean;
     sort: number;
 }
 
@@ -1067,39 +1070,73 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
 
     if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
 
+    const leadStatuses = statuses.filter(s => !s.is_client_stage);
+    const clientStages = statuses.filter(s => !!s.is_client_stage);
+
+    const renderRow = (s: LeadStatusRec) => (
+        <div key={s.code} className="grid gap-2 items-center bg-slate-50 p-2 rounded border border-slate-200"
+            style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto auto' }}>
+            <code className="text-xs font-mono px-2">{s.code}</code>
+            <input className="border border-slate-300 p-1.5 rounded text-sm"
+                value={s.label}
+                onChange={e => upsert({ ...s, label: e.target.value })} />
+            <input type="color" className="h-8 border border-slate-300 rounded"
+                value={s.color || '#3b82f6'}
+                onChange={e => upsert({ ...s, color: e.target.value })} />
+            <input type="number" className="border border-slate-300 p-1.5 rounded text-sm"
+                value={s.sort}
+                onChange={e => upsert({ ...s, sort: parseInt(e.target.value) || 0 })} />
+            <label className="text-xs flex items-center gap-1 whitespace-nowrap">
+                <input type="checkbox" className="accent-emerald-600"
+                    checked={s.is_terminal}
+                    onChange={e => upsert({ ...s, is_terminal: e.target.checked })} />
+                закрывает
+            </label>
+            <label className="text-xs flex items-center gap-1 whitespace-nowrap">
+                <input type="checkbox" className="accent-red-600"
+                    checked={!!s.requires_reason}
+                    onChange={e => upsert({ ...s, requires_reason: e.target.checked })} />
+                требует причины
+            </label>
+            <label className="text-xs flex items-center gap-1 whitespace-nowrap">
+                <input type="checkbox" className="accent-sky-600"
+                    checked={!!s.is_client_stage}
+                    onChange={e => upsert({ ...s, is_client_stage: e.target.checked })} />
+                этап клиента
+            </label>
+            <button onClick={() => remove(s.code)} disabled={s.code === 'new'}
+                className="text-xs bg-red-50 hover:bg-red-100 disabled:opacity-30 text-red-700 px-3 py-1.5 rounded whitespace-nowrap">
+                Удалить
+            </button>
+        </div>
+    );
+
     return (
         <div className="space-y-3">
-            <p className="text-xs text-slate-500">«Терминальные» статусы автоматически фиксируют время обработки и снимают лид с SLA-таймера. «Требует причины» = при выборе менеджеру показывается форма с обязательным полем (например, причина отказа).</p>
-            {statuses.map(s => (
-                <div key={s.code} className="grid md:grid-cols-14 gap-2 items-center bg-slate-50 p-2 rounded border border-slate-200" style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto' }}>
-                    <code className="text-xs font-mono px-2">{s.code}</code>
-                    <input className="border border-slate-300 p-1.5 rounded text-sm"
-                        value={s.label}
-                        onChange={e => upsert({ ...s, label: e.target.value })} />
-                    <input type="color" className="h-8 border border-slate-300 rounded"
-                        value={s.color || '#3b82f6'}
-                        onChange={e => upsert({ ...s, color: e.target.value })} />
-                    <input type="number" className="border border-slate-300 p-1.5 rounded text-sm"
-                        value={s.sort}
-                        onChange={e => upsert({ ...s, sort: parseInt(e.target.value) || 0 })} />
-                    <label className="text-xs flex items-center gap-1 whitespace-nowrap">
-                        <input type="checkbox" className="accent-brand-600"
-                            checked={s.is_terminal}
-                            onChange={e => upsert({ ...s, is_terminal: e.target.checked })} />
-                        закрывает
-                    </label>
-                    <label className="text-xs flex items-center gap-1 whitespace-nowrap">
-                        <input type="checkbox" className="accent-red-600"
-                            checked={!!s.requires_reason}
-                            onChange={e => upsert({ ...s, requires_reason: e.target.checked })} />
-                        требует причины
-                    </label>
-                    <button onClick={() => remove(s.code)} disabled={s.code === 'new'}
-                        className="text-xs bg-red-50 hover:bg-red-100 disabled:opacity-30 text-red-700 px-3 py-1.5 rounded whitespace-nowrap">
-                        Удалить
-                    </button>
+            <p className="text-xs text-slate-500">
+                <strong>Терминальные</strong> = закрывают лид и снимают с SLA-таймера. <strong>Требует причины</strong> = при выборе менеджер вводит обязательный текст.
+                <strong>Этап клиента</strong> = пост-победный этап ведения (сопровождение от заявки до зачисления).
+            </p>
+
+            {/* Lead processing statuses */}
+            <div>
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-semibold text-slate-700">🎯 Обработка лидов</span>
+                    <span className="text-xs text-slate-500">— статусы воронки до закрытия</span>
                 </div>
-            ))}
+                {leadStatuses.map(renderRow)}
+            </div>
+
+            {/* Client pipeline stages */}
+            <div className="pt-3 mt-3 border-t border-slate-200">
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-semibold text-sky-700">🎓 Этапы клиента (после выигрыша)</span>
+                    <span className="text-xs text-slate-500">— контракт, оплата, документы, экзамены, виза, и т.д.</span>
+                </div>
+                {clientStages.length === 0
+                    ? <p className="text-xs text-slate-400 italic">Этапов клиента нет. Создайте статус и отметьте «этап клиента».</p>
+                    : clientStages.map(renderRow)}
+            </div>
             <hr />
             <div className="grid gap-2 items-center bg-emerald-50 p-2 rounded border border-emerald-200" style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto' }}>
                 <input className="border border-slate-300 p-1.5 rounded text-sm font-mono w-24"
@@ -1137,6 +1174,60 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
         </div>
     );
 };
+
+// SVG donut chart for category breakdowns
+const DonutChart: React.FC<{ data: { label: string; value: number; color?: string }[]; size?: number; thickness?: number }> = ({ data, size = 180, thickness = 28 }) => {
+    const total = data.reduce((s, d) => s + d.value, 0);
+    const r = (size - thickness) / 2;
+    const circumference = 2 * Math.PI * r;
+    let offset = 0;
+    const palette = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#64748b'];
+    return (
+        <div className="flex items-center gap-4">
+            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+                <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={thickness} />
+                {total > 0 && data.map((d, i) => {
+                    const len = (d.value / total) * circumference;
+                    const seg = (
+                        <circle key={i} cx={size / 2} cy={size / 2} r={r}
+                            fill="none" stroke={d.color || palette[i % palette.length]}
+                            strokeWidth={thickness}
+                            strokeDasharray={`${len} ${circumference - len}`}
+                            strokeDashoffset={-offset}
+                            transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+                    );
+                    offset += len;
+                    return seg;
+                })}
+                <text x={size / 2} y={size / 2 - 6} textAnchor="middle" className="text-2xl font-bold" fill="#0f172a">{total}</text>
+                <text x={size / 2} y={size / 2 + 16} textAnchor="middle" className="text-xs" fill="#64748b">всего</text>
+            </svg>
+            <div className="space-y-1 text-xs">
+                {data.slice(0, 8).map((d, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-sm" style={{ background: d.color || palette[i % palette.length] }} />
+                        <span className="text-slate-700">{d.label}</span>
+                        <span className="font-mono font-semibold text-slate-900">{d.value}</span>
+                        <span className="text-slate-400">({total > 0 ? Math.round((d.value / total) * 100) : 0}%)</span>
+                    </div>
+                ))}
+                {data.length > 8 && <div className="text-slate-400">+ ещё {data.length - 8}</div>}
+            </div>
+        </div>
+    );
+};
+
+const HBar: React.FC<{ label: string; value: number; max: number; color?: string }> = ({ label, value, max, color }) => (
+    <div>
+        <div className="flex items-baseline justify-between text-xs mb-0.5">
+            <span className="text-slate-700">{label}</span>
+            <span className="font-mono font-semibold text-slate-900">{value}</span>
+        </div>
+        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{ width: `${max > 0 ? (value / max) * 100 : 0}%`, background: color || '#3b82f6' }} />
+        </div>
+    </div>
+);
 
 const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
     const [data, setData] = useState<any>(null);
@@ -1226,45 +1317,39 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
-                <div className="bg-white border border-slate-200 rounded-lg p-3">
-                    <div className="text-xs uppercase text-slate-500 mb-2">По статусам</div>
-                    {data.byStatus.map((s: any) => (
-                        <div key={s.code} className="flex items-center gap-2 mb-1">
-                            <span className="w-3 h-3 rounded-sm" style={{ background: s.color || '#94a3b8' }} />
-                            <span className="text-sm text-slate-700 flex-grow">{s.label}</span>
-                            <span className="text-sm font-medium text-slate-900">{s.n}</span>
-                        </div>
-                    ))}
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🍩 По статусам</div>
+                    {data.byStatus && data.byStatus.length > 0 ? (
+                        <DonutChart data={data.byStatus.filter((s: any) => s.n > 0).map((s: any) => ({ label: s.label, value: s.n, color: s.color || undefined }))} />
+                    ) : <div className="text-sm text-slate-400 italic">нет данных</div>}
                 </div>
 
-                <div className="bg-white border border-slate-200 rounded-lg p-3 md:col-span-2">
-                    <div className="text-xs uppercase text-slate-500 mb-2">📡 По источникам (откуда узнали о нас)</div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm md:col-span-2">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">📡 По источникам (откуда узнали)</div>
                     {data.bySource && data.bySource.length > 0 ? (
-                        <table className="w-full text-xs">
-                            <thead className="text-left text-slate-500">
-                                <tr>
-                                    <th className="py-1">Источник</th>
-                                    <th className="text-right">Всего</th>
-                                    <th className="text-right">Закрыто</th>
-                                    <th className="text-right">Won</th>
-                                    <th className="text-right">Конверсия</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {data.bySource.map((s: any) => {
+                        <div className="grid md:grid-cols-2 gap-x-6 gap-y-2.5">
+                            {(() => {
+                                const max = Math.max(1, ...data.bySource.map((s: any) => s.total));
+                                return data.bySource.map((s: any, i: number) => {
                                     const conv = s.closed > 0 ? Math.round((s.won / s.closed) * 100) : 0;
+                                    const palette = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316'];
                                     return (
-                                        <tr key={s.source} className="border-t border-slate-100">
-                                            <td className="py-1 font-medium">{s.source}</td>
-                                            <td className="text-right font-mono">{s.total}</td>
-                                            <td className="text-right font-mono">{s.closed}</td>
-                                            <td className="text-right font-mono text-emerald-700">{s.won}</td>
-                                            <td className="text-right font-mono">{conv}%</td>
-                                        </tr>
+                                        <div key={s.source}>
+                                            <div className="flex items-baseline justify-between text-xs mb-0.5">
+                                                <span className="text-slate-700 font-medium">{s.source}</span>
+                                                <span className="text-slate-500">
+                                                    <span className="font-mono font-bold text-slate-900">{s.total}</span>
+                                                    {s.closed > 0 && <span className="ml-2 text-emerald-700">won {s.won} · {conv}%</span>}
+                                                </span>
+                                            </div>
+                                            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                                <div className="h-full rounded-full" style={{ width: `${(s.total / max) * 100}%`, background: palette[i % palette.length] }} />
+                                            </div>
+                                        </div>
                                     );
-                                })}
-                            </tbody>
-                        </table>
+                                });
+                            })()}
+                        </div>
                     ) : (
                         <p className="text-xs text-slate-400 italic">Пока нет данных</p>
                     )}
@@ -1307,22 +1392,17 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
             {/* Country / University / Event / Study Level breakdowns */}
             <div className="grid md:grid-cols-2 gap-4">
                 {data.byCountry && data.byCountry.length > 0 && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-3">
-                        <div className="text-xs uppercase text-slate-500 mb-2">🌍 По странам</div>
-                        <table className="w-full text-xs">
-                            <thead className="text-left text-slate-400">
-                                <tr><th>Страна</th><th className="text-right">Всего</th><th className="text-right">Won</th></tr>
-                            </thead>
-                            <tbody>
-                                {data.byCountry.map((c: any) => (
-                                    <tr key={c.country} className="border-t border-slate-100">
-                                        <td className="py-1 truncate max-w-[50%]">{c.country}</td>
-                                        <td className="text-right font-mono">{c.total}</td>
-                                        <td className="text-right font-mono text-emerald-700">{c.won}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🌍 По странам</div>
+                        <div className="space-y-2.5">
+                            {(() => {
+                                const max = Math.max(1, ...data.byCountry.map((c: any) => c.total));
+                                return data.byCountry.slice(0, 10).map((c: any, i: number) => (
+                                    <HBar key={c.country} label={c.country} value={c.total} max={max}
+                                        color={['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#ef4444', '#64748b'][i % 10]} />
+                                ));
+                            })()}
+                        </div>
                     </div>
                 )}
 
