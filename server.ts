@@ -245,6 +245,8 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS appointment_at TIMESTAMPTZ;`);
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS appointment_until TIMESTAMPTZ;`);
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS appointment_kind TEXT;`);
+    // Independent client pipeline stage (parallel to status_code)
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_code TEXT;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_appointment BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_semi_closed BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_client_stage BOOLEAN NOT NULL DEFAULT FALSE;`);
@@ -1212,12 +1214,14 @@ async function startServer() {
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       const { rows } = await pq().query(
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color, ls.is_terminal AS status_is_terminal,
+                stg.label AS stage_label, stg.color AS stage_color,
                 m.full_name AS manager_name, m.login AS manager_login, m.archived_at AS manager_archived_at,
                 pt.full_name AS pending_transfer_to_name, pt.login AS pending_transfer_to_login,
                 pby.full_name AS pending_transfer_by_name,
                 ev.name AS event_name, ev.slug AS event_slug
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN lead_statuses stg ON stg.code = l.stage_code
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
          LEFT JOIN managers pt ON pt.id = l.pending_transfer_to_id
          LEFT JOIN managers pby ON pby.id = l.pending_transfer_by_id
@@ -1400,12 +1404,14 @@ async function startServer() {
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color,
                 ls.is_terminal AS status_is_terminal, ls.is_semi_closed AS status_is_semi_closed,
                 ls.requires_appointment AS status_requires_appointment,
+                stg.label AS stage_label, stg.color AS stage_color,
                 m.full_name AS manager_name, m.login AS manager_login, m.archived_at AS manager_archived_at,
                 pt.full_name AS pending_transfer_to_name,
                 pby.full_name AS pending_transfer_by_name,
                 ev.name AS event_name
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN lead_statuses stg ON stg.code = l.stage_code
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
          LEFT JOIN managers pt ON pt.id = l.pending_transfer_to_id
          LEFT JOIN managers pby ON pby.id = l.pending_transfer_by_id
@@ -1455,6 +1461,55 @@ async function startServer() {
       res.json({ related: rows });
     } catch (err) {
       console.error("[lidy/lead/related]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Change client pipeline stage — independent from status
+  app.post("/api/lidy/leads/:id/stage", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const leadId = Number(req.params.id);
+      const stage = (req.body?.stage || "").toString();
+      const note = req.body?.note;
+
+      const leadRow = await pq().query(`SELECT id, assigned_manager_id, stage_code FROM leads WHERE id = $1`, [leadId]);
+      if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
+      const lead = leadRow.rows[0];
+      if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== me.id) {
+        return res.status(403).json({ error: "Lead is assigned to another manager" });
+      }
+
+      if (stage === "") {
+        // Clear the stage
+        await pq().query(`UPDATE leads SET stage_code = NULL, updated_at = NOW() WHERE id = $1`, [leadId]);
+        await pq().query(
+          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [leadId, me.id, me.full_name, me.role || "manager", `🎓 Этап клиента снят`]
+        );
+        return res.json({ ok: true, stage: null });
+      }
+
+      const stRow = await pq().query(
+        `SELECT code, label, is_client_stage FROM lead_statuses WHERE code = $1`,
+        [stage]
+      );
+      if (stRow.rows.length === 0) return res.status(400).json({ error: "Unknown stage" });
+      if (!stRow.rows[0].is_client_stage) return res.status(400).json({ error: "Status is not a client stage" });
+
+      await pq().query(`UPDATE leads SET stage_code = $1, updated_at = NOW() WHERE id = $2`, [stage, leadId]);
+      await pq().query(
+        `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [leadId, me.id, me.full_name, me.role || "manager",
+          `🎓 Этап клиента: «${lead.stage_code || "—"}» → «${stRow.rows[0].label}»${note ? `\nЗаметка: ${note}` : ""}`]
+      );
+      res.json({ ok: true, stage });
+    } catch (err) {
+      console.error("[lidy/stage]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
@@ -2406,13 +2461,16 @@ async function startServer() {
 
       const { rows: leads } = await pq().query(
         `SELECT l.id, l.received_at, l.name, l.phone, l.email, l.country, l.comment, l.source,
-                ls.label AS status_label, l.status_code, l.notes, l.rejection_reason,
+                ls.label AS status_label, l.status_code,
+                stg.label AS stage_label, l.stage_code,
+                l.notes, l.rejection_reason,
                 l.sla_deadline_at, l.processed_at, l.appointment_at,
                 l.desired_university, l.study_level, l.intake_term, l.budget, l.english_level,
                 l.birth_year, l.current_education, l.event_name_snapshot,
                 m.full_name AS manager_name, m.login AS manager_login
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN lead_statuses stg ON stg.code = l.stage_code
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
          ${whereSql}
          ORDER BY l.received_at DESC`,
@@ -2444,6 +2502,7 @@ async function startServer() {
           { header: "Английский", key: "english_level", width: 14 },
           { header: "Источник", key: "source", width: 16 },
           { header: "Статус", key: "status_label", width: 16 },
+          { header: "Этап клиента", key: "stage_label", width: 22 },
           { header: "Менеджер", key: "manager_name", width: 18 },
           { header: "Комментарий клиента", key: "comment", width: 30 },
           { header: "Заметка менеджера", key: "notes", width: 30 },
@@ -2597,7 +2656,7 @@ async function startServer() {
         .sort((a, b) => b.total - a.total);
       addBreakdownSheet("По университетам", "🎓 Лиды по университетам", uniRows, "FFD946EF");
 
-      // By manager
+      // By manager — overall
       const mgrMap = new Map<string, { total: number; won: number }>();
       for (const l of leads) {
         const k = l.manager_name || "Не назначен";
@@ -2610,6 +2669,52 @@ async function startServer() {
         .map(([key, v]) => ({ key, ...v }))
         .sort((a, b) => b.total - a.total);
       addBreakdownSheet("По менеджерам", "👨‍💼 Лиды по менеджерам", mgrRows, "FFEC4899");
+
+      // Per-manager detail: status breakdown matrix
+      const allStatuses = Array.from(new Set(leads.map((l: any) => l.status_label || l.status_code || "—")));
+      const mgrStatusMatrix = new Map<string, Map<string, number>>();
+      for (const l of leads) {
+        const m = l.manager_name || "Не назначен";
+        const s = l.status_label || l.status_code || "—";
+        if (!mgrStatusMatrix.has(m)) mgrStatusMatrix.set(m, new Map());
+        const row = mgrStatusMatrix.get(m)!;
+        row.set(s, (row.get(s) || 0) + 1);
+      }
+      const detail = wb.addWorksheet("Менеджеры (детально)");
+      detail.getCell("A1").value = "👨‍💼 Детальная статистика по менеджерам";
+      detail.getCell("A1").font = { bold: true, size: 14, color: { argb: "FF1E40AF" } };
+      detail.mergeCells("A1:Z1");
+      detail.addRow([]);
+      const header = ["Менеджер", "Всего", ...allStatuses];
+      const hRow = detail.addRow(header);
+      hRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      hRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" } };
+      hRow.alignment = { horizontal: "center", vertical: "middle" };
+      detail.getColumn(1).width = 24;
+      for (let i = 0; i < allStatuses.length; i++) detail.getColumn(i + 3).width = 16;
+      detail.getColumn(2).width = 10;
+      for (const [mgr, statusMap] of mgrStatusMatrix.entries()) {
+        let total = 0;
+        const cells: (number | string)[] = [mgr, 0];
+        for (const s of allStatuses) {
+          const v = statusMap.get(s) || 0;
+          total += v;
+          cells.push(v);
+        }
+        cells[1] = total;
+        const row = detail.addRow(cells);
+        // Color cells based on value
+        for (let i = 3; i <= cells.length; i++) {
+          const cell = row.getCell(i);
+          const v = Number(cell.value || 0);
+          if (v > 0) {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDEEBFF" } };
+            cell.alignment = { horizontal: "center" };
+          }
+        }
+        // Bold the total cell
+        row.getCell(2).font = { bold: true };
+      }
 
       // By status
       const statusMap = new Map<string, { total: number; won: number }>();

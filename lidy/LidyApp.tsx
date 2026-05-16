@@ -59,6 +59,9 @@ interface Lead {
     appointment_at?: string | null;
     appointment_until?: string | null;
     appointment_kind?: string | null;
+    stage_code?: string | null;
+    stage_label?: string | null;
+    stage_color?: string | null;
 }
 interface StatusOption {
     code: string;
@@ -342,7 +345,12 @@ const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ le
                 {lead.phone && <div className="font-mono">{lead.phone}</div>}
                 {lead.email && <div className="text-xs text-slate-500 truncate max-w-[200px]">{lead.email}</div>}
             </td>
-            <td className="py-2 px-3"><StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} /></td>
+            <td className="py-2 px-3">
+                <div className="flex flex-col gap-1">
+                    <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
+                    {lead.stage_code && <StatusBadge code={lead.stage_code} label={lead.stage_label || ''} color={lead.stage_color || '#0ea5e9'} />}
+                </div>
+            </td>
             <td className="py-2 px-3">
                 <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border ${sm.bg}`}>
                     <span>{sm.icon}</span> {sm.label}
@@ -385,7 +393,10 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
                     <div className="font-semibold text-slate-900 truncate">{lead.name || '— без имени —'}</div>
                     <div className="text-xs text-slate-500">#{lead.id} · {formatRel(lead.received_at)}</div>
                 </div>
-                <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
+                <div className="flex flex-col gap-1 items-end">
+                    <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
+                    {lead.stage_code && <StatusBadge code={lead.stage_code} label={lead.stage_label || ''} color={lead.stage_color || '#0ea5e9'} />}
+                </div>
             </div>
             <div className="space-y-1 text-sm">
                 {lead.phone && <div className="font-mono text-slate-700">📞 {lead.phone}</div>}
@@ -460,7 +471,16 @@ const PipelineView: React.FC<{ leads: Lead[]; statuses: StatusOption[]; me: Mana
                                             </div>
                                         </div>
                                         {l.phone && <div className="font-mono text-xs text-slate-600">{l.phone}</div>}
-                                        <div className="mt-1"><Pill cls={sla.cls}>{sla.text}</Pill></div>
+                                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                            <Pill cls={sla.cls}>{sla.text}</Pill>
+                                            {l.manager_name && (
+                                                <span className="inline-flex items-center gap-1 text-[10px] bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                                                    <span className={`w-3 h-3 ${colourFromName(l.manager_name)} rounded-full flex items-center justify-center text-[7px] font-bold`}>{initials(l.manager_name)}</span>
+                                                    {l.manager_name}
+                                                </span>
+                                            )}
+                                            {l.stage_code && <Pill cls="text-[10px]" >{l.stage_label}</Pill>}
+                                        </div>
                                     </div>
                                 );
                             })}
@@ -826,6 +846,25 @@ const LeadDetailDrawer: React.FC<{
         changeStatus(s.code);
     };
 
+    const changeStage = async (stageCode: string) => {
+        setPendingStatus(stageCode);
+        try {
+            const r = await fetch(`/api/lidy/leads/${lead.id}/stage`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ stage: stageCode }),
+            });
+            if (!r.ok) {
+                const j = await r.json().catch(() => ({}));
+                alert('Ошибка: ' + (j.error || r.status));
+                return;
+            }
+            const c = await fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' }).then(r => r.json());
+            setComments(c.comments || []);
+            onRefresh();
+        } finally { setPendingStatus(null); }
+    };
+
     const changeSource = async (newSource: string) => {
         await fetch(`/api/lidy/leads/${lead.id}/source`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -899,6 +938,7 @@ const LeadDetailDrawer: React.FC<{
                             <div className="text-xs text-slate-500 mt-0.5">Поступил {formatFull(lead.received_at)}</div>
                             <div className="flex items-center gap-1.5 flex-wrap mt-2">
                                 <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
+                                {lead.stage_code && <StatusBadge code={lead.stage_code} label={lead.stage_label || ''} color={lead.stage_color || '#0ea5e9'} />}
                                 <Pill cls={sla.cls}>{sla.text}</Pill>
                                 {canEdit ? (
                                     <button onClick={() => setEditSource(!editSource)}
@@ -1004,19 +1044,27 @@ const LeadDetailDrawer: React.FC<{
                                             </button>
                                         ))}
                                     </div>
-                                    {/* Client pipeline stages (after won) */}
+                                    {/* Client pipeline stages — INDEPENDENT from status (separate field) */}
                                     {statuses.filter(s => s.is_client_stage).length > 0 && (
                                         <>
-                                            <div className="text-xs uppercase tracking-wider font-semibold text-sky-700 mb-2 mt-2 pt-3 border-t border-slate-100">
-                                                🎓 Этапы клиента (после выигрыша)
+                                            <div className="flex items-center justify-between mb-2 mt-2 pt-3 border-t border-slate-100">
+                                                <div className="text-xs uppercase tracking-wider font-semibold text-sky-700">
+                                                    🎓 Этап клиента (независимо от статуса)
+                                                </div>
+                                                {lead.stage_code && (
+                                                    <button onClick={() => changeStage('')} disabled={pendingStatus !== null}
+                                                        className="text-xs text-slate-400 hover:text-slate-700 hover:underline">
+                                                        × снять этап
+                                                    </button>
+                                                )}
                                             </div>
                                             <div className="flex flex-wrap gap-1.5">
                                                 {statuses.filter(s => s.is_client_stage).map(s => (
                                                     <button key={s.code} disabled={pendingStatus !== null}
-                                                        onClick={() => onStatusClick(s)}
-                                                        title="Этап ведения клиента после получения заявки"
-                                                        className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.status_code === s.code ? 'text-white shadow-sm' : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'}`}
-                                                        style={lead.status_code === s.code ? { backgroundColor: s.color || '#0ea5e9', borderColor: s.color || '#0ea5e9' } : undefined}>
+                                                        onClick={() => changeStage(s.code)}
+                                                        title="Параллельный этап ведения клиента"
+                                                        className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.stage_code === s.code ? 'text-white shadow-sm' : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'}`}
+                                                        style={lead.stage_code === s.code ? { backgroundColor: s.color || '#0ea5e9', borderColor: s.color || '#0ea5e9' } : undefined}>
                                                         {pendingStatus === s.code ? '…' : s.label}
                                                     </button>
                                                 ))}
