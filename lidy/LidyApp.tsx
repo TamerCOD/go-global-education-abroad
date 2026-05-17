@@ -113,6 +113,7 @@ interface StatusOption {
     requires_reason?: boolean;
     requires_appointment?: boolean;
     is_semi_closed?: boolean;
+    is_client_stage?: boolean;
     sort: number;
 }
 interface CommentRec {
@@ -522,65 +523,126 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  PIPELINE VIEW (kanban-style columns by status)
+//  PIPELINE VIEW (kanban-style columns by status OR stage)
 // ═════════════════════════════════════════════════════════════════════
-const PipelineView: React.FC<{ leads: Lead[]; statuses: StatusOption[]; me: Manager; onOpen: (l: Lead) => void }> = ({ leads, statuses, me, onOpen }) => {
+type PipelineMode = 'status' | 'stage';
+const PipelineView: React.FC<{
+    leads: Lead[];
+    statuses: StatusOption[];
+    me: Manager;
+    onOpen: (l: Lead) => void;
+    mode: PipelineMode;
+}> = ({ leads, statuses, onOpen, mode }) => {
+    // Filter columns by mode (lead processing vs client stages)
+    const columns = useMemo(() => {
+        const filtered = statuses.filter(s => mode === 'stage' ? !!s.is_client_stage : !s.is_client_stage);
+        return [...filtered].sort((a, b) => a.sort - b.sort);
+    }, [statuses, mode]);
+
+    // Group leads into columns
     const grouped = useMemo(() => {
         const m: Record<string, Lead[]> = {};
-        for (const s of statuses) m[s.code] = [];
+        for (const c of columns) m[c.code] = [];
+        // "No-stage" bucket only in stage mode (leads that haven't entered post-win pipeline yet)
+        if (mode === 'stage') m['__none__'] = [];
+
         for (const l of leads) {
-            if (!m[l.status_code]) m[l.status_code] = [];
-            m[l.status_code].push(l);
+            if (mode === 'status') {
+                if (m[l.status_code]) m[l.status_code].push(l);
+            } else {
+                // stage mode: only show leads that are closed_won (entered client pipeline)
+                if (l.status_code !== 'closed_won') continue;
+                const key = l.stage_code || '__none__';
+                if (m[key]) m[key].push(l);
+                else m['__none__'].push(l);
+            }
         }
         return m;
-    }, [leads, statuses]);
-    const orderedStatuses = useMemo(() => [...statuses].sort((a, b) => a.sort - b.sort), [statuses]);
+    }, [leads, columns, mode]);
+
+    // Total deal value per column (only in stage mode)
+    const colSummary = (list: Lead[]) => {
+        const total = list.reduce((sum, l) => sum + (Number(l.deal_value) || 0), 0);
+        return total;
+    };
+
+    const renderColumn = (key: string, label: string, color: string | undefined, list: Lead[], isMuted = false) => (
+        <div key={key} className={`border rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0 backdrop-blur-sm ${isMuted ? 'bg-slate-900/30 border-slate-800/60' : 'bg-slate-800/40 border-slate-800'}`}>
+            <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color || '#94a3b8', boxShadow: color ? `0 0 8px ${color}` : undefined }} />
+                    <span className="font-semibold text-sm text-slate-50 truncate">{label}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    {mode === 'stage' && colSummary(list) > 0 && (
+                        <span className="text-[10px] text-emerald-300 font-mono">${Math.round(colSummary(list) / 1000)}k</span>
+                    )}
+                    <span className="text-xs text-slate-400 font-mono bg-slate-800/70 px-1.5 py-0.5 rounded">{list.length}</span>
+                </div>
+            </div>
+            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+                {list.length === 0 ? (
+                    <div className="text-xs text-slate-500 italic py-6 text-center">пусто</div>
+                ) : list.map(l => {
+                    const sla = slaChip(l.sla_deadline_at, l.processed_at);
+                    return (
+                        <div key={l.id} onClick={() => onOpen(l)}
+                            className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-2.5 cursor-pointer transition-all hover:bg-slate-800/70 hover:border-sky-500/40 hover:shadow-[0_4px_16px_-4px_rgba(56,189,248,0.25)]">
+                            <div className="flex items-start gap-2 mb-1.5">
+                                <Avatar name={l.name} size="sm" />
+                                <div className="flex-grow min-w-0">
+                                    <div className="text-sm font-medium text-slate-50 truncate">{l.name || '—'}</div>
+                                    <div className="text-[10px] text-slate-400">#{l.id} · {formatRel(l.received_at)}</div>
+                                </div>
+                                {l.score !== undefined && l.score !== null && l.score > 0 && (
+                                    <span className="text-[10px] font-bold text-slate-300" title={`Скоринг ${l.score}/100`}>
+                                        {scoreEmoji(l.score)}
+                                    </span>
+                                )}
+                            </div>
+                            {l.phone && <div className="font-mono text-xs text-slate-300">{l.phone}</div>}
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {mode === 'status' ? (
+                                    <Pill cls={sla.cls}>{sla.text}</Pill>
+                                ) : (
+                                    l.deal_value && (
+                                        <Pill cls="bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-semibold text-[10px]">
+                                            💰 {formatMoney(l.deal_value, l.deal_currency || 'USD')}
+                                        </Pill>
+                                    )
+                                )}
+                                {l.manager_name && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] bg-slate-800/40 border border-slate-800 px-1.5 py-0.5 rounded text-slate-300">
+                                        <span className={`w-3 h-3 ${colourFromName(l.manager_name)} rounded-full flex items-center justify-center text-[7px] font-bold text-white`}>{initials(l.manager_name)}</span>
+                                        {l.manager_name}
+                                    </span>
+                                )}
+                                {(l.open_tasks || 0) > 0 && (
+                                    <Pill cls={`text-[10px] ${(l.overdue_tasks || 0) > 0 ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' : 'bg-sky-500/10 text-sky-300 border-sky-500/30'} border`}>
+                                        ✓ {l.open_tasks}
+                                    </Pill>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    if (mode === 'stage' && columns.length === 0) {
+        return (
+            <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-xl p-8 text-center text-slate-400">
+                Этапы клиентов не настроены. Добавьте их в админке → «Статусы лидов» (галка «Этап клиента»).
+            </div>
+        );
+    }
+
     return (
         <div className="flex gap-3 overflow-x-auto pb-4">
-            {orderedStatuses.map(s => {
-                const list = grouped[s.code] || [];
-                return (
-                    <div key={s.code} className="bg-slate-800/40 border border-slate-800 rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0">
-                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
-                            <div className="flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color || '#a8a29e' }} />
-                                <span className="font-semibold text-sm text-slate-50">{s.label}</span>
-                            </div>
-                            <span className="text-xs text-slate-400 font-mono">{list.length}</span>
-                        </div>
-                        <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                            {list.length === 0 ? (
-                                <div className="text-xs text-slate-400 italic py-4 text-center">—</div>
-                            ) : list.map(l => {
-                                const sla = slaChip(l.sla_deadline_at, l.processed_at);
-                                return (
-                                    <div key={l.id} onClick={() => onOpen(l)}
-                                        className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-2.5 cursor-pointer hover:shadow-sm transition-all hover:border-sky-300">
-                                        <div className="flex items-start gap-2 mb-1.5">
-                                            <Avatar name={l.name} size="sm" />
-                                            <div className="flex-grow min-w-0">
-                                                <div className="text-sm font-medium text-slate-50 truncate">{l.name || '—'}</div>
-                                                <div className="text-[10px] text-slate-400">#{l.id} · {formatRel(l.received_at)}</div>
-                                            </div>
-                                        </div>
-                                        {l.phone && <div className="font-mono text-xs text-slate-300">{l.phone}</div>}
-                                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                            <Pill cls={sla.cls}>{sla.text}</Pill>
-                                            {l.manager_name && (
-                                                <span className="inline-flex items-center gap-1 text-[10px] bg-slate-800/40 border border-slate-800 px-1.5 py-0.5 rounded">
-                                                    <span className={`w-3 h-3 ${colourFromName(l.manager_name)} rounded-full flex items-center justify-center text-[7px] font-bold`}>{initials(l.manager_name)}</span>
-                                                    {l.manager_name}
-                                                </span>
-                                            )}
-                                            {l.stage_code && <Pill cls="text-[10px]" >{l.stage_label}</Pill>}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                );
-            })}
+            {columns.map(s => renderColumn(s.code, s.label, s.color, grouped[s.code] || []))}
+            {mode === 'stage' && (grouped['__none__'] || []).length > 0 &&
+                renderColumn('__none__', '— без этапа —', undefined, grouped['__none__'], true)}
         </div>
     );
 };
@@ -1946,7 +2008,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const isTeamlead = manager.role === 'teamlead';
 
     // View + filters
-    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'calendar'>('cards');
+    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'stages' | 'calendar'>('cards');
     const [drawerMode, setDrawerMode] = useState<'side' | 'center'>('side');
     const [calendarData, setCalendarData] = useState<any[]>([]);
     const [scope, setScope] = useState<'mine' | 'all'>(isTeamlead ? 'all' : 'mine');
@@ -2365,15 +2427,16 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             {loading ? 'Загрузка…' : `Найдено: ${leads.length}`}
                             {search.trim() && <span className="ml-2 text-slate-400">по запросу «{search.trim()}»</span>}
                         </div>
-                        <div className="flex bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-0.5 shadow-sm">
+                        <div className="flex bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-0.5 shadow-sm flex-wrap">
                             {[
                                 { v: 'cards', l: '🪟 Карточки' },
                                 { v: 'table', l: '📋 Таблица' },
-                                { v: 'pipeline', l: '📊 Pipeline' },
+                                { v: 'pipeline', l: '🎯 Воронка статусов' },
+                                { v: 'stages', l: '🎓 Этапы клиентов' },
                                 { v: 'calendar', l: '📅 Календарь' },
                             ].map(o => (
                                 <button key={o.v} onClick={() => setView(o.v as any)}
-                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800/70'}`}>
+                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-gradient-to-r from-sky-500 to-cyan-500 text-white shadow-[0_0_12px_-2px_rgba(56,189,248,0.5)]' : 'text-slate-300 hover:bg-slate-800/70'}`}>
                                     {o.l}
                                 </button>
                             ))}
@@ -2421,7 +2484,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             </table>
                         </div>
                     ) : view === 'pipeline' ? (
-                        <PipelineView leads={leads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} />
+                        <PipelineView leads={leads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} mode="status" />
+                    ) : view === 'stages' ? (
+                        <PipelineView leads={leads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} mode="stage" />
                     ) : view === 'calendar' ? (
                         <CalendarView appointments={calendarData} onOpen={async (id) => {
                             // Fetch single lead and open drawer
