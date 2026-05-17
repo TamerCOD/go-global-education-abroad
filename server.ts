@@ -320,6 +320,120 @@ if (DATABASE_URL) {
     `);
     await pool!.query(`CREATE INDEX IF NOT EXISTS idx_tasks_lead ON lead_tasks (lead_id);`);
     await pool!.query(`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON lead_tasks (assigned_to_id, due_at);`);
+
+    // ─────────────────── FILES / DOCUMENTS ───────────────────
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS lead_files (
+        id BIGSERIAL PRIMARY KEY,
+        lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime TEXT,
+        size BIGINT,
+        url TEXT NOT NULL,
+        uploaded_by_id BIGINT REFERENCES managers(id) ON DELETE SET NULL,
+        kind TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_files_lead ON lead_files (lead_id);`);
+
+    // ─────────────────── AUDIT LOG ───────────────────
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id BIGSERIAL PRIMARY KEY,
+        actor_id BIGINT,
+        actor_name TEXT,
+        actor_role TEXT,
+        action TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT,
+        before_data JSONB,
+        after_data JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log (entity_type, entity_id, created_at DESC);`);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log (actor_id, created_at DESC);`);
+
+    // ─────────────────── ROUTING RULES (auto-assign) ───────────────────
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS routing_rules (
+        id BIGSERIAL PRIMARY KEY,
+        priority INTEGER NOT NULL DEFAULT 100,
+        match_country TEXT,
+        match_source TEXT,
+        match_study_level TEXT,
+        match_min_english TEXT,
+        assign_to_manager_id BIGINT REFERENCES managers(id) ON DELETE CASCADE,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // ─────────────────── QUICK-REPLY TEMPLATES ───────────────────
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS quick_replies (
+        id BIGSERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        channel TEXT NOT NULL DEFAULT 'whatsapp',
+        sort INTEGER NOT NULL DEFAULT 100,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Seed default replies
+    const DEFAULT_REPLIES = [
+      { title: '👋 Приветствие', body: 'Здравствуйте! Это {manager} из GoGlobal по вашей заявке на обучение за рубежом. Удобно сейчас поговорить?', channel: 'whatsapp', sort: 10 },
+      { title: '📅 Назначить встречу', body: 'Предлагаю встретиться в нашем офисе для подробной консультации. Когда вам удобно — на этой неделе или на следующей?', channel: 'whatsapp', sort: 20 },
+      { title: '🎓 Запрос документов', body: 'Для расчёта стоимости пришлите, пожалуйста: 1) аттестат/диплом 2) скан паспорта 3) сертификат IELTS/TOEFL если есть.', channel: 'whatsapp', sort: 30 },
+      { title: '💰 Просьба оплаты', body: 'Контракт подписан, для бронирования места университету нужна предоплата {amount}. Реквизиты для перевода: …', channel: 'whatsapp', sort: 40 },
+      { title: '✅ Подтверждение получения', body: 'Спасибо, документы получены, проверим их в течение 1-2 рабочих дней и вернёмся с результатом.', channel: 'whatsapp', sort: 50 },
+    ];
+    for (const r of DEFAULT_REPLIES) {
+      await pool!.query(
+        `INSERT INTO quick_replies (title, body, channel, sort)
+         SELECT $1, $2, $3, $4
+         WHERE NOT EXISTS (SELECT 1 FROM quick_replies WHERE title = $1)`,
+        [r.title, r.body, r.channel, r.sort]
+      );
+    }
+
+    // ─────────────────── PUSH SUBSCRIPTIONS ───────────────────
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id BIGSERIAL PRIMARY KEY,
+        manager_id BIGINT NOT NULL REFERENCES managers(id) ON DELETE CASCADE,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // ─────────────────── SAVED FILTER PRESETS ───────────────────
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS saved_filters (
+        id BIGSERIAL PRIMARY KEY,
+        manager_id BIGINT NOT NULL REFERENCES managers(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        filters JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // ─────────────────── SLA CONFIG ───────────────────
+    // Stored in site_config json under key 'slaConfig'
+    // { workdaySlaMinutes: 120, nightSlaMinutes: 540, perSource: { 'реклама': 15, 'site': 60 } }
+    // ─────────────────── SOURCE COST (for ROI) ───────────────────
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS source_cost (
+        source TEXT PRIMARY KEY,
+        cost_per_lead NUMERIC(10,2) DEFAULT 0,
+        monthly_budget NUMERIC(12,2) DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_appointment BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_semi_closed BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_client_stage BOOLEAN NOT NULL DEFAULT FALSE;`);
@@ -688,6 +802,38 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
     sendTelegram(lines.join("\n")).catch(() => {});
   }
   return { assigned: details.length, details };
+}
+
+// Audit log helper — writes a single entry, safe to fail silently.
+async function auditLog(opts: {
+  actor_id?: number | null;
+  actor_name?: string | null;
+  actor_role?: string | null;
+  action: string;
+  entity_type: string;
+  entity_id?: string | number | null;
+  before?: any;
+  after?: any;
+}) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO audit_log (actor_id, actor_name, actor_role, action, entity_type, entity_id, before_data, after_data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        opts.actor_id ?? null,
+        opts.actor_name ?? null,
+        opts.actor_role ?? null,
+        opts.action,
+        opts.entity_type,
+        opts.entity_id != null ? String(opts.entity_id) : null,
+        opts.before ? JSON.stringify(opts.before) : null,
+        opts.after ? JSON.stringify(opts.after) : null,
+      ]
+    );
+  } catch (e) {
+    console.error("[audit]", e);
+  }
 }
 
 // Computes a lead score (0-100) based on profile completeness + engagement.
@@ -1786,6 +1932,361 @@ async function startServer() {
   });
   app.delete("/api/lidy/tasks/:id", requireManager, async (req, res) => {
     await pq().query(`DELETE FROM lead_tasks WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── FILES / DOCUMENTS ───────────────────────
+  app.get("/api/lidy/leads/:id/files", requireManager, async (req, res) => {
+    const { rows } = await pq().query(
+      `SELECT f.*, m.full_name AS uploaded_by_name
+       FROM lead_files f LEFT JOIN managers m ON m.id = f.uploaded_by_id
+       WHERE f.lead_id = $1 ORDER BY f.created_at DESC`,
+      [Number(req.params.id)]
+    );
+    res.json({ files: rows });
+  });
+  app.post("/api/lidy/leads/:id/files", requireManager, upload.single("file"), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "file required" });
+    const session = (req as any).manager as { mid: number };
+    const me = await loadManager(session.mid);
+    const url = `/uploads/${req.file.filename}`;
+    const kind = String(req.body?.kind || "");
+    const { rows } = await pq().query(
+      `INSERT INTO lead_files (lead_id, filename, mime, size, url, uploaded_by_id, kind)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [Number(req.params.id), req.file.originalname, req.file.mimetype, req.file.size, url, session.mid, kind]
+    );
+    await auditLog({ actor_id: session.mid, actor_name: me?.full_name, actor_role: me?.role, action: "file.upload", entity_type: "lead", entity_id: req.params.id, after: rows[0] });
+    res.json({ file: rows[0] });
+  });
+  app.delete("/api/lidy/files/:id", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    const me = await loadManager(session.mid);
+    const { rows } = await pq().query(`SELECT * FROM lead_files WHERE id = $1`, [Number(req.params.id)]);
+    if (rows[0]) {
+      await pq().query(`DELETE FROM lead_files WHERE id = $1`, [Number(req.params.id)]);
+      await auditLog({ actor_id: session.mid, actor_name: me?.full_name, actor_role: me?.role, action: "file.delete", entity_type: "lead", entity_id: String(rows[0].lead_id), before: rows[0] });
+    }
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── AUDIT LOG ───────────────────────
+  app.get("/api/lidy/leads/:id/audit", requireManager, async (req, res) => {
+    const { rows } = await pq().query(
+      `SELECT * FROM audit_log
+       WHERE entity_type IN ('lead','file','task','tag','deal','status','stage','transfer')
+         AND entity_id = $1
+       ORDER BY created_at DESC LIMIT 200`,
+      [req.params.id]
+    );
+    res.json({ events: rows });
+  });
+  app.get("/api/admin/audit", requireAdmin, async (req, res) => {
+    const limit = Math.min(500, Number(req.query.limit) || 100);
+    const entity = req.query.entity_type ? String(req.query.entity_type) : null;
+    const actor = req.query.actor_id ? Number(req.query.actor_id) : null;
+    const where: string[] = [];
+    const params: any[] = [];
+    if (entity) { where.push(`entity_type = $${params.length + 1}`); params.push(entity); }
+    if (actor) { where.push(`actor_id = $${params.length + 1}`); params.push(actor); }
+    params.push(limit);
+    const { rows } = await pq().query(
+      `SELECT * FROM audit_log ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC LIMIT $${params.length}`,
+      params
+    );
+    res.json({ events: rows });
+  });
+
+  // ─────────────────────── QUICK REPLIES ───────────────────────
+  app.get("/api/lidy/quick-replies", requireManager, async (_req, res) => {
+    const { rows } = await pq().query(`SELECT * FROM quick_replies ORDER BY sort ASC, id ASC`);
+    res.json({ replies: rows });
+  });
+  app.get("/api/admin/quick-replies", requireAdmin, async (_req, res) => {
+    const { rows } = await pq().query(`SELECT * FROM quick_replies ORDER BY sort ASC, id ASC`);
+    res.json({ replies: rows });
+  });
+  app.post("/api/admin/quick-replies", requireAdmin, async (req, res) => {
+    const { id, title, body, channel, sort } = req.body || {};
+    if (!title || !body) return res.status(400).json({ error: "title and body required" });
+    if (id) {
+      const { rows } = await pq().query(
+        `UPDATE quick_replies SET title=$1, body=$2, channel=$3, sort=$4 WHERE id=$5 RETURNING *`,
+        [title, body, channel || "whatsapp", Number(sort) || 100, Number(id)]
+      );
+      res.json({ reply: rows[0] });
+    } else {
+      const { rows } = await pq().query(
+        `INSERT INTO quick_replies (title, body, channel, sort) VALUES ($1,$2,$3,$4) RETURNING *`,
+        [title, body, channel || "whatsapp", Number(sort) || 100]
+      );
+      res.json({ reply: rows[0] });
+    }
+  });
+  app.delete("/api/admin/quick-replies/:id", requireAdmin, async (req, res) => {
+    await pq().query(`DELETE FROM quick_replies WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── BULK ACTIONS ───────────────────────
+  app.post("/api/lidy/leads/bulk", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    const me = await loadManager(session.mid);
+    const { ids, action, payload } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "ids required" });
+    const isTeamlead = me?.role === "teamlead";
+    const leadIds = ids.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x));
+    // Non-teamlead can only mutate own leads
+    const ownClause = isTeamlead ? "" : `AND assigned_manager_id = ${session.mid}`;
+
+    let updated = 0;
+    try {
+      if (action === "set_status") {
+        const code = String(payload?.status || "");
+        if (!code) return res.status(400).json({ error: "status required" });
+        const r = await pq().query(
+          `UPDATE leads SET status_code = $1 WHERE id = ANY($2::bigint[]) ${ownClause}`,
+          [code, leadIds]
+        );
+        updated = r.rowCount || 0;
+      } else if (action === "set_stage") {
+        const code = String(payload?.stage || "");
+        const r = await pq().query(
+          `UPDATE leads SET stage_code = $1 WHERE id = ANY($2::bigint[]) ${ownClause}`,
+          [code || null, leadIds]
+        );
+        updated = r.rowCount || 0;
+      } else if (action === "reassign") {
+        if (!isTeamlead) return res.status(403).json({ error: "teamlead only" });
+        const mgr = Number(payload?.manager_id);
+        const r = await pq().query(
+          `UPDATE leads SET assigned_manager_id = $1, pending_transfer_to_id = NULL WHERE id = ANY($2::bigint[])`,
+          [mgr, leadIds]
+        );
+        updated = r.rowCount || 0;
+      } else if (action === "add_tag") {
+        const tagId = Number(payload?.tag_id);
+        for (const lid of leadIds) {
+          await pq().query(
+            `INSERT INTO lead_tag_assignments (lead_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [lid, tagId]
+          );
+        }
+        updated = leadIds.length;
+      } else if (action === "remove_tag") {
+        const tagId = Number(payload?.tag_id);
+        const r = await pq().query(
+          `DELETE FROM lead_tag_assignments WHERE tag_id = $1 AND lead_id = ANY($2::bigint[])`,
+          [tagId, leadIds]
+        );
+        updated = r.rowCount || 0;
+      } else {
+        return res.status(400).json({ error: "unknown action" });
+      }
+      await auditLog({
+        actor_id: session.mid, actor_name: me?.full_name, actor_role: me?.role,
+        action: `bulk.${action}`, entity_type: "lead", entity_id: leadIds.join(","), after: { count: updated, payload }
+      });
+      for (const lid of leadIds) { try { await recalcLeadScore(lid); } catch {} }
+      res.json({ ok: true, updated });
+    } catch (e: any) {
+      console.error("[bulk]", e);
+      res.status(500).json({ error: e?.message || "error" });
+    }
+  });
+
+  // ─────────────────────── ROUTING RULES ───────────────────────
+  app.get("/api/admin/routing-rules", requireAdmin, async (_req, res) => {
+    const { rows } = await pq().query(
+      `SELECT r.*, m.full_name AS manager_name
+       FROM routing_rules r LEFT JOIN managers m ON m.id = r.assign_to_manager_id
+       ORDER BY r.priority ASC, r.id ASC`
+    );
+    res.json({ rules: rows });
+  });
+  app.post("/api/admin/routing-rules", requireAdmin, async (req, res) => {
+    const { id, priority, match_country, match_source, match_study_level, match_min_english, assign_to_manager_id, active } = req.body || {};
+    if (id) {
+      const { rows } = await pq().query(
+        `UPDATE routing_rules SET priority=$1, match_country=$2, match_source=$3, match_study_level=$4, match_min_english=$5, assign_to_manager_id=$6, active=$7 WHERE id=$8 RETURNING *`,
+        [Number(priority) || 100, match_country || null, match_source || null, match_study_level || null, match_min_english || null, Number(assign_to_manager_id) || null, active !== false, Number(id)]
+      );
+      res.json({ rule: rows[0] });
+    } else {
+      const { rows } = await pq().query(
+        `INSERT INTO routing_rules (priority, match_country, match_source, match_study_level, match_min_english, assign_to_manager_id, active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [Number(priority) || 100, match_country || null, match_source || null, match_study_level || null, match_min_english || null, Number(assign_to_manager_id) || null, active !== false]
+      );
+      res.json({ rule: rows[0] });
+    }
+  });
+  app.delete("/api/admin/routing-rules/:id", requireAdmin, async (req, res) => {
+    await pq().query(`DELETE FROM routing_rules WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── SOURCE COST / ROI ───────────────────────
+  app.get("/api/admin/source-roi", requireAdmin, async (req, res) => {
+    const days = Math.min(365, Number(req.query.days) || 30);
+    const { rows } = await pq().query(`
+      WITH s AS (
+        SELECT COALESCE(NULLIF(source, ''), 'Не указан') AS source,
+               COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won,
+               COALESCE(SUM(deal_value) FILTER (WHERE status_code = 'closed_won'), 0)::float AS revenue
+        FROM leads WHERE received_at >= NOW() - INTERVAL '${days} days'
+        GROUP BY 1
+      )
+      SELECT s.*, COALESCE(c.cost_per_lead, 0)::float AS cpl, COALESCE(c.monthly_budget, 0)::float AS budget,
+             (s.total * COALESCE(c.cost_per_lead, 0))::float AS spend
+      FROM s LEFT JOIN source_cost c ON c.source = s.source
+      ORDER BY revenue DESC
+    `);
+    res.json({ days, sources: rows });
+  });
+  app.post("/api/admin/source-cost", requireAdmin, async (req, res) => {
+    const { source, cost_per_lead, monthly_budget } = req.body || {};
+    if (!source) return res.status(400).json({ error: "source required" });
+    await pq().query(
+      `INSERT INTO source_cost (source, cost_per_lead, monthly_budget, updated_at)
+       VALUES ($1,$2,$3,NOW())
+       ON CONFLICT (source) DO UPDATE SET cost_per_lead = EXCLUDED.cost_per_lead, monthly_budget = EXCLUDED.monthly_budget, updated_at = NOW()`,
+      [source, Number(cost_per_lead) || 0, Number(monthly_budget) || 0]
+    );
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── COHORT ANALYSIS ───────────────────────
+  app.get("/api/admin/cohort", requireAdmin, async (req, res) => {
+    const months = Math.min(12, Number(req.query.months) || 6);
+    const { rows } = await pq().query(`
+      WITH cohorts AS (
+        SELECT to_char(date_trunc('month', received_at), 'YYYY-MM') AS cohort,
+               id, received_at, processed_at, status_code, deal_value
+        FROM leads WHERE received_at >= date_trunc('month', NOW() - INTERVAL '${months} months')
+      )
+      SELECT cohort,
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won,
+             COUNT(*) FILTER (WHERE processed_at IS NOT NULL AND EXTRACT(EPOCH FROM (processed_at - received_at))/86400 <= 30)::int AS won_in_30,
+             COUNT(*) FILTER (WHERE processed_at IS NOT NULL AND EXTRACT(EPOCH FROM (processed_at - received_at))/86400 <= 60)::int AS won_in_60,
+             COUNT(*) FILTER (WHERE processed_at IS NOT NULL AND EXTRACT(EPOCH FROM (processed_at - received_at))/86400 <= 90)::int AS won_in_90,
+             COALESCE(SUM(deal_value) FILTER (WHERE status_code = 'closed_won'), 0)::float AS revenue
+      FROM cohorts
+      GROUP BY cohort ORDER BY cohort DESC
+    `);
+    res.json({ cohorts: rows });
+  });
+
+  // ─────────────────────── SALES HEALTH ───────────────────────
+  app.get("/api/admin/health", requireAdmin, async (_req, res) => {
+    const slaQ = await pq().query(`
+      SELECT
+        COUNT(*) FILTER (WHERE processed_at IS NOT NULL AND processed_at <= sla_deadline_at)::int AS sla_met,
+        COUNT(*) FILTER (WHERE processed_at IS NOT NULL)::int AS closed,
+        COUNT(*) FILTER (WHERE processed_at IS NULL AND sla_deadline_at < NOW())::int AS overdue_open,
+        COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won,
+        COUNT(*) FILTER (WHERE status_code IN ('closed_won','closed_lost'))::int AS terminated
+      FROM leads WHERE received_at >= NOW() - INTERVAL '30 days'
+    `);
+    const offlineQ = await pq().query(`
+      SELECT id, full_name, last_online_at
+      FROM managers
+      WHERE role = 'manager' AND active = TRUE AND archived_at IS NULL
+        AND (last_online_at IS NULL OR last_online_at < NOW() - INTERVAL '2 hours')
+    `);
+    const stuckQ = await pq().query(`
+      SELECT COUNT(*)::int AS stuck
+      FROM leads
+      WHERE processed_at IS NULL
+        AND received_at < NOW() - INTERVAL '14 days'
+    `);
+    const s = slaQ.rows[0];
+    const slaPct = s.closed > 0 ? Math.round((s.sla_met / s.closed) * 100) : 100;
+    const conv = s.terminated > 0 ? Math.round((s.won / s.terminated) * 100) : 0;
+    let level: "green" | "yellow" | "red" = "green";
+    const reasons: string[] = [];
+    if (slaPct < 60) { level = "red"; reasons.push(`SLA ${slaPct}% (норма ≥80%)`); }
+    else if (slaPct < 80) { level = level === "red" ? "red" : "yellow"; reasons.push(`SLA ${slaPct}%`); }
+    if (conv < 10) { level = "red"; reasons.push(`Конверсия ${conv}% (норма ≥15%)`); }
+    else if (conv < 15) { level = level === "red" ? "red" : "yellow"; reasons.push(`Конверсия ${conv}%`); }
+    if (s.overdue_open > 5) { level = "red"; reasons.push(`${s.overdue_open} просроченных открытых`); }
+    if (offlineQ.rows.length > 0) reasons.push(`${offlineQ.rows.length} менеджеров оффлайн >2ч`);
+    if (stuckQ.rows[0].stuck > 0) reasons.push(`${stuckQ.rows[0].stuck} лидов застряли >14 дней`);
+    res.json({
+      level, reasons,
+      sla_pct: slaPct,
+      conversion_pct: conv,
+      overdue_open: s.overdue_open,
+      offline_managers: offlineQ.rows,
+      stuck_leads: stuckQ.rows[0].stuck,
+    });
+  });
+
+  // ─────────────────────── BACKUP (zip of all tables) ───────────────────────
+  app.get("/api/admin/backup", requireAdmin, async (_req, res) => {
+    const tables = ["leads", "managers", "lead_statuses", "lead_comments", "lead_files",
+      "lead_tasks", "lead_tags", "lead_tag_assignments", "events", "site_config",
+      "audit_log", "routing_rules", "quick_replies", "source_cost"];
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename=goglobal-backup-${new Date().toISOString().slice(0, 10)}.json`);
+    const out: any = { created_at: new Date().toISOString(), tables: {} };
+    for (const t of tables) {
+      try {
+        const r = await pq().query(`SELECT * FROM ${t}`);
+        out.tables[t] = r.rows;
+      } catch (e) {
+        out.tables[t] = { error: String(e) };
+      }
+    }
+    res.end(JSON.stringify(out, null, 2));
+  });
+
+  // ─────────────────────── PUSH SUBSCRIPTIONS ───────────────────────
+  app.get("/api/lidy/push/vapid-public-key", requireManager, async (_req, res) => {
+    res.json({ key: process.env.VAPID_PUBLIC_KEY || "" });
+  });
+  app.post("/api/lidy/push/subscribe", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    const { endpoint, keys, userAgent } = req.body || {};
+    if (!endpoint || !keys?.p256dh || !keys?.auth) return res.status(400).json({ error: "invalid subscription" });
+    await pq().query(
+      `INSERT INTO push_subscriptions (manager_id, endpoint, p256dh, auth, user_agent)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, manager_id = EXCLUDED.manager_id`,
+      [session.mid, endpoint, keys.p256dh, keys.auth, userAgent || null]
+    );
+    res.json({ ok: true });
+  });
+  app.delete("/api/lidy/push/subscribe", requireManager, async (req, res) => {
+    const endpoint = req.body?.endpoint;
+    if (endpoint) await pq().query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]);
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── SAVED FILTER PRESETS ───────────────────────
+  app.get("/api/lidy/filter-presets", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    const { rows } = await pq().query(
+      `SELECT * FROM saved_filters WHERE manager_id = $1 ORDER BY created_at DESC`,
+      [session.mid]
+    );
+    res.json({ presets: rows });
+  });
+  app.post("/api/lidy/filter-presets", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    const { name, filters } = req.body || {};
+    if (!name || !filters) return res.status(400).json({ error: "name and filters required" });
+    const { rows } = await pq().query(
+      `INSERT INTO saved_filters (manager_id, name, filters) VALUES ($1,$2,$3) RETURNING *`,
+      [session.mid, name, JSON.stringify(filters)]
+    );
+    res.json({ preset: rows[0] });
+  });
+  app.delete("/api/lidy/filter-presets/:id", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    await pq().query(`DELETE FROM saved_filters WHERE id = $1 AND manager_id = $2`, [Number(req.params.id), session.mid]);
     res.json({ ok: true });
   });
 
