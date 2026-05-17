@@ -109,6 +109,9 @@ interface Lead {
     tags?: TagRec[];
     open_tasks?: number;
     overdue_tasks?: number;
+    // Analytics v4
+    first_response_at?: string | null;
+    churn_reason_id?: number | null;
 }
 interface TagRec {
     id: number;
@@ -1049,6 +1052,8 @@ const LeadDetailDrawer: React.FC<{
     const [auditEvents, setAuditEvents] = useState<any[] | null>(null);
     const [quickReplies, setQuickReplies] = useState<any[]>([]);
     const [showQuickReplies, setShowQuickReplies] = useState(false);
+    const [transitions, setTransitions] = useState<any[]>([]);
+    const [churnReasons, setChurnReasons] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploadingFile, setUploadingFile] = useState(false);
     const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -1141,7 +1146,23 @@ const LeadDetailDrawer: React.FC<{
     useEffect(() => {
         fetch('/api/lidy/quick-replies', { credentials: 'include' })
             .then(r => r.json()).then(j => setQuickReplies(j.replies || [])).catch(() => {});
+        fetch('/api/lidy/churn-reasons', { credentials: 'include' })
+            .then(r => r.json()).then(j => setChurnReasons(j.reasons || [])).catch(() => {});
     }, []);
+
+    useEffect(() => {
+        fetch(`/api/lidy/leads/${lead.id}/transitions`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setTransitions(j.transitions || [])).catch(() => {});
+    }, [lead.id, lead.status_code, lead.stage_code]);
+
+    // Current status entered_at (last status transition)
+    const currentStatusTransition = useMemo(() => {
+        const statusOnly = transitions.filter(t => t.kind === 'status');
+        return statusOnly.length > 0 ? statusOnly[statusOnly.length - 1] : null;
+    }, [transitions]);
+    const hoursInCurrentStatus = currentStatusTransition
+        ? Math.round((Date.now() - new Date(currentStatusTransition.entered_at).getTime()) / 3600_000)
+        : null;
 
     const uploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const f = e.target.files?.[0]; if (!f) return;
@@ -1168,6 +1189,15 @@ const LeadDetailDrawer: React.FC<{
         setFiles(prev => (prev || []).filter(f => f.id !== id));
     };
 
+    // Fire-and-forget touch logger
+    const logTouch = (channel: string, note?: string) => {
+        fetch(`/api/lidy/leads/${lead.id}/touch`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ channel, note }),
+        }).catch(() => {});
+    };
+
     const renderReplyTemplate = (body: string) => {
         return body
             .replaceAll('{manager}', me.full_name.split(' ')[0])
@@ -1180,8 +1210,10 @@ const LeadDetailDrawer: React.FC<{
         if (lead.phone && wa) {
             const link = whatsappLink(lead.phone, text);
             window.open(link, '_blank');
+            logTouch('whatsapp', 'template');
         } else {
             navigator.clipboard?.writeText(text).then(() => alert('Текст скопирован — вставьте в любой мессенджер.'));
+            logTouch('clipboard', 'template');
         }
         setShowQuickReplies(false);
     };
@@ -1384,7 +1416,14 @@ const LeadDetailDrawer: React.FC<{
                                 <h2 className="text-xl font-bold text-slate-50 truncate">{lead.name || '— без имени —'}</h2>
                                 <span className="text-sm font-mono text-slate-400">#{lead.id}</span>
                             </div>
-                            <div className="text-xs text-slate-400 mt-0.5">Поступил {formatFull(lead.received_at)}</div>
+                            <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                                <span>Поступил {formatFull(lead.received_at)}</span>
+                                {hoursInCurrentStatus !== null && hoursInCurrentStatus >= 0 && (
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${hoursInCurrentStatus > 72 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' : hoursInCurrentStatus > 24 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-700/50 text-slate-300'}`}>
+                                        ⏱ в статусе {hoursInCurrentStatus < 24 ? `${hoursInCurrentStatus}ч` : `${Math.round(hoursInCurrentStatus / 24)}д`}
+                                    </span>
+                                )}
+                            </div>
                             <div className="flex items-center gap-1.5 flex-wrap mt-2">
                                 <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
                                 {lead.stage_code && <StatusBadge code={lead.stage_code} label={lead.stage_label || ''} color={lead.stage_color || '#0ea5e9'} />}
@@ -1422,14 +1461,17 @@ const LeadDetailDrawer: React.FC<{
                     {/* Quick actions */}
                     <div className="flex gap-2 mt-3 flex-wrap relative">
                         {wa && <a href={wa} target="_blank" rel="noopener noreferrer"
+                            onClick={() => logTouch('whatsapp')}
                             className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1eba56] text-white">
                             💬 WhatsApp
                         </a>}
                         {lead.phone && <a href={`tel:${lead.phone}`}
+                            onClick={() => logTouch('call')}
                             className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-900/60 backdrop-blur-sm border border-slate-800 hover:bg-slate-800/40 text-slate-200">
                             📞 Позвонить
                         </a>}
                         {lead.email && <a href={`mailto:${lead.email}`}
+                            onClick={() => logTouch('email')}
                             className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-900/60 backdrop-blur-sm border border-slate-800 hover:bg-slate-800/40 text-slate-200">
                             ✉ Email
                         </a>}
@@ -1589,6 +1631,32 @@ const LeadDetailDrawer: React.FC<{
                                             : lead.appointment_kind === 'range' && lead.appointment_until
                                                 ? `С ${formatFull(lead.appointment_at)} до ${formatFull(lead.appointment_until)}`
                                                 : formatFull(lead.appointment_at)}
+                                    </div>
+                                </section>
+                            )}
+
+                            {/* Churn reason picker (when closed_lost) */}
+                            {lead.status_code === 'closed_lost' && churnReasons.length > 0 && canEdit && (
+                                <section className="bg-rose-500/5 border border-rose-500/30 rounded-xl p-4">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-rose-300 mb-2">🚪 Категория отказа</div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {churnReasons.map((cr: any) => {
+                                            const on = (lead as any).churn_reason_id === cr.id;
+                                            return (
+                                                <button key={cr.id}
+                                                    onClick={async () => {
+                                                        await fetch(`/api/lidy/leads/${lead.id}/churn-reason`, {
+                                                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                            credentials: 'include', body: JSON.stringify({ reason_id: cr.id }),
+                                                        });
+                                                        onRefresh();
+                                                    }}
+                                                    className={`text-xs px-2.5 py-1.5 rounded-full border transition ${on ? 'text-white' : 'bg-slate-800/40 border-slate-700 text-slate-200 hover:bg-slate-800'}`}
+                                                    style={on ? { backgroundColor: cr.color || '#ef4444', borderColor: cr.color || '#ef4444' } : undefined}>
+                                                    {cr.emoji} {cr.label}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </section>
                             )}
@@ -2372,6 +2440,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     // UI state
     const [openLead, setOpenLead] = useState<Lead | null>(null);
     const [showCreate, setShowCreate] = useState(false);
+    const [showKB, setShowKB] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [togglingOnline, setTogglingOnline] = useState(false);
@@ -2600,6 +2669,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             className={`p-2 rounded-lg ${autoRefresh ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-slate-900/60 backdrop-blur-sm border border-slate-800 text-slate-300 hover:bg-slate-800/40'}`}>
                             <svg className={`w-4 h-4 ${autoRefresh ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         </button>
+                        <Btn variant="secondary" onClick={() => setShowKB(true)} title="База знаний">📖</Btn>
                         <Btn variant="secondary" onClick={load} title="Обновить вручную">↻</Btn>
                         <Btn variant="primary" onClick={() => setShowCreate(true)}>+ Лид</Btn>
                         <Btn variant="ghost" onClick={async () => { await fetch('/api/lidy/logout', { method: 'POST', credentials: 'include' }); onLogout(); }}>
@@ -3033,6 +3103,84 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                 <CreateLeadModal onClose={() => setShowCreate(false)} onCreated={load}
                     sourceOptions={sourceOptions} roster={roster} isTeamlead={isTeamlead} />
             )}
+
+            {/* Knowledge base modal */}
+            {showKB && <KnowledgeBaseModal onClose={() => setShowKB(false)} />}
+        </div>
+    );
+};
+
+// ═════════════════════════════════════════════════════════════════════
+//  KNOWLEDGE BASE MODAL
+// ═════════════════════════════════════════════════════════════════════
+const KnowledgeBaseModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+    const [articles, setArticles] = useState<any[]>([]);
+    const [selected, setSelected] = useState<any | null>(null);
+    const [search, setSearch] = useState('');
+    useEffect(() => {
+        fetch('/api/lidy/kb', { credentials: 'include' })
+            .then(r => r.json()).then(j => setArticles(j.articles || [])).catch(() => {});
+    }, []);
+    const open = async (slug: string) => {
+        const r = await fetch(`/api/lidy/kb/${encodeURIComponent(slug)}`, { credentials: 'include' });
+        if (r.ok) {
+            const j = await r.json();
+            setSelected(j.article);
+        }
+    };
+    const filtered = articles.filter(a => !search.trim() ||
+        a.title.toLowerCase().includes(search.toLowerCase()) ||
+        (a.tags || []).some((t: string) => t.toLowerCase().includes(search.toLowerCase())));
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-[3px]" onClick={onClose}>
+            <div className="bg-slate-950/95 backdrop-blur-xl border border-sky-500/20 rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8)] w-full max-w-5xl h-[80vh] flex flex-col md:flex-row overflow-hidden"
+                onClick={e => e.stopPropagation()}>
+                {/* Sidebar */}
+                <div className="md:w-64 flex-shrink-0 border-r border-slate-800/60 p-4 overflow-y-auto">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="font-bold text-slate-50">📖 База знаний</div>
+                        <button onClick={onClose} className="md:hidden text-slate-400 text-2xl">×</button>
+                    </div>
+                    <input type="text" placeholder="🔍 Поиск…" value={search} onChange={e => setSearch(e.target.value)}
+                        className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 rounded-lg px-3 py-1.5 text-sm mb-3" />
+                    {filtered.length === 0 && <div className="text-xs text-slate-500 italic">Статей нет</div>}
+                    <div className="space-y-1">
+                        {filtered.map(a => (
+                            <button key={a.id} onClick={() => open(a.slug)}
+                                className={`w-full text-left text-sm px-3 py-1.5 rounded transition ${selected?.id === a.id ? 'bg-sky-500/20 text-sky-200' : 'text-slate-200 hover:bg-slate-800/60'}`}>
+                                {a.title}
+                                {(a.tags || []).length > 0 && (
+                                    <div className="flex gap-1 mt-0.5 flex-wrap">
+                                        {(a.tags || []).slice(0, 3).map((t: string) => (
+                                            <span key={t} className="text-[9px] bg-slate-800 text-slate-400 px-1 rounded">#{t}</span>
+                                        ))}
+                                    </div>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                {/* Reading pane */}
+                <div className="flex-grow overflow-y-auto p-6">
+                    <div className="flex items-center justify-end -mt-2 -mr-2 mb-3">
+                        <button onClick={onClose} className="hidden md:block text-slate-400 hover:text-slate-200 text-2xl">×</button>
+                    </div>
+                    {selected ? (
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-50 mb-3">{selected.title}</h1>
+                            <div className="text-xs text-slate-500 mb-4">Обновлено {formatRel(selected.updated_at)}</div>
+                            <div className="prose prose-invert max-w-none text-slate-200 whitespace-pre-wrap">{selected.body}</div>
+                        </div>
+                    ) : (
+                        <div className="text-center text-slate-400 py-16">
+                            <div className="text-5xl mb-3">📚</div>
+                            <p>Выберите статью слева</p>
+                            <p className="text-xs text-slate-500 mt-2">Статьи добавляет тимлид в админке.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
