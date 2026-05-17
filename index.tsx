@@ -19,3 +19,12 @@ root.render(
     </BrowserRouter>
   </React.StrictMode>
 );
+
+// Register service worker for CRM only (PWA + push)
+if ('serviceWorker' in navigator && (location.pathname.startsWith('/lidy') || location.pathname.startsWith('/admin'))) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => {
+      console.warn('[sw]', err);
+    });
+  });
+}

@@ -1,4 +1,30 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// Skeleton loader — shimmering placeholder card
+const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
+    <div className={`relative overflow-hidden bg-slate-800/40 rounded ${className || ''}`}>
+        <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.6s_infinite] bg-gradient-to-r from-transparent via-slate-700/40 to-transparent" />
+    </div>
+);
+const LeadCardSkeleton: React.FC = () => (
+    <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div className="flex gap-3">
+            <Skeleton className="w-10 h-10 rounded-full" />
+            <div className="flex-grow space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+            </div>
+            <Skeleton className="h-6 w-16 rounded" />
+        </div>
+        <Skeleton className="h-3 w-2/3" />
+        <Skeleton className="h-3 w-1/2" />
+        <div className="flex gap-2">
+            <Skeleton className="h-5 w-16 rounded-full" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+        </div>
+    </div>
+);
 
 // ═════════════════════════════════════════════════════════════════════
 //  TYPES
@@ -136,6 +162,15 @@ const formatRel = (iso: string) => {
     if (h < 24) return `${h} ч`;
     return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
 };
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+}
+
 const formatFull = (iso: string) =>
     new Date(iso).toLocaleString('ru-RU', {
         timeZone: 'Asia/Bishkek',
@@ -445,14 +480,28 @@ const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ le
 // ═════════════════════════════════════════════════════════════════════
 //  LEAD CARD (cards view)
 // ═════════════════════════════════════════════════════════════════════
-const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ lead, me, onOpen }) => {
+const LeadCard: React.FC<{
+    lead: Lead;
+    me: Manager;
+    onOpen: () => void;
+    selectable?: boolean;
+    selected?: boolean;
+    onToggleSelect?: () => void;
+}> = ({ lead, me, onOpen, selectable, selected, onToggleSelect }) => {
     const sla = slaChip(lead.sla_deadline_at, lead.processed_at);
     const sm = sourceMeta(lead.source || '');
     const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
     return (
-        <div onClick={onOpen}
-            className={`group bg-slate-900/60 backdrop-blur-md border rounded-2xl p-4 hover:bg-slate-800/60 hover:border-sky-500/40 hover:shadow-[0_8px_32px_-8px_rgba(56,189,248,0.25)] transition-all cursor-pointer relative ${isIncomingTransfer ? 'border-fuchsia-500/50 shadow-[0_0_24px_-4px_rgba(217,70,239,0.4)]' : 'border-slate-800'}`}>
+        <div onClick={() => selectable ? onToggleSelect && onToggleSelect() : onOpen()}
+            className={`group bg-slate-900/60 backdrop-blur-md border rounded-2xl p-4 hover:bg-slate-800/60 hover:border-sky-500/40 hover:shadow-[0_8px_32px_-8px_rgba(56,189,248,0.25)] transition-all cursor-pointer relative ${selected ? 'ring-2 ring-sky-400 border-sky-500/60 bg-sky-500/5' : isIncomingTransfer ? 'border-fuchsia-500/50 shadow-[0_0_24px_-4px_rgba(217,70,239,0.4)]' : 'border-slate-800'}`}>
+            {selectable && (
+                <div className="absolute top-3 right-3 z-10">
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition ${selected ? 'bg-sky-500 border-sky-400' : 'bg-slate-800/80 border-slate-600'}`}>
+                        {selected && <span className="text-white text-xs">✓</span>}
+                    </div>
+                </div>
+            )}
             {isIncomingTransfer && (
                 <div className="absolute -top-2 -right-2 bg-fuchsia-500 text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shadow">передано</div>
             )}
@@ -523,7 +572,7 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
 };
 
 // ═════════════════════════════════════════════════════════════════════
-//  PIPELINE VIEW (kanban-style columns by status OR stage)
+//  PIPELINE VIEW (kanban-style columns by status OR stage) + drag&drop
 // ═════════════════════════════════════════════════════════════════════
 type PipelineMode = 'status' | 'stage';
 const PipelineView: React.FC<{
@@ -531,8 +580,12 @@ const PipelineView: React.FC<{
     statuses: StatusOption[];
     me: Manager;
     onOpen: (l: Lead) => void;
+    onRefresh?: () => void;
     mode: PipelineMode;
-}> = ({ leads, statuses, onOpen, mode }) => {
+}> = ({ leads, statuses, me, onOpen, onRefresh, mode }) => {
+    const [draggingLeadId, setDraggingLeadId] = useState<number | null>(null);
+    const [hoverColumn, setHoverColumn] = useState<string | null>(null);
+    const [movingId, setMovingId] = useState<number | null>(null);
     // Filter columns by mode (lead processing vs client stages)
     const columns = useMemo(() => {
         const filtered = statuses.filter(s => mode === 'stage' ? !!s.is_client_stage : !s.is_client_stage);
@@ -566,8 +619,44 @@ const PipelineView: React.FC<{
         return total;
     };
 
+    // Drop handler — moves a lead's status/stage on column drop
+    const handleDrop = async (columnCode: string) => {
+        const leadId = draggingLeadId;
+        setDraggingLeadId(null);
+        setHoverColumn(null);
+        if (!leadId) return;
+        const lead = leads.find(l => l.id === leadId);
+        if (!lead) return;
+        // No-op if column matches current
+        if (mode === 'status' && lead.status_code === columnCode) return;
+        if (mode === 'stage' && (lead.stage_code || '') === (columnCode === '__none__' ? '' : columnCode)) return;
+        setMovingId(leadId);
+        try {
+            const endpoint = mode === 'status'
+                ? `/api/lidy/leads/${leadId}/status`
+                : `/api/lidy/leads/${leadId}/stage`;
+            const payload = mode === 'status'
+                ? { status: columnCode }
+                : { stage: columnCode === '__none__' ? '' : columnCode };
+            const r = await fetch(endpoint, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify(payload),
+            });
+            if (!r.ok) {
+                const j = await r.json().catch(() => ({}));
+                alert('Не удалось переместить: ' + (j.error || r.status));
+            } else {
+                onRefresh && onRefresh();
+            }
+        } finally { setMovingId(null); }
+    };
+
     const renderColumn = (key: string, label: string, color: string | undefined, list: Lead[], isMuted = false) => (
-        <div key={key} className={`border rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0 backdrop-blur-sm ${isMuted ? 'bg-slate-900/30 border-slate-800/60' : 'bg-slate-800/40 border-slate-800'}`}>
+        <div key={key}
+            onDragOver={e => { e.preventDefault(); setHoverColumn(key); }}
+            onDragLeave={() => { if (hoverColumn === key) setHoverColumn(null); }}
+            onDrop={e => { e.preventDefault(); handleDrop(key); }}
+            className={`border rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0 backdrop-blur-sm transition-all ${isMuted ? 'bg-slate-900/30 border-slate-800/60' : 'bg-slate-800/40 border-slate-800'} ${hoverColumn === key ? 'ring-2 ring-sky-400 shadow-[0_0_24px_-4px_rgba(56,189,248,0.6)] bg-sky-500/10' : ''}`}>
             <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
                 <div className="flex items-center gap-2 min-w-0">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color || '#94a3b8', boxShadow: color ? `0 0 8px ${color}` : undefined }} />
@@ -582,12 +671,17 @@ const PipelineView: React.FC<{
             </div>
             <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
                 {list.length === 0 ? (
-                    <div className="text-xs text-slate-500 italic py-6 text-center">пусто</div>
+                    <div className="text-xs text-slate-500 italic py-6 text-center border-2 border-dashed border-slate-800 rounded-lg">{hoverColumn === key ? '↓ отпустите здесь' : 'пусто'}</div>
                 ) : list.map(l => {
                     const sla = slaChip(l.sla_deadline_at, l.processed_at);
+                    const canDrag = me.role === 'teamlead' || l.assigned_manager_id === me.id;
                     return (
-                        <div key={l.id} onClick={() => onOpen(l)}
-                            className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-2.5 cursor-pointer transition-all hover:bg-slate-800/70 hover:border-sky-500/40 hover:shadow-[0_4px_16px_-4px_rgba(56,189,248,0.25)]">
+                        <div key={l.id}
+                            draggable={canDrag && movingId !== l.id}
+                            onDragStart={e => { setDraggingLeadId(l.id); e.dataTransfer.effectAllowed = 'move'; }}
+                            onDragEnd={() => { setDraggingLeadId(null); setHoverColumn(null); }}
+                            onClick={() => onOpen(l)}
+                            className={`bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-2.5 cursor-pointer transition-all hover:bg-slate-800/70 hover:border-sky-500/40 hover:shadow-[0_4px_16px_-4px_rgba(56,189,248,0.25)] ${draggingLeadId === l.id ? 'opacity-40 scale-95' : ''} ${movingId === l.id ? 'animate-pulse' : ''}`}>
                             <div className="flex items-start gap-2 mb-1.5">
                                 <Avatar name={l.name} size="sm" />
                                 <div className="flex-grow min-w-0">
@@ -918,10 +1012,16 @@ const LeadDetailDrawer: React.FC<{
     onClose: () => void;
     onRefresh: () => void;
 }> = ({ lead, me, statuses, roster, sourceOptions, mode, onToggleMode, onClose, onRefresh }) => {
-    const [tab, setTab] = useState<'overview' | 'deal' | 'tasks' | 'activity' | 'related'>('overview');
+    const [tab, setTab] = useState<'overview' | 'deal' | 'tasks' | 'files' | 'activity' | 'audit' | 'related'>('overview');
     const [tasks, setTasks] = useState<TaskRec[] | null>(null);
     const [allTags, setAllTags] = useState<TagRec[]>([]);
     const [leadTags, setLeadTags] = useState<TagRec[]>([]);
+    const [files, setFiles] = useState<any[] | null>(null);
+    const [auditEvents, setAuditEvents] = useState<any[] | null>(null);
+    const [quickReplies, setQuickReplies] = useState<any[]>([]);
+    const [showQuickReplies, setShowQuickReplies] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [uploadingFile, setUploadingFile] = useState(false);
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [newTaskDue, setNewTaskDue] = useState('');
     const [dealDraft, setDealDraft] = useState({
@@ -996,6 +1096,66 @@ const LeadDetailDrawer: React.FC<{
         fetch(`/api/lidy/leads/${lead.id}/tasks`, { credentials: 'include' })
             .then(r => r.json()).then(j => setTasks(j.tasks || [])).catch(() => setTasks([]));
     }, [tab, lead.id, tasks]);
+
+    useEffect(() => {
+        if (tab !== 'files' || files !== null) return;
+        fetch(`/api/lidy/leads/${lead.id}/files`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setFiles(j.files || [])).catch(() => setFiles([]));
+    }, [tab, lead.id, files]);
+
+    useEffect(() => {
+        if (tab !== 'audit' || auditEvents !== null) return;
+        fetch(`/api/lidy/leads/${lead.id}/audit`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setAuditEvents(j.events || [])).catch(() => setAuditEvents([]));
+    }, [tab, lead.id, auditEvents]);
+
+    useEffect(() => {
+        fetch('/api/lidy/quick-replies', { credentials: 'include' })
+            .then(r => r.json()).then(j => setQuickReplies(j.replies || [])).catch(() => {});
+    }, []);
+
+    const uploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0]; if (!f) return;
+        setUploadingFile(true);
+        try {
+            const fd = new FormData();
+            fd.append('file', f);
+            fd.append('kind', 'document');
+            const r = await fetch(`/api/lidy/leads/${lead.id}/files`, {
+                method: 'POST', credentials: 'include', body: fd,
+            });
+            if (r.ok) {
+                const refresh = await fetch(`/api/lidy/leads/${lead.id}/files`, { credentials: 'include' }).then(r => r.json());
+                setFiles(refresh.files || []);
+            }
+        } finally {
+            setUploadingFile(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+    const deleteFile = async (id: number, name: string) => {
+        if (!confirm(`Удалить «${name}»?`)) return;
+        await fetch(`/api/lidy/files/${id}`, { method: 'DELETE', credentials: 'include' });
+        setFiles(prev => (prev || []).filter(f => f.id !== id));
+    };
+
+    const renderReplyTemplate = (body: string) => {
+        return body
+            .replaceAll('{manager}', me.full_name.split(' ')[0])
+            .replaceAll('{name}', lead.name || '')
+            .replaceAll('{amount}', '');
+    };
+
+    const sendQuickReply = (body: string) => {
+        const text = renderReplyTemplate(body);
+        if (lead.phone && wa) {
+            const link = whatsappLink(lead.phone, text);
+            window.open(link, '_blank');
+        } else {
+            navigator.clipboard?.writeText(text).then(() => alert('Текст скопирован — вставьте в любой мессенджер.'));
+        }
+        setShowQuickReplies(false);
+    };
 
     const refetchTasks = () => fetch(`/api/lidy/leads/${lead.id}/tasks`, { credentials: 'include' })
         .then(r => r.json()).then(j => setTasks(j.tasks || []));
@@ -1170,9 +1330,19 @@ const LeadDetailDrawer: React.FC<{
 
     const isCenter = mode === 'center';
     return (
-        <div className={`fixed inset-0 z-50 ${isCenter ? 'flex items-center justify-center p-4 bg-black/70 backdrop-blur-[3px]' : 'flex'}`} onClick={onClose}>
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className={`fixed inset-0 z-50 ${isCenter ? 'flex items-center justify-center p-4 bg-black/70 backdrop-blur-[3px]' : 'flex'}`} onClick={onClose}>
             {!isCenter && <div className="flex-grow bg-black/60 backdrop-blur-[3px]" />}
-            <div className={`bg-slate-950/95 backdrop-blur-xl overflow-y-auto shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8),0_0_40px_-12px_rgba(56,189,248,0.2)] border-sky-500/20 ${isCenter
+            <motion.div
+                initial={isCenter ? { opacity: 0, scale: 0.95, y: 20 } : { x: '100%' }}
+                animate={isCenter ? { opacity: 1, scale: 1, y: 0 } : { x: 0 }}
+                exit={isCenter ? { opacity: 0, scale: 0.95, y: 20 } : { x: '100%' }}
+                transition={{ type: 'spring', damping: 30, stiffness: 280 }}
+                className={`bg-slate-950/95 backdrop-blur-xl overflow-y-auto shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8),0_0_40px_-12px_rgba(56,189,248,0.2)] border-sky-500/20 ${isCenter
                 ? 'w-full max-w-3xl max-h-[92vh] rounded-2xl border'
                 : 'w-full md:w-[640px] h-full border-l'}`}
                 onClick={e => e.stopPropagation()}>
@@ -1221,7 +1391,7 @@ const LeadDetailDrawer: React.FC<{
                     </div>
 
                     {/* Quick actions */}
-                    <div className="flex gap-2 mt-3 flex-wrap">
+                    <div className="flex gap-2 mt-3 flex-wrap relative">
                         {wa && <a href={wa} target="_blank" rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-[#25D366] hover:bg-[#1eba56] text-white">
                             💬 WhatsApp
@@ -1234,6 +1404,25 @@ const LeadDetailDrawer: React.FC<{
                             className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-900/60 backdrop-blur-sm border border-slate-800 hover:bg-slate-800/40 text-slate-200">
                             ✉ Email
                         </a>}
+                        {quickReplies.length > 0 && (
+                            <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                                className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/40 text-violet-200">
+                                📨 Шаблон ▾
+                            </button>
+                        )}
+                        {showQuickReplies && (
+                            <div className="absolute top-full left-0 mt-2 z-30 w-full max-w-md bg-slate-950/95 backdrop-blur-xl border border-violet-500/30 rounded-xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8)] p-2 space-y-1">
+                                <div className="text-[10px] uppercase tracking-wider text-slate-500 px-2 py-1">Выберите шаблон — откроется в WhatsApp или скопируется</div>
+                                {quickReplies.map(r => (
+                                    <button key={r.id} onClick={() => sendQuickReply(r.body)}
+                                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800/70 transition group">
+                                        <div className="text-sm font-medium text-slate-100">{r.title}</div>
+                                        <div className="text-xs text-slate-400 line-clamp-2 group-hover:text-slate-300">{renderReplyTemplate(r.body)}</div>
+                                    </button>
+                                ))}
+                                <button onClick={() => setShowQuickReplies(false)} className="w-full text-center text-xs text-slate-500 py-1 hover:text-slate-300">закрыть</button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Tabs */}
@@ -1242,11 +1431,13 @@ const LeadDetailDrawer: React.FC<{
                             { v: 'overview', l: 'Обзор' },
                             { v: 'deal', l: '💰 Сделка' },
                             { v: 'tasks', l: '📋 Задачи', badge: (lead.open_tasks || 0) > 0 ? lead.open_tasks : undefined },
-                            { v: 'activity', l: 'История' },
-                            { v: 'related', l: 'Связанные' },
+                            { v: 'files', l: '📎 Файлы' },
+                            { v: 'activity', l: '💬 Чат' },
+                            { v: 'audit', l: '🕒 Аудит' },
+                            { v: 'related', l: '🔗 Связанные' },
                         ].map(t => (
                             <button key={t.v} onClick={() => setTab(t.v as any)}
-                                className={`px-3 py-2 text-sm font-medium border-b-2 transition whitespace-nowrap flex items-center gap-1 ${tab === t.v ? 'border-sky-600 text-sky-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+                                className={`px-3 py-2 text-sm font-medium border-b-2 transition whitespace-nowrap flex items-center gap-1 ${tab === t.v ? 'border-sky-500 text-sky-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
                                 {t.l}
                                 {t.badge !== undefined && (
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${(lead.overdue_tasks || 0) > 0 ? 'bg-rose-500 text-white' : 'bg-sky-500 text-white'}`}>{t.badge}</span>
@@ -1768,6 +1959,75 @@ const LeadDetailDrawer: React.FC<{
                         </section>
                     )}
 
+                    {tab === 'files' && (
+                        <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">📎 Документы клиента</div>
+                                {canEdit && (
+                                    <label className="text-xs bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white px-3 py-1.5 rounded-lg font-semibold cursor-pointer">
+                                        {uploadingFile ? '⏳ Загрузка…' : '⬆ Загрузить'}
+                                        <input ref={fileInputRef} type="file" className="hidden" onChange={uploadFile} disabled={uploadingFile} />
+                                    </label>
+                                )}
+                            </div>
+                            {files === null ? (
+                                <div className="text-sm text-slate-400">Загрузка…</div>
+                            ) : files.length === 0 ? (
+                                <div className="text-sm text-slate-500 italic text-center py-6 border-2 border-dashed border-slate-800 rounded-lg">Документов пока нет — паспорт, диплом, IELTS-сертификат сюда</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {files.map(f => {
+                                        const ext = (f.filename || '').split('.').pop()?.toLowerCase() || '';
+                                        const isImg = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+                                        const icon = isImg ? '🖼' : ext === 'pdf' ? '📕' : ['doc', 'docx'].includes(ext) ? '📘' : ['xls', 'xlsx', 'csv'].includes(ext) ? '📗' : '📄';
+                                        return (
+                                            <div key={f.id} className="flex items-center gap-3 border border-slate-800 rounded-lg p-3 bg-slate-800/30 hover:bg-slate-800/60 transition">
+                                                <span className="text-2xl">{icon}</span>
+                                                <div className="flex-grow min-w-0">
+                                                    <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-sky-300 hover:underline truncate block">{f.filename}</a>
+                                                    <div className="text-xs text-slate-500">
+                                                        {Math.round((f.size || 0) / 1024)} KB · {f.uploaded_by_name || '—'} · {formatRel(f.created_at)}
+                                                    </div>
+                                                </div>
+                                                {canEdit && (
+                                                    <button onClick={() => deleteFile(f.id, f.filename)} className="text-slate-500 hover:text-rose-400 text-sm">🗑</button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </section>
+                    )}
+
+                    {tab === 'audit' && (
+                        <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🕒 Полный аудит-лог</div>
+                            {auditEvents === null ? (
+                                <div className="text-sm text-slate-400">Загрузка…</div>
+                            ) : auditEvents.length === 0 ? (
+                                <div className="text-sm text-slate-500 italic text-center py-6">События не зафиксированы</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {auditEvents.map(e => (
+                                        <div key={e.id} className="border-l-2 border-sky-500/40 pl-3 py-1.5">
+                                            <div className="text-xs text-slate-500">{formatFull(e.created_at)} · {e.actor_name || '—'} {e.actor_role === 'teamlead' && '👑'}</div>
+                                            <div className="text-sm text-slate-200"><span className="font-mono text-sky-300">{e.action}</span></div>
+                                            {(e.after_data || e.before_data) && (
+                                                <details className="mt-1">
+                                                    <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-300">детали</summary>
+                                                    <pre className="text-[10px] text-slate-400 bg-slate-950/60 rounded p-2 mt-1 overflow-x-auto">
+{JSON.stringify(e.after_data || e.before_data, null, 2)}
+                                                    </pre>
+                                                </details>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </section>
+                    )}
+
                     {tab === 'activity' && (
                         <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
                             <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">📜 История событий</div>
@@ -1843,8 +2103,8 @@ const LeadDetailDrawer: React.FC<{
                         </section>
                     )}
                 </div>
-            </div>
-        </div>
+            </motion.div>
+        </motion.div>
     );
 };
 
@@ -2007,11 +2267,19 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [roster, setRoster] = useState<RosterManager[]>([]);
     const isTeamlead = manager.role === 'teamlead';
 
-    // View + filters
-    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'stages' | 'calendar'>('cards');
-    const [drawerMode, setDrawerMode] = useState<'side' | 'center'>('side');
+    // Persisted UI helpers (localStorage)
+    const lsGet = <T,>(key: string, fallback: T): T => {
+        try { const v = localStorage.getItem('gg.' + key); return v !== null ? JSON.parse(v) as T : fallback; } catch { return fallback; }
+    };
+    const lsSet = (key: string, value: any) => {
+        try { localStorage.setItem('gg.' + key, JSON.stringify(value)); } catch {}
+    };
+
+    // View + filters (persisted)
+    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'stages' | 'calendar'>(() => lsGet('view', 'cards'));
+    const [drawerMode, setDrawerMode] = useState<'side' | 'center'>(() => lsGet('drawerMode', 'side'));
     const [calendarData, setCalendarData] = useState<any[]>([]);
-    const [scope, setScope] = useState<'mine' | 'all'>(isTeamlead ? 'all' : 'mine');
+    const [scope, setScope] = useState<'mine' | 'all'>(() => lsGet('scope', isTeamlead ? 'all' : 'mine'));
     const [search, setSearch] = useState('');
     const debouncedSearch = useDebounced(search, 300);
     const [filterStatus, setFilterStatus] = useState('');
@@ -2024,7 +2292,16 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [filterTo, setFilterTo] = useState('');
     const [overdueOnly, setOverdueOnly] = useState(false);
     const [includeClosed, setIncludeClosed] = useState(false);
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [inboxZero, setInboxZero] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(() => lsGet('sidebarOpen', true));
+    const [bulkMode, setBulkMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+    // Persist preferences
+    useEffect(() => lsSet('view', view), [view]);
+    useEffect(() => lsSet('drawerMode', drawerMode), [drawerMode]);
+    useEffect(() => lsSet('scope', scope), [scope]);
+    useEffect(() => lsSet('sidebarOpen', sidebarOpen), [sidebarOpen]);
 
     // UI state
     const [openLead, setOpenLead] = useState<Lead | null>(null);
@@ -2069,6 +2346,53 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, debouncedSearch]);
 
     useEffect(() => { load(); }, [load]);
+
+    // Push notification setup (asks for permission once, then subscribes)
+    useEffect(() => {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        if (Notification.permission === 'denied') return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                let perm = Notification.permission;
+                if (perm === 'default') perm = await Notification.requestPermission();
+                if (perm !== 'granted' || cancelled) return;
+                const keyRes = await fetch('/api/lidy/push/vapid-public-key', { credentials: 'include' }).then(r => r.json());
+                const vapidKey = keyRes.key;
+                if (!vapidKey) return; // VAPID not configured server-side — skip silently
+                const sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(vapidKey),
+                });
+                await fetch('/api/lidy/push/subscribe', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        endpoint: sub.endpoint,
+                        keys: sub.toJSON().keys,
+                        userAgent: navigator.userAgent,
+                    }),
+                });
+            } catch (e) { /* user dismissed / privacy block */ }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
+    // Apply client-side Inbox-Zero filter (only mine, only "action needed":
+    // open AND (overdue OR new with no comment) AND not in transfer-pending state)
+    const displayedLeads = useMemo(() => {
+        if (!inboxZero) return leads;
+        const now = Date.now();
+        return leads.filter(l => {
+            if (l.processed_at) return false;
+            if (l.assigned_manager_id !== manager.id) return false;
+            const overdue = l.sla_deadline_at && new Date(l.sla_deadline_at).getTime() < now;
+            const isNew = l.status_code === 'new';
+            const hasOpenTasks = (l.open_tasks || 0) > 0;
+            return overdue || isNew || hasOpenTasks;
+        });
+    }, [leads, inboxZero, manager.id]);
     useEffect(() => {
         if (!autoRefresh) return;
         const t = window.setInterval(load, 15000);
@@ -2244,6 +2568,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         <div>
                             <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Быстрые фильтры</div>
                             <div className="space-y-1.5">
+                                <button onClick={() => setInboxZero(!inboxZero)}
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${inboxZero ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/10 text-sky-200 border border-sky-500/40 shadow-[0_0_12px_-4px_rgba(56,189,248,0.4)]' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
+                                    <span>📥 Inbox 0 (требует действий)</span>
+                                    {inboxZero && <span>✓</span>}
+                                </button>
                                 <button onClick={() => setOverdueOnly(!overdueOnly)}
                                     className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${overdueOnly ? 'bg-rose-500/10 text-rose-300 border border-rose-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
                                     <span>⏰ Просроченные</span>
@@ -2253,6 +2582,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                     className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${includeClosed ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
                                     <span>📂 Показать закрытые</span>
                                     {includeClosed && <span>✓</span>}
+                                </button>
+                                <button onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()); }}
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${bulkMode ? 'bg-violet-500/10 text-violet-300 border border-violet-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
+                                    <span>☑️ Массовые действия</span>
+                                    {bulkMode && <span>✓</span>}
                                 </button>
                             </div>
                         </div>
@@ -2451,8 +2785,10 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     )}
 
                     {loading ? (
-                        <div className="text-center py-12 text-slate-400">Загрузка…</div>
-                    ) : leads.length === 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                            {Array.from({ length: 6 }).map((_, i) => <LeadCardSkeleton key={i} />)}
+                        </div>
+                    ) : displayedLeads.length === 0 ? (
                         <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-8 text-center">
                             <div className="text-5xl mb-3">📭</div>
                             <p className="text-slate-300">
@@ -2479,14 +2815,14 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {leads.map(l => <LeadRow key={l.id} lead={l} me={manager} onOpen={() => setOpenLead(l)} />)}
+                                    {displayedLeads.map(l => <LeadRow key={l.id} lead={l} me={manager} onOpen={() => setOpenLead(l)} />)}
                                 </tbody>
                             </table>
                         </div>
                     ) : view === 'pipeline' ? (
-                        <PipelineView leads={leads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} mode="status" />
+                        <PipelineView leads={displayedLeads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} onRefresh={load} mode="status" />
                     ) : view === 'stages' ? (
-                        <PipelineView leads={leads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} mode="stage" />
+                        <PipelineView leads={displayedLeads} statuses={statuses} me={manager} onOpen={l => setOpenLead(l)} onRefresh={load} mode="stage" />
                     ) : view === 'calendar' ? (
                         <CalendarView appointments={calendarData} onOpen={async (id) => {
                             // Fetch single lead and open drawer
@@ -2495,25 +2831,78 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         }} />
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                            {leads.map(l => <LeadCard key={l.id} lead={l} me={manager} onOpen={() => setOpenLead(l)} />)}
+                            {displayedLeads.map(l => (
+                                <LeadCard key={l.id} lead={l} me={manager}
+                                    onOpen={() => setOpenLead(l)}
+                                    selectable={bulkMode}
+                                    selected={selectedIds.has(l.id)}
+                                    onToggleSelect={() => {
+                                        const next = new Set(selectedIds);
+                                        next.has(l.id) ? next.delete(l.id) : next.add(l.id);
+                                        setSelectedIds(next);
+                                    }}
+                                />
+                            ))}
                         </div>
                     )}
                 </main>
+
+                {/* Bulk action bar (floating bottom) */}
+                {bulkMode && selectedIds.size > 0 && (
+                    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-xl border border-sky-500/40 rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8),0_0_40px_-12px_rgba(56,189,248,0.4)] px-4 py-3 flex items-center gap-3 flex-wrap max-w-3xl">
+                        <span className="text-sm text-slate-200">
+                            Выбрано: <strong className="text-sky-300">{selectedIds.size}</strong>
+                        </span>
+                        <select onChange={async e => {
+                            const code = e.target.value; if (!code) return;
+                            await fetch('/api/lidy/leads/bulk', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ ids: [...selectedIds], action: 'set_status', payload: { status: code } }),
+                            });
+                            setSelectedIds(new Set()); load();
+                            e.target.value = '';
+                        }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
+                            <option value="">→ Сменить статус…</option>
+                            {statuses.filter(s => !s.is_client_stage).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                        </select>
+                        {isTeamlead && (
+                            <select onChange={async e => {
+                                const mgrId = e.target.value; if (!mgrId) return;
+                                await fetch('/api/lidy/leads/bulk', {
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify({ ids: [...selectedIds], action: 'reassign', payload: { manager_id: Number(mgrId) } }),
+                                });
+                                setSelectedIds(new Set()); load();
+                                e.target.value = '';
+                            }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
+                                <option value="">→ Переназначить…</option>
+                                {roster.filter(m => (m.active !== false) && !m.archived_at).map(m => (
+                                    <option key={m.id} value={m.id}>{m.full_name}{m.role === 'teamlead' ? ' 👑' : ''}</option>
+                                ))}
+                            </select>
+                        )}
+                        <Btn variant="ghost" onClick={() => setSelectedIds(new Set())}>Снять выбор</Btn>
+                    </div>
+                )}
             </div>
 
             {/* Drawer */}
-            {openLead && (
-                <LeadDetailDrawer lead={openLead} me={manager} statuses={statuses} roster={roster}
-                    sourceOptions={sourceOptions}
-                    mode={drawerMode}
-                    onToggleMode={() => setDrawerMode(m => m === 'side' ? 'center' : 'side')}
-                    onClose={() => setOpenLead(null)} onRefresh={async () => {
-                        await load();
-                        // Re-fetch the open lead to reflect latest changes
-                        const r = await fetch(`/api/lidy/leads/${openLead.id}`, { credentials: 'include' });
-                        if (r.ok) { const j = await r.json(); if (j.lead) setOpenLead(j.lead); }
-                    }} />
-            )}
+            <AnimatePresence>
+                {openLead && (
+                    <LeadDetailDrawer key={openLead.id} lead={openLead} me={manager} statuses={statuses} roster={roster}
+                        sourceOptions={sourceOptions}
+                        mode={drawerMode}
+                        onToggleMode={() => setDrawerMode(m => m === 'side' ? 'center' : 'side')}
+                        onClose={() => setOpenLead(null)} onRefresh={async () => {
+                            await load();
+                            // Re-fetch the open lead to reflect latest changes
+                            const r = await fetch(`/api/lidy/leads/${openLead.id}`, { credentials: 'include' });
+                            if (r.ok) { const j = await r.json(); if (j.lead) setOpenLead(j.lead); }
+                        }} />
+                )}
+            </AnimatePresence>
 
             {/* Create modal */}
             {showCreate && (

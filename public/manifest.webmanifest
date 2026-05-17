@@ -1,0 +1,16 @@
+{
+  "name": "GoGlobal CRM",
+  "short_name": "GoGlobal",
+  "description": "GoGlobal Education CRM",
+  "start_url": "/lidy",
+  "scope": "/lidy",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f172a",
+  "background_color": "#020617",
+  "lang": "ru",
+  "icons": [
+    { "src": "/ppp.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/ppp.png", "sizes": "192x192", "type": "image/png" }
+  ]
+}
