@@ -1175,6 +1175,430 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
     );
 };
 
+// ─────────────────────────── SALES HEALTH (traffic light) ───────────────────────────
+const SalesHealthWidget: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    useEffect(() => {
+        fetch('/api/admin/health', { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setData).catch(() => setData(null));
+    }, [password]);
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    const colors = {
+        green: { bg: 'from-emerald-500/30 to-emerald-500/10', border: 'border-emerald-500/40', text: 'text-emerald-300', icon: '🟢', label: 'ВСЁ В ПОРЯДКЕ' },
+        yellow: { bg: 'from-amber-500/30 to-amber-500/10', border: 'border-amber-500/40', text: 'text-amber-300', icon: '🟡', label: 'ЕСТЬ ВОПРОСЫ' },
+        red: { bg: 'from-rose-500/30 to-rose-500/10', border: 'border-rose-500/40', text: 'text-rose-300', icon: '🔴', label: 'СРОЧНО' },
+    } as any;
+    const c = colors[data.level] || colors.yellow;
+    return (
+        <div className="space-y-3">
+            <div className={`bg-gradient-to-br ${c.bg} border ${c.border} rounded-xl p-5 flex items-center gap-4`}>
+                <div className="text-5xl">{c.icon}</div>
+                <div className="flex-grow">
+                    <div className={`text-xs uppercase tracking-widest font-bold ${c.text}`}>Здоровье продаж</div>
+                    <div className="text-xl font-bold text-slate-50 mt-1">{c.label}</div>
+                    {data.reasons?.length > 0 && (
+                        <ul className="text-sm text-slate-300 mt-2 space-y-0.5 list-disc pl-5">
+                            {data.reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                        </ul>
+                    )}
+                </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                    <div className="text-slate-500 uppercase tracking-wider">SLA</div>
+                    <div className={`text-lg font-bold ${data.sla_pct >= 80 ? 'text-emerald-300' : data.sla_pct >= 60 ? 'text-amber-300' : 'text-rose-300'}`}>{data.sla_pct}%</div>
+                </div>
+                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                    <div className="text-slate-500 uppercase tracking-wider">Конверсия</div>
+                    <div className={`text-lg font-bold ${data.conversion_pct >= 15 ? 'text-emerald-300' : 'text-amber-300'}`}>{data.conversion_pct}%</div>
+                </div>
+                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                    <div className="text-slate-500 uppercase tracking-wider">Просрочено</div>
+                    <div className={`text-lg font-bold ${data.overdue_open > 5 ? 'text-rose-300' : 'text-slate-200'}`}>{data.overdue_open}</div>
+                </div>
+                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                    <div className="text-slate-500 uppercase tracking-wider">Застряли &gt;14дн</div>
+                    <div className={`text-lg font-bold ${data.stuck_leads > 0 ? 'text-amber-300' : 'text-slate-200'}`}>{data.stuck_leads}</div>
+                </div>
+            </div>
+            {data.offline_managers?.length > 0 && (
+                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3 text-sm">
+                    <div className="text-xs text-slate-500 uppercase tracking-wider mb-2">Оффлайн менеджеры (&gt;2ч)</div>
+                    <ul className="space-y-1">
+                        {data.offline_managers.map((m: any) => (
+                            <li key={m.id} className="text-slate-300">⚪ {m.full_name} <span className="text-slate-500 text-xs">— последний раз {m.last_online_at ? new Date(m.last_online_at).toLocaleString('ru-RU') : 'давно'}</span></li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ─────────────────────────── COHORT ANALYSIS ───────────────────────────
+const CohortSection: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [months, setMonths] = useState(6);
+    useEffect(() => {
+        fetch(`/api/admin/cohort?months=${months}`, { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setData);
+    }, [password, months]);
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Окно:</span>
+                {[3, 6, 12].map(m => (
+                    <button key={m} onClick={() => setMonths(m)}
+                        className={`text-sm px-3 py-1 rounded ${months === m ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>
+                        {m} мес
+                    </button>
+                ))}
+            </div>
+            <div className="overflow-x-auto bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl">
+                <table className="w-full text-sm">
+                    <thead className="bg-slate-800/40 text-xs uppercase tracking-wider text-slate-400">
+                        <tr>
+                            <th className="text-left py-2 px-3">Когорта</th>
+                            <th className="text-right py-2 px-3">Лидов</th>
+                            <th className="text-right py-2 px-3">Won в 30д</th>
+                            <th className="text-right py-2 px-3">Won в 60д</th>
+                            <th className="text-right py-2 px-3">Won в 90д</th>
+                            <th className="text-right py-2 px-3">Won всего</th>
+                            <th className="text-right py-2 px-3">Конв.</th>
+                            <th className="text-right py-2 px-3">$$$</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(data.cohorts || []).map((c: any) => {
+                            const conv = c.total > 0 ? Math.round((c.won / c.total) * 100) : 0;
+                            return (
+                                <tr key={c.cohort} className="border-t border-slate-800 hover:bg-slate-800/30">
+                                    <td className="py-2 px-3 font-mono text-slate-200">{c.cohort}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-slate-100">{c.total}</td>
+                                    <td className="py-2 px-3 text-right text-sky-300 font-mono">{c.won_in_30}</td>
+                                    <td className="py-2 px-3 text-right text-cyan-300 font-mono">{c.won_in_60}</td>
+                                    <td className="py-2 px-3 text-right text-teal-300 font-mono">{c.won_in_90}</td>
+                                    <td className="py-2 px-3 text-right text-emerald-300 font-bold font-mono">{c.won}</td>
+                                    <td className={`py-2 px-3 text-right font-bold font-mono ${conv >= 15 ? 'text-emerald-300' : conv >= 10 ? 'text-amber-300' : 'text-rose-300'}`}>{conv}%</td>
+                                    <td className="py-2 px-3 text-right text-emerald-200 font-mono">${Math.round(c.revenue).toLocaleString()}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+            <div className="text-xs text-slate-500">Когорта = месяц получения лида. Won в Nд = успешно закрыты в течение N дней после прихода.</div>
+        </div>
+    );
+};
+
+// ─────────────────────────── ROI BY SOURCE ───────────────────────────
+const SourceRoiSection: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [days, setDays] = useState(30);
+    const [editing, setEditing] = useState<Record<string, { cpl: string; budget: string }>>({});
+    const load = () => fetch(`/api/admin/source-roi?days=${days}`, { headers: { 'X-Admin-Password': password } }).then(r => r.json()).then(setData);
+    useEffect(() => { load(); }, [days]);
+
+    const saveCost = async (source: string) => {
+        const e = editing[source];
+        if (!e) return;
+        await fetch('/api/admin/source-cost', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify({ source, cost_per_lead: parseFloat(e.cpl) || 0, monthly_budget: parseFloat(e.budget) || 0 }),
+        });
+        setEditing(p => { const c = { ...p }; delete c[source]; return c; });
+        load();
+    };
+
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Окно:</span>
+                {[7, 30, 90].map(d => (
+                    <button key={d} onClick={() => setDays(d)}
+                        className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>
+                        {d} дн
+                    </button>
+                ))}
+            </div>
+            <div className="overflow-x-auto bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl">
+                <table className="w-full text-sm">
+                    <thead className="bg-slate-800/40 text-xs uppercase tracking-wider text-slate-400">
+                        <tr>
+                            <th className="text-left py-2 px-3">Источник</th>
+                            <th className="text-right py-2 px-3">Лидов</th>
+                            <th className="text-right py-2 px-3">Won</th>
+                            <th className="text-right py-2 px-3">Выручка</th>
+                            <th className="text-right py-2 px-3">CPL $</th>
+                            <th className="text-right py-2 px-3">Бюджет $</th>
+                            <th className="text-right py-2 px-3">Потрачено</th>
+                            <th className="text-right py-2 px-3">ROI</th>
+                            <th className="text-right py-2 px-3 w-32">&nbsp;</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(data.sources || []).map((s: any) => {
+                            const e = editing[s.source];
+                            const editingNow = !!e;
+                            const roi = s.spend > 0 ? Math.round((s.revenue / s.spend) * 100) / 100 : null;
+                            return (
+                                <tr key={s.source} className="border-t border-slate-800">
+                                    <td className="py-2 px-3 text-slate-100">{s.source}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-slate-200">{s.total}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-emerald-300">{s.won}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-emerald-200">${Math.round(s.revenue).toLocaleString()}</td>
+                                    <td className="py-2 px-3 text-right">
+                                        {editingNow ? (
+                                            <input className="w-20 text-right bg-slate-800/60 border border-slate-700 px-1.5 py-0.5 text-slate-100 rounded text-xs" value={e.cpl} onChange={ev => setEditing(p => ({ ...p, [s.source]: { ...p[s.source], cpl: ev.target.value } }))} />
+                                        ) : <span className="font-mono text-slate-300">${s.cpl}</span>}
+                                    </td>
+                                    <td className="py-2 px-3 text-right">
+                                        {editingNow ? (
+                                            <input className="w-24 text-right bg-slate-800/60 border border-slate-700 px-1.5 py-0.5 text-slate-100 rounded text-xs" value={e.budget} onChange={ev => setEditing(p => ({ ...p, [s.source]: { ...p[s.source], budget: ev.target.value } }))} />
+                                        ) : <span className="font-mono text-slate-300">${s.budget}</span>}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-mono text-amber-300">${Math.round(s.spend).toLocaleString()}</td>
+                                    <td className={`py-2 px-3 text-right font-bold font-mono ${roi == null ? 'text-slate-500' : roi >= 3 ? 'text-emerald-300' : roi >= 1 ? 'text-amber-300' : 'text-rose-300'}`}>{roi == null ? '—' : `${roi}x`}</td>
+                                    <td className="py-2 px-3 text-right">
+                                        {editingNow ? (
+                                            <>
+                                                <button onClick={() => saveCost(s.source)} className="text-xs bg-sky-600 hover:bg-sky-500 text-white px-2 py-0.5 rounded">✓</button>
+                                                <button onClick={() => setEditing(p => { const c = { ...p }; delete c[s.source]; return c; })} className="text-xs ml-1 text-slate-500">×</button>
+                                            </>
+                                        ) : (
+                                            <button onClick={() => setEditing(p => ({ ...p, [s.source]: { cpl: String(s.cpl), budget: String(s.budget) } }))} className="text-xs text-sky-300 hover:underline">✎ цена</button>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── ROUTING RULES ───────────────────────────
+const RoutingRulesSection: React.FC<{ password: string }> = ({ password }) => {
+    const [rules, setRules] = useState<any[]>([]);
+    const [managers, setManagers] = useState<any[]>([]);
+    const [draft, setDraft] = useState({ priority: 100, match_country: '', match_source: '', match_study_level: '', match_min_english: '', assign_to_manager_id: '' });
+
+    const load = async () => {
+        const r = await fetch('/api/admin/routing-rules', { headers: { 'X-Admin-Password': password } }).then(r => r.json());
+        setRules(r.rules || []);
+        const m = await fetch('/api/admin/managers', { headers: { 'X-Admin-Password': password } }).then(r => r.json());
+        setManagers(m.managers || []);
+    };
+    useEffect(() => { load(); }, []);
+
+    const save = async (payload: any) => {
+        await fetch('/api/admin/routing-rules', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(payload),
+        });
+        load();
+    };
+    const remove = async (id: number) => {
+        if (!confirm('Удалить правило?')) return;
+        await fetch(`/api/admin/routing-rules/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        load();
+    };
+
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-500">Правила распределения новых лидов. Срабатывает первое подходящее (по сортировке priority). Если ни одно не подошло — обычный round-robin.</p>
+            {rules.length === 0 && <div className="text-sm text-slate-500 italic">Правил пока нет</div>}
+            {rules.map(r => (
+                <div key={r.id} className="bg-slate-800/40 border border-slate-800 rounded-lg p-3 flex items-center gap-2 flex-wrap text-sm">
+                    <span className="font-mono text-xs text-slate-400 bg-slate-900 px-2 py-0.5 rounded">p={r.priority}</span>
+                    {r.match_country && <span className="text-slate-200">🌍 {r.match_country}</span>}
+                    {r.match_source && <span className="text-slate-200">🏷 {r.match_source}</span>}
+                    {r.match_study_level && <span className="text-slate-200">📚 {r.match_study_level}</span>}
+                    {r.match_min_english && <span className="text-slate-200">🇬🇧 ≥{r.match_min_english}</span>}
+                    <span className="text-sky-300">→ {r.manager_name || '— нет —'}</span>
+                    {!r.active && <span className="text-xs text-rose-400">[неактивно]</span>}
+                    <button onClick={() => remove(r.id)} className="ml-auto text-xs text-rose-400 hover:underline">удалить</button>
+                </div>
+            ))}
+            <div className="border-t border-slate-800 pt-3 mt-3 space-y-2">
+                <div className="text-xs uppercase font-semibold text-slate-400">+ Новое правило</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                    <input placeholder="Приоритет (10-1000)" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded" value={draft.priority} onChange={e => setDraft(p => ({ ...p, priority: Number(e.target.value) }))} />
+                    <input placeholder="Страна (например, Япония)" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded" value={draft.match_country} onChange={e => setDraft(p => ({ ...p, match_country: e.target.value }))} />
+                    <input placeholder="Источник" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded" value={draft.match_source} onChange={e => setDraft(p => ({ ...p, match_source: e.target.value }))} />
+                    <input placeholder="Уровень программы" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded" value={draft.match_study_level} onChange={e => setDraft(p => ({ ...p, match_study_level: e.target.value }))} />
+                    <input placeholder="Мин. английский (B2)" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded" value={draft.match_min_english} onChange={e => setDraft(p => ({ ...p, match_min_english: e.target.value }))} />
+                    <select className="bg-slate-800/60 text-slate-100 border border-slate-700 px-2 py-1.5 rounded" value={draft.assign_to_manager_id} onChange={e => setDraft(p => ({ ...p, assign_to_manager_id: e.target.value }))}>
+                        <option value="">→ выбрать менеджера</option>
+                        {managers.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+                    </select>
+                </div>
+                <button onClick={() => {
+                    if (!draft.assign_to_manager_id) return alert('Выберите менеджера');
+                    save({ ...draft, active: true });
+                    setDraft({ priority: 100, match_country: '', match_source: '', match_study_level: '', match_min_english: '', assign_to_manager_id: '' });
+                }} className="bg-sky-600 hover:bg-sky-500 text-white text-sm px-4 py-1.5 rounded font-medium">+ Добавить правило</button>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── QUICK REPLIES CRUD ───────────────────────────
+const QuickRepliesSection: React.FC<{ password: string }> = ({ password }) => {
+    const [items, setItems] = useState<any[]>([]);
+    const [editing, setEditing] = useState<any>({ title: '', body: '', channel: 'whatsapp', sort: 100 });
+    const load = () => fetch('/api/admin/quick-replies', { headers: { 'X-Admin-Password': password } }).then(r => r.json()).then(j => setItems(j.replies || []));
+    useEffect(() => { load(); }, []);
+    const save = async () => {
+        if (!editing.title || !editing.body) return;
+        await fetch('/api/admin/quick-replies', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(editing),
+        });
+        setEditing({ title: '', body: '', channel: 'whatsapp', sort: 100 });
+        load();
+    };
+    const remove = async (id: number) => {
+        if (!confirm('Удалить шаблон?')) return;
+        await fetch(`/api/admin/quick-replies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        load();
+    };
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-500">Шаблоны быстрых ответов для менеджеров в карточке лида. Поддерживаются плейсхолдеры: <code className="text-sky-300">{'{manager}'}</code>, <code className="text-sky-300">{'{name}'}</code>, <code className="text-sky-300">{'{amount}'}</code>.</p>
+            <div className="space-y-2">
+                {items.map(r => (
+                    <div key={r.id} className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-slate-100">{r.title}</span>
+                            <span className="text-[10px] font-mono bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded">#{r.sort}</span>
+                            <span className="text-[10px] bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded">{r.channel}</span>
+                            <button onClick={() => setEditing(r)} className="ml-auto text-xs text-sky-300 hover:underline">✎</button>
+                            <button onClick={() => remove(r.id)} className="text-xs text-rose-400 hover:underline">🗑</button>
+                        </div>
+                        <p className="text-xs text-slate-400 whitespace-pre-wrap">{r.body}</p>
+                    </div>
+                ))}
+            </div>
+            <div className="border-t border-slate-800 pt-3 space-y-2">
+                <div className="text-xs uppercase font-semibold text-slate-400">{editing.id ? '✎ Редактирование' : '+ Новый шаблон'}</div>
+                <input placeholder="Название" className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-1.5 rounded" value={editing.title} onChange={e => setEditing((p: any) => ({ ...p, title: e.target.value }))} />
+                <textarea rows={4} placeholder="Текст сообщения с плейсхолдерами {manager}, {name}…" className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-1.5 rounded text-sm" value={editing.body} onChange={e => setEditing((p: any) => ({ ...p, body: e.target.value }))} />
+                <div className="flex gap-2">
+                    <input type="number" placeholder="Сортировка" className="bg-slate-800/60 text-slate-100 border border-slate-700 px-3 py-1.5 rounded w-32" value={editing.sort} onChange={e => setEditing((p: any) => ({ ...p, sort: Number(e.target.value) }))} />
+                    <select className="bg-slate-800/60 text-slate-100 border border-slate-700 px-3 py-1.5 rounded" value={editing.channel} onChange={e => setEditing((p: any) => ({ ...p, channel: e.target.value }))}>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="telegram">Telegram</option>
+                        <option value="email">Email</option>
+                        <option value="sms">SMS</option>
+                    </select>
+                    <button onClick={save} className="bg-sky-600 hover:bg-sky-500 text-white text-sm px-4 py-1.5 rounded font-medium">{editing.id ? '💾 Обновить' : '+ Создать'}</button>
+                    {editing.id && <button onClick={() => setEditing({ title: '', body: '', channel: 'whatsapp', sort: 100 })} className="text-sm text-slate-400 hover:underline">отмена</button>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── AUDIT VIEWER ───────────────────────────
+const AuditViewer: React.FC<{ password: string }> = ({ password }) => {
+    const [events, setEvents] = useState<any[]>([]);
+    const [entity, setEntity] = useState('');
+    useEffect(() => {
+        const p = new URLSearchParams();
+        if (entity) p.set('entity_type', entity);
+        p.set('limit', '200');
+        fetch(`/api/admin/audit?${p}`, { headers: { 'X-Admin-Password': password } }).then(r => r.json()).then(j => setEvents(j.events || []));
+    }, [entity]);
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Тип:</span>
+                {[
+                    { v: '', l: 'Всё' },
+                    { v: 'lead', l: 'Лиды' },
+                    { v: 'file', l: 'Файлы' },
+                    { v: 'task', l: 'Задачи' },
+                ].map(o => (
+                    <button key={o.v} onClick={() => setEntity(o.v)}
+                        className={`text-xs px-3 py-1 rounded ${entity === o.v ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>{o.l}</button>
+                ))}
+            </div>
+            <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl divide-y divide-slate-800/60 max-h-[600px] overflow-y-auto">
+                {events.length === 0 && <div className="text-sm text-slate-500 italic p-4">События не зафиксированы</div>}
+                {events.map(e => (
+                    <div key={e.id} className="p-3 hover:bg-slate-800/30">
+                        <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500 font-mono">{new Date(e.created_at).toLocaleString('ru-RU')}</span>
+                            <span className="text-slate-300">{e.actor_name || '—'}</span>
+                            {e.actor_role === 'teamlead' && <span className="text-violet-300">👑</span>}
+                            <span className="text-sky-300 font-mono ml-auto">{e.action}</span>
+                            <span className="text-slate-400">#{e.entity_id}</span>
+                        </div>
+                        {(e.after_data || e.before_data) && (
+                            <details className="mt-1">
+                                <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-300">детали</summary>
+                                <pre className="text-[10px] text-slate-400 bg-slate-950/60 rounded p-2 mt-1 overflow-x-auto">{JSON.stringify(e.after_data || e.before_data, null, 2)}</pre>
+                            </details>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── BACKUP / CALCULATOR SHARE ───────────────────────────
+const BackupAndToolsSection: React.FC<{ password: string }> = ({ password }) => {
+    const [calcParams, setCalcParams] = useState({ country: '', isScholarship: false });
+    const calcUrl = (() => {
+        const p = new URLSearchParams();
+        if (calcParams.country) p.set('country', calcParams.country);
+        if (calcParams.isScholarship) p.set('scholarship', '1');
+        return `${typeof window !== 'undefined' ? window.location.origin : ''}/#calculator${p.toString() ? '?' + p.toString() : ''}`;
+    })();
+    const download = async () => {
+        const r = await fetch('/api/admin/backup', { headers: { 'X-Admin-Password': password } });
+        const blob = await r.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `goglobal-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(a.href);
+    };
+    return (
+        <div className="space-y-4">
+            <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
+                <div className="text-sm font-semibold text-slate-100 mb-1">💾 Полный бэкап БД</div>
+                <p className="text-xs text-slate-400 mb-3">Скачивает JSON-дамп всех таблиц CRM (лиды, менеджеры, статусы, файлы, задачи, теги, audit log, routing rules и т.д.). На случай миграции или восстановления.</p>
+                <button onClick={download} className="bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white text-sm px-4 py-2 rounded-lg font-semibold shadow-[0_0_16px_-4px_rgba(56,189,248,0.5)]">
+                    📦 Скачать полный дамп
+                </button>
+            </div>
+            <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
+                <div className="text-sm font-semibold text-slate-100 mb-1">🔗 Поделиться калькулятором с клиентом</div>
+                <p className="text-xs text-slate-400 mb-3">Сгенерируйте ссылку на калькулятор сайта с предзаполненными параметрами — пришлите клиенту в WhatsApp.</p>
+                <div className="flex gap-2 mb-2">
+                    <input placeholder="Страна (например, japan)" className="flex-grow bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-1.5 rounded text-sm" value={calcParams.country} onChange={e => setCalcParams(p => ({ ...p, country: e.target.value }))} />
+                    <label className="flex items-center gap-2 text-sm text-slate-300">
+                        <input type="checkbox" checked={calcParams.isScholarship} onChange={e => setCalcParams(p => ({ ...p, isScholarship: e.target.checked }))} />
+                        Грант
+                    </label>
+                </div>
+                <div className="flex gap-2 items-center">
+                    <code className="flex-grow text-xs text-sky-300 bg-slate-950/60 border border-slate-800 rounded px-2 py-1.5 break-all">{calcUrl}</code>
+                    <button onClick={() => { navigator.clipboard.writeText(calcUrl); alert('Скопировано'); }} className="text-xs bg-sky-600 hover:bg-sky-500 text-white px-3 py-1.5 rounded">📋 Копировать</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // ─────────────────────────── TAGS MANAGEMENT ───────────────────────────
 const TagsSection: React.FC<{ password: string }> = ({ password }) => {
     const [tags, setTags] = useState<any[] | null>(null);
@@ -2093,16 +2517,32 @@ const AdminPanel: React.FC = () => {
 
             <div className="relative z-10 max-w-7xl mx-auto p-4">
 
-                <Section title="📊 Статистика посещений" subtitle="Только публичный сайт (без админки)" defaultOpen accent="cyan">
+                <Section title="🚦 Здоровье продаж" subtitle="Светофор: SLA, конверсия, оффлайн-менеджеры, застрявшие лиды" badge="CRM" defaultOpen accent="fuchsia">
+                    <SalesHealthWidget password={password} />
+                </Section>
+
+                <Section title="📊 Статистика посещений" subtitle="Только публичный сайт (без админки)" accent="cyan">
                     <AnalyticsWidget password={password} />
                 </Section>
 
-                <Section title="📈 Дашборд CRM" subtitle="Метрики, конверсия, SLA, экспорт" badge="CRM" defaultOpen accent="fuchsia">
+                <Section title="📈 Дашборд CRM" subtitle="Метрики, конверсия, SLA, экспорт, Sales Forecast" badge="CRM" defaultOpen accent="fuchsia">
                     <CRMDashboard password={password} />
+                </Section>
+
+                <Section title="📆 Когортный анализ" subtitle="Удержание и конверсия лидов по месяцам поступления" badge="CRM" accent="cyan">
+                    <CohortSection password={password} />
+                </Section>
+
+                <Section title="💸 ROI по источникам" subtitle="Cost-per-Lead, бюджет, потрачено, окупаемость" badge="CRM" accent="amber">
+                    <SourceRoiSection password={password} />
                 </Section>
 
                 <Section title="🧑‍💼 Менеджеры по продажам (CRM)" subtitle="Логин/пароль для входа на /lidy + рабочие часы + увольнение" badge="CRM" accent="fuchsia">
                     <ManagersSection password={password} />
+                </Section>
+
+                <Section title="🤖 Авто-распределение лидов" subtitle="Правила: страна / источник / уровень → менеджер" badge="CRM" accent="violet">
+                    <RoutingRulesSection password={password} />
                 </Section>
 
                 <Section title="🎯 Статусы лидов" subtitle="Что менеджер выбирает в карточке лида" badge="CRM" accent="violet">
@@ -2111,6 +2551,18 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🏷 Метки клиентов" subtitle="Цветные ярлыки для категоризации (горячий, VIP, грант и т.д.)" badge="CRM" accent="red">
                     <TagsSection password={password} />
+                </Section>
+
+                <Section title="📨 Шаблоны быстрых ответов" subtitle="Готовые сообщения для менеджеров в WhatsApp/Telegram (с плейсхолдерами)" badge="CRM" accent="cyan">
+                    <QuickRepliesSection password={password} />
+                </Section>
+
+                <Section title="🕒 Журнал аудита" subtitle="Кто что менял в системе — лиды, файлы, статусы, передачи" badge="CRM" accent="amber">
+                    <AuditViewer password={password} />
+                </Section>
+
+                <Section title="🛠 Утилиты и бэкапы" subtitle="Полный дамп БД + шаринг калькулятора с клиентом" badge="CRM" accent="violet">
+                    <BackupAndToolsSection password={password} />
                 </Section>
 
                 <Section title="📋 Все лиды (обзор)" subtitle="Полный список лидов и статистика по менеджерам" badge="CRM" accent="amber">
