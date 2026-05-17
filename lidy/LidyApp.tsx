@@ -151,10 +151,10 @@ function formatMoney(value: number | string | null | undefined, currency = 'USD'
 }
 
 function scoreColor(score: number | null | undefined): string {
-    if (!score || score < 30) return 'bg-slate-100 text-slate-600 border-slate-200';
-    if (score < 60) return 'bg-amber-100 text-amber-700 border-amber-300';
-    if (score < 85) return 'bg-orange-100 text-orange-700 border-orange-300';
-    return 'bg-rose-100 text-rose-700 border-rose-300';
+    if (!score || score < 30) return 'bg-slate-800/70 text-slate-300 border-slate-800';
+    if (score < 60) return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
+    if (score < 85) return 'bg-orange-100 text-orange-300 border-orange-300';
+    return 'bg-rose-500/20 text-rose-300 border-rose-500/40';
 }
 
 function scoreEmoji(score: number | null | undefined): string {
@@ -179,10 +179,10 @@ function initials(name: string): string {
 
 // Stable colour from name → consistent avatar background
 function colourFromName(name: string): string {
-    const palette = ['bg-emerald-100 text-emerald-700', 'bg-sky-100 text-sky-700',
-        'bg-amber-100 text-amber-700', 'bg-rose-100 text-rose-700',
-        'bg-violet-100 text-violet-700', 'bg-teal-100 text-teal-700',
-        'bg-orange-100 text-orange-700', 'bg-slate-200 text-slate-700'];
+    const palette = ['bg-emerald-500/20 text-emerald-300', 'bg-sky-500/20 text-sky-300',
+        'bg-amber-500/20 text-amber-300', 'bg-rose-500/20 text-rose-300',
+        'bg-violet-500/20 text-violet-300', 'bg-teal-100 text-teal-700',
+        'bg-orange-100 text-orange-300', 'bg-slate-700 text-slate-200'];
     let h = 0;
     for (const c of name || '') h = (h * 31 + c.charCodeAt(0)) | 0;
     return palette[Math.abs(h) % palette.length];
@@ -190,32 +190,32 @@ function colourFromName(name: string): string {
 
 function sourceMeta(source: string): { label: string; icon: string; bg: string; ring: string } {
     const s = (source || '').toLowerCase();
-    if (s.includes('whatsapp')) return { label: source || 'WhatsApp', icon: '💬', bg: 'bg-green-50 text-green-800 border-green-200', ring: 'ring-green-200' };
-    if (s.includes('instagram')) return { label: source || 'Instagram', icon: '📷', bg: 'bg-pink-50 text-pink-800 border-pink-200', ring: 'ring-pink-200' };
-    if (s.includes('email') || s.includes('mail')) return { label: source || 'Email', icon: '✉', bg: 'bg-sky-50 text-sky-800 border-sky-200', ring: 'ring-sky-200' };
-    if (s.includes('сайт') || s.includes('site') || s.includes('apply')) return { label: source || 'Сайт', icon: '🌐', bg: 'bg-slate-50 text-slate-700 border-slate-200', ring: 'ring-slate-200' };
-    if (s.includes('реклама') || s.includes('ad')) return { label: source || 'Реклама', icon: '📢', bg: 'bg-amber-50 text-amber-800 border-amber-200', ring: 'ring-amber-200' };
-    if (s.includes('друз') || s.includes('referral')) return { label: source || 'Друзья', icon: '👥', bg: 'bg-violet-50 text-violet-800 border-violet-200', ring: 'ring-violet-200' };
-    return { label: source || '—', icon: '🏷', bg: 'bg-slate-100 text-slate-700 border-slate-200', ring: 'ring-slate-200' };
+    if (s.includes('whatsapp')) return { label: source || 'WhatsApp', icon: '💬', bg: 'bg-green-500/10 text-green-300 border-green-500/30', ring: 'ring-green-500/30' };
+    if (s.includes('instagram')) return { label: source || 'Instagram', icon: '📷', bg: 'bg-pink-500/10 text-pink-300 border-pink-500/30', ring: 'ring-pink-500/30' };
+    if (s.includes('email') || s.includes('mail')) return { label: source || 'Email', icon: '✉', bg: 'bg-sky-500/10 text-sky-300 border-sky-500/30', ring: 'ring-sky-500/30' };
+    if (s.includes('сайт') || s.includes('site') || s.includes('apply')) return { label: source || 'Сайт', icon: '🌐', bg: 'bg-slate-800/40 text-slate-200 border-slate-700', ring: 'ring-slate-500/30' };
+    if (s.includes('реклама') || s.includes('ad')) return { label: source || 'Реклама', icon: '📢', bg: 'bg-amber-500/10 text-amber-300 border-amber-500/30', ring: 'ring-amber-500/30' };
+    if (s.includes('друз') || s.includes('referral')) return { label: source || 'Друзья', icon: '👥', bg: 'bg-violet-500/10 text-violet-300 border-violet-500/30', ring: 'ring-violet-500/30' };
+    return { label: source || '—', icon: '🏷', bg: 'bg-slate-800/70 text-slate-200 border-slate-700', ring: 'ring-slate-500/30' };
 }
 
 // SLA chip
 function slaChip(deadlineIso: string | null, processedIso?: string | null): { text: string; cls: string } {
-    if (processedIso) return { text: '✓ обработан', cls: 'bg-emerald-50 text-emerald-700 border border-emerald-200' };
-    if (!deadlineIso) return { text: 'в очереди', cls: 'bg-amber-50 text-amber-700 border border-amber-200' };
+    if (processedIso) return { text: '✓ обработан', cls: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' };
+    if (!deadlineIso) return { text: 'в очереди', cls: 'bg-amber-500/10 text-amber-300 border border-amber-500/30' };
     const ms = new Date(deadlineIso).getTime() - Date.now();
     if (ms < 0) {
         const overMin = Math.round(-ms / 60000);
         const h = Math.floor(overMin / 60);
         const m = overMin % 60;
-        return { text: `⚠ просрочен ${h ? `${h}ч ` : ''}${m}м`, cls: 'bg-rose-50 text-rose-700 border border-rose-200 font-semibold' };
+        return { text: `⚠ просрочен ${h ? `${h}ч ` : ''}${m}м`, cls: 'bg-rose-500/10 text-rose-300 border border-rose-500/30 font-semibold' };
     }
     const tot = Math.round(ms / 60000);
     const h = Math.floor(tot / 60);
     const m = tot % 60;
     return {
         text: `${h ? `${h}ч ` : ''}${m}м до SLA`,
-        cls: h < 1 ? 'bg-orange-50 text-orange-700 border border-orange-200' : 'bg-slate-100 text-slate-600 border border-slate-200',
+        cls: h < 1 ? 'bg-orange-500/10 text-orange-300 border border-orange-500/30' : 'bg-slate-800/70 text-slate-300 border border-slate-800',
     };
 }
 
@@ -255,16 +255,16 @@ const Avatar: React.FC<{ name: string; size?: 'sm' | 'md' | 'lg' }> = ({ name, s
 };
 
 const Pill: React.FC<{ children: React.ReactNode; cls?: string }> = ({ children, cls }) => (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md ${cls || 'bg-slate-100 text-slate-700'}`}>{children}</span>
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md ${cls || 'bg-slate-800/70 text-slate-200'}`}>{children}</span>
 );
 
 const Btn: React.FC<{ children: React.ReactNode; onClick?: any; variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success'; disabled?: boolean; type?: 'button' | 'submit'; title?: string; className?: string }> = ({ children, onClick, variant = 'secondary', disabled, type = 'button', title, className }) => {
     const map: Record<string, string> = {
-        primary: 'bg-sky-600 hover:bg-sky-700 text-white shadow-sm hover:shadow disabled:bg-sky-300',
-        secondary: 'bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 shadow-sm hover:shadow disabled:opacity-50',
-        ghost: 'hover:bg-slate-100 text-slate-700 disabled:opacity-50',
-        danger: 'bg-rose-500 hover:bg-rose-600 text-white shadow-sm disabled:opacity-50',
-        success: 'bg-emerald-500 hover:bg-sky-600 text-white shadow-sm disabled:opacity-50',
+        primary: 'bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white shadow-[0_0_20px_-4px_rgba(56,189,248,0.5)] border border-sky-400/40 disabled:opacity-50',
+        secondary: 'bg-slate-800/70 hover:bg-slate-700 border border-slate-700 text-slate-100 disabled:opacity-50',
+        ghost: 'hover:bg-slate-800/70 text-slate-300 disabled:opacity-50',
+        danger: 'bg-rose-500 hover:bg-rose-400 text-white shadow-[0_0_16px_-4px_rgba(244,63,94,0.5)] disabled:opacity-50',
+        success: 'bg-emerald-500 hover:bg-emerald-400 text-white shadow-[0_0_16px_-4px_rgba(16,185,129,0.5)] disabled:opacity-50',
     };
     return (
         <button type={type} disabled={disabled} onClick={onClick} title={title}
@@ -276,11 +276,12 @@ const Btn: React.FC<{ children: React.ReactNode; onClick?: any; variant?: 'prima
 
 const StatusBadge: React.FC<{ code: string; label?: string; color?: string }> = ({ code, label, color }) => (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md border" style={{
-        backgroundColor: color ? `${color}15` : '#f5f5f4',
-        borderColor: color ? `${color}40` : '#e7e5e4',
-        color: color || '#44403c',
+        backgroundColor: color ? `${color}22` : 'rgba(148,163,184,0.15)',
+        borderColor: color ? `${color}55` : 'rgba(148,163,184,0.3)',
+        color: color || '#cbd5e1',
+        textShadow: color ? `0 0 12px ${color}55` : undefined,
     }}>
-        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color || '#a8a29e' }} />
+        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color || '#94a3b8', boxShadow: color ? `0 0 6px ${color}` : undefined }} />
         {label || code}
     </span>
 );
@@ -307,31 +308,34 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
         finally { setLoading(false); }
     };
     return (
-        <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, #f1f5f9 0%, #e0f2fe 50%, #ede9fe 100%)' }}>
-            <div className="absolute inset-0 opacity-40 pointer-events-none" style={{
-                backgroundImage: `radial-gradient(circle at 20% 30%, rgba(56,189,248,0.18), transparent 50%),
-                                  radial-gradient(circle at 80% 70%, rgba(139,92,246,0.12), transparent 50%),
-                                  linear-gradient(90deg, transparent 49.5%, rgba(56,189,248,0.04) 50%, transparent 50.5%)`,
-                backgroundSize: '100% 100%, 100% 100%, 40px 40px',
+        <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden text-slate-100"
+            style={{ background: 'radial-gradient(ellipse at center, #0f172a 0%, #020617 50%, #000 100%)' }}>
+            <div className="absolute inset-0 opacity-50 pointer-events-none" style={{
+                backgroundImage: `radial-gradient(circle at 20% 30%, rgba(56,189,248,0.25), transparent 50%),
+                                  radial-gradient(circle at 80% 70%, rgba(168,85,247,0.18), transparent 50%)`,
             }} />
-            <form onSubmit={submit} className="relative bg-white/95 backdrop-blur rounded-2xl shadow-2xl border border-slate-200 p-8 w-full max-w-md">
-                <div className="flex items-center gap-3 mb-6 pb-5 border-b border-slate-100">
+            <div className="absolute inset-0 opacity-[0.08] pointer-events-none" style={{
+                backgroundImage: `linear-gradient(rgba(56,189,248,0.4) 1px, transparent 1px),
+                                  linear-gradient(90deg, rgba(56,189,248,0.4) 1px, transparent 1px)`,
+                backgroundSize: '32px 32px',
+            }} />
+            <form onSubmit={submit} className="relative bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8),0_0_40px_-12px_rgba(56,189,248,0.4)] border border-sky-500/20 p-8 w-full max-w-md">
+                <div className="flex items-center gap-3 mb-6 pb-5 border-b border-slate-800/60">
                     <img src="/ppp.png" alt="" className="w-11 h-auto" />
                     <div>
-                        <h1 className="text-xl font-bold text-slate-900">GoGlobal CRM</h1>
-                        <p className="text-sm text-slate-500">Вход для менеджеров</p>
+                        <h1 className="text-xl font-bold bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">GoGlobal CRM</h1>
+                        <p className="text-sm text-slate-400">Вход для менеджеров</p>
                     </div>
                 </div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Логин</label>
+                <label className="block text-sm font-medium text-slate-200 mb-1.5">Логин</label>
                 <input type="text" autoFocus autoComplete="username"
-                    className="w-full bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition"
+                    className="w-full bg-slate-800/50 border border-slate-700 text-slate-100 placeholder-slate-500 px-4 py-2.5 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 focus:bg-slate-800 transition"
                     value={login} onChange={e => setLogin(e.target.value)} />
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Пароль</label>
+                <label className="block text-sm font-medium text-slate-200 mb-1.5">Пароль</label>
                 <input type="password" autoComplete="current-password"
-                    className="w-full bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition"
+                    className="w-full bg-slate-800/50 border border-slate-700 text-slate-100 placeholder-slate-500 px-4 py-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 focus:bg-slate-800 transition"
                     value={password} onChange={e => setPassword(e.target.value)} />
-                {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg px-3 py-2 mb-4">⚠ {error}</div>}
+                {error && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm rounded-lg px-3 py-2 mb-4">⚠ {error}</div>}
                 <Btn type="submit" variant="primary" disabled={loading} className="w-full !py-2.5">
                     {loading ? 'Вход…' : 'Войти'}
                 </Btn>
@@ -351,7 +355,7 @@ const AppointmentForm: React.FC<{
     const [at, setAt] = useState('');
     const [until, setUntil] = useState('');
     return (
-        <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 space-y-3">
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 space-y-3">
             <div className="text-sm font-semibold text-cyan-900">📅 Когда клиент подойдёт в офис?</div>
             <div className="flex gap-2">
                 {[
@@ -361,22 +365,22 @@ const AppointmentForm: React.FC<{
                 ].map(o => (
                     <button key={o.v} type="button"
                         onClick={() => setKind(o.v as any)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${kind === o.v ? 'bg-cyan-600 text-white border-cyan-700' : 'bg-white text-cyan-800 border-cyan-200 hover:bg-cyan-50'}`}>
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${kind === o.v ? 'bg-cyan-600 text-white border-cyan-700' : 'bg-slate-900/60 backdrop-blur-sm text-cyan-800 border-cyan-500/30 hover:bg-cyan-500/10'}`}>
                         {o.l}
                     </button>
                 ))}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label className="text-xs text-slate-600">
+                <label className="text-xs text-slate-300">
                     <span className="block mb-1">{kind === 'within_day' ? 'Дата' : 'С (дата и время)'}</span>
                     <input type={kind === 'within_day' ? 'date' : 'datetime-local'} value={at} onChange={e => setAt(e.target.value)}
-                        className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white" />
+                        className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm" />
                 </label>
                 {kind === 'range' && (
-                    <label className="text-xs text-slate-600">
+                    <label className="text-xs text-slate-300">
                         <span className="block mb-1">По (дата и время)</span>
                         <input type="datetime-local" value={until} onChange={e => setUntil(e.target.value)}
-                            className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white" />
+                            className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm" />
                     </label>
                 )}
             </div>
@@ -399,15 +403,15 @@ const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ le
     const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
     return (
-        <tr className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer ${isIncomingTransfer ? 'bg-fuchsia-50/50' : ''}`} onClick={onOpen}>
+        <tr className={`border-b border-slate-800/60 hover:bg-slate-800/40 cursor-pointer ${isIncomingTransfer ? 'bg-fuchsia-50/50' : ''}`} onClick={onOpen}>
             <td className="py-2 px-3"><Avatar name={lead.name} size="sm" /></td>
             <td className="py-2 px-3">
-                <div className="font-medium text-slate-900">{lead.name || '— без имени —'}</div>
-                <div className="text-xs text-slate-500">#{lead.id} · {formatRel(lead.received_at)}</div>
+                <div className="font-medium text-slate-50">{lead.name || '— без имени —'}</div>
+                <div className="text-xs text-slate-400">#{lead.id} · {formatRel(lead.received_at)}</div>
             </td>
             <td className="py-2 px-3 text-sm">
                 {lead.phone && <div className="font-mono">{lead.phone}</div>}
-                {lead.email && <div className="text-xs text-slate-500 truncate max-w-[200px]">{lead.email}</div>}
+                {lead.email && <div className="text-xs text-slate-400 truncate max-w-[200px]">{lead.email}</div>}
             </td>
             <td className="py-2 px-3">
                 <div className="flex flex-col gap-1">
@@ -420,17 +424,17 @@ const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ le
                     <span>{sm.icon}</span> {sm.label}
                 </span>
             </td>
-            <td className="py-2 px-3 text-sm text-slate-700">{lead.country || '—'}</td>
-            <td className="py-2 px-3 text-sm text-slate-700">
+            <td className="py-2 px-3 text-sm text-slate-200">{lead.country || '—'}</td>
+            <td className="py-2 px-3 text-sm text-slate-200">
                 {lead.manager_name || <span className="text-slate-400 italic">не назначен</span>}
-                {lead.manager_archived_at && <Pill cls="bg-slate-200 text-slate-600 ml-1">уволен</Pill>}
+                {lead.manager_archived_at && <Pill cls="bg-slate-700 text-slate-300 ml-1">уволен</Pill>}
             </td>
             <td className="py-2 px-3"><Pill cls={sla.cls}>{sla.text}</Pill></td>
             <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center gap-1">
                     {wa && <a href={wa} target="_blank" rel="noopener noreferrer" title="WhatsApp" className="text-[#25D366] hover:bg-green-50 p-1.5 rounded">💬</a>}
-                    {lead.phone && <a href={`tel:${lead.phone}`} title="Позвонить" className="text-slate-600 hover:bg-slate-100 p-1.5 rounded">📞</a>}
-                    {lead.email && <a href={`mailto:${lead.email}`} title="Email" className="text-slate-600 hover:bg-slate-100 p-1.5 rounded">✉</a>}
+                    {lead.phone && <a href={`tel:${lead.phone}`} title="Позвонить" className="text-slate-300 hover:bg-slate-800/70 p-1.5 rounded">📞</a>}
+                    {lead.email && <a href={`mailto:${lead.email}`} title="Email" className="text-slate-300 hover:bg-slate-800/70 p-1.5 rounded">✉</a>}
                 </div>
             </td>
         </tr>
@@ -447,15 +451,15 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
     return (
         <div onClick={onOpen}
-            className={`bg-white border rounded-2xl p-4 hover:shadow-md transition-all cursor-pointer relative ${isIncomingTransfer ? 'border-fuchsia-300 ring-2 ring-fuchsia-200' : 'border-slate-200'}`}>
+            className={`group bg-slate-900/60 backdrop-blur-md border rounded-2xl p-4 hover:bg-slate-800/60 hover:border-sky-500/40 hover:shadow-[0_8px_32px_-8px_rgba(56,189,248,0.25)] transition-all cursor-pointer relative ${isIncomingTransfer ? 'border-fuchsia-500/50 shadow-[0_0_24px_-4px_rgba(217,70,239,0.4)]' : 'border-slate-800'}`}>
             {isIncomingTransfer && (
                 <div className="absolute -top-2 -right-2 bg-fuchsia-500 text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shadow">передано</div>
             )}
             <div className="flex items-start gap-3 mb-3">
                 <Avatar name={lead.name} />
                 <div className="flex-grow min-w-0">
-                    <div className="font-semibold text-slate-900 truncate">{lead.name || '— без имени —'}</div>
-                    <div className="text-xs text-slate-500">#{lead.id} · {formatRel(lead.received_at)}</div>
+                    <div className="font-semibold text-slate-50 truncate">{lead.name || '— без имени —'}</div>
+                    <div className="text-xs text-slate-400">#{lead.id} · {formatRel(lead.received_at)}</div>
                 </div>
                 <div className="flex flex-col gap-1 items-end">
                     <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
@@ -463,18 +467,18 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
                 </div>
             </div>
             <div className="space-y-1 text-sm">
-                {lead.phone && <div className="font-mono text-slate-700">📞 {lead.phone}</div>}
-                {lead.email && <div className="text-slate-600 truncate">✉ {lead.email}</div>}
-                {lead.country && <div className="text-slate-600">🌍 {lead.country}</div>}
-                {lead.desired_university && <div className="text-slate-600 text-xs truncate">🎓 {lead.desired_university}</div>}
+                {lead.phone && <div className="font-mono text-slate-200">📞 {lead.phone}</div>}
+                {lead.email && <div className="text-slate-300 truncate">✉ {lead.email}</div>}
+                {lead.country && <div className="text-slate-300">🌍 {lead.country}</div>}
+                {lead.desired_university && <div className="text-slate-300 text-xs truncate">🎓 {lead.desired_university}</div>}
             </div>
-            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-slate-800/60">
                 <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border ${sm.bg}`}>
                     {sm.icon} {sm.label}
                 </span>
                 <Pill cls={sla.cls}>{sla.text}</Pill>
                 {lead.deal_value && (
-                    <Pill cls="bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+                    <Pill cls="bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-semibold">
                         💰 {formatMoney(lead.deal_value, lead.deal_currency || 'USD')}
                     </Pill>
                 )}
@@ -484,12 +488,12 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
                     </Pill>
                 )}
                 {(lead.open_tasks || 0) > 0 && (
-                    <Pill cls={`border ${(lead.overdue_tasks || 0) > 0 ? 'bg-rose-50 text-rose-700 border-rose-300' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                    <Pill cls={`border ${(lead.overdue_tasks || 0) > 0 ? 'bg-rose-500/10 text-rose-300 border-rose-500/40' : 'bg-sky-500/10 text-sky-300 border-sky-500/30'}`}>
                         ✓ {lead.open_tasks} задач{(lead.overdue_tasks || 0) > 0 ? ` (${lead.overdue_tasks} просрочено)` : ''}
                     </Pill>
                 )}
                 {lead.manager_name && (
-                    <Pill cls="bg-slate-50 text-slate-600 border border-slate-200">
+                    <Pill cls="bg-slate-800/40 text-slate-300 border border-slate-800">
                         👤 {lead.manager_name}{lead.manager_archived_at && ' (уволен)'}
                     </Pill>
                 )}
@@ -536,13 +540,13 @@ const PipelineView: React.FC<{ leads: Lead[]; statuses: StatusOption[]; me: Mana
             {orderedStatuses.map(s => {
                 const list = grouped[s.code] || [];
                 return (
-                    <div key={s.code} className="bg-slate-50 border border-slate-200 rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0">
-                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200">
+                    <div key={s.code} className="bg-slate-800/40 border border-slate-800 rounded-xl p-3 min-w-[280px] w-[280px] flex-shrink-0">
+                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
                             <div className="flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color || '#a8a29e' }} />
-                                <span className="font-semibold text-sm text-slate-900">{s.label}</span>
+                                <span className="font-semibold text-sm text-slate-50">{s.label}</span>
                             </div>
-                            <span className="text-xs text-slate-500 font-mono">{list.length}</span>
+                            <span className="text-xs text-slate-400 font-mono">{list.length}</span>
                         </div>
                         <div className="space-y-2 max-h-[600px] overflow-y-auto">
                             {list.length === 0 ? (
@@ -551,19 +555,19 @@ const PipelineView: React.FC<{ leads: Lead[]; statuses: StatusOption[]; me: Mana
                                 const sla = slaChip(l.sla_deadline_at, l.processed_at);
                                 return (
                                     <div key={l.id} onClick={() => onOpen(l)}
-                                        className="bg-white border border-slate-200 rounded-lg p-2.5 cursor-pointer hover:shadow-sm transition-all hover:border-sky-300">
+                                        className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-2.5 cursor-pointer hover:shadow-sm transition-all hover:border-sky-300">
                                         <div className="flex items-start gap-2 mb-1.5">
                                             <Avatar name={l.name} size="sm" />
                                             <div className="flex-grow min-w-0">
-                                                <div className="text-sm font-medium text-slate-900 truncate">{l.name || '—'}</div>
-                                                <div className="text-[10px] text-slate-500">#{l.id} · {formatRel(l.received_at)}</div>
+                                                <div className="text-sm font-medium text-slate-50 truncate">{l.name || '—'}</div>
+                                                <div className="text-[10px] text-slate-400">#{l.id} · {formatRel(l.received_at)}</div>
                                             </div>
                                         </div>
-                                        {l.phone && <div className="font-mono text-xs text-slate-600">{l.phone}</div>}
+                                        {l.phone && <div className="font-mono text-xs text-slate-300">{l.phone}</div>}
                                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                             <Pill cls={sla.cls}>{sla.text}</Pill>
                                             {l.manager_name && (
-                                                <span className="inline-flex items-center gap-1 text-[10px] bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                                                <span className="inline-flex items-center gap-1 text-[10px] bg-slate-800/40 border border-slate-800 px-1.5 py-0.5 rounded">
                                                     <span className={`w-3 h-3 ${colourFromName(l.manager_name)} rounded-full flex items-center justify-center text-[7px] font-bold`}>{initials(l.manager_name)}</span>
                                                     {l.manager_name}
                                                 </span>
@@ -640,25 +644,25 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
             setAnchor(d);
         };
         return (
-            <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-3 flex items-center justify-between flex-wrap gap-2">
+            <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-3 shadow-sm mb-3 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                     {mode !== 'list' && (
                         <>
-                            <button onClick={() => shift(-1)} className="px-2 py-1 hover:bg-slate-100 rounded">‹</button>
-                            <button onClick={() => setAnchor(new Date())} className="text-sm px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded">сегодня</button>
-                            <button onClick={() => shift(1)} className="px-2 py-1 hover:bg-slate-100 rounded">›</button>
+                            <button onClick={() => shift(-1)} className="px-2 py-1 hover:bg-slate-800/70 rounded">‹</button>
+                            <button onClick={() => setAnchor(new Date())} className="text-sm px-3 py-1 bg-slate-800/70 hover:bg-slate-700 rounded">сегодня</button>
+                            <button onClick={() => shift(1)} className="px-2 py-1 hover:bg-slate-800/70 rounded">›</button>
                         </>
                     )}
-                    <span className="font-semibold text-slate-900 ml-2 capitalize">{title}</span>
+                    <span className="font-semibold text-slate-50 ml-2 capitalize">{title}</span>
                 </div>
-                <div className="flex bg-slate-100 rounded-lg p-0.5">
+                <div className="flex bg-slate-800/70 rounded-lg p-0.5">
                     {[
                         { v: 'list', l: '📋 Список' },
                         { v: 'week', l: '📆 Неделя' },
                         { v: 'month', l: '🗓 Месяц' },
                     ].map(o => (
                         <button key={o.v} onClick={() => setMode(o.v as any)}
-                            className={`text-sm px-3 py-1 rounded-md transition ${mode === o.v ? 'bg-white shadow-sm text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>
+                            className={`text-sm px-3 py-1 rounded-md transition ${mode === o.v ? 'bg-slate-900/60 backdrop-blur-sm shadow-sm text-slate-50' : 'text-slate-300 hover:text-slate-50'}`}>
                             {o.l}
                         </button>
                     ))}
@@ -682,23 +686,23 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
         return (
             <div>
                 {renderHeader()}
-                <div className="grid grid-cols-7 gap-1 bg-white border border-slate-200 rounded-xl p-2 shadow-sm">
+                <div className="grid grid-cols-7 gap-1 bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-2 shadow-sm">
                     {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => (
-                        <div key={d} className="text-xs font-semibold text-slate-500 text-center py-1">{d}</div>
+                        <div key={d} className="text-xs font-semibold text-slate-400 text-center py-1">{d}</div>
                     ))}
                     {cells.map(({ date, outside }, i) => {
                         const k = dateKeyOf(date);
                         const list = byDateKey.get(k) || [];
                         const isToday = k === todayKey;
                         return (
-                            <div key={i} className={`min-h-[90px] rounded-lg p-1.5 border ${outside ? 'bg-slate-50 border-slate-100 opacity-50' : isToday ? 'bg-sky-50 border-sky-300' : 'bg-white border-slate-200'} hover:border-sky-300 transition`}>
-                                <div className={`text-xs font-semibold ${isToday ? 'text-sky-700' : 'text-slate-600'}`}>{date.getDate()}</div>
+                            <div key={i} className={`min-h-[90px] rounded-lg p-1.5 border ${outside ? 'bg-slate-800/40 border-slate-800/60 opacity-50' : isToday ? 'bg-sky-500/10 border-sky-300' : 'bg-slate-900/60 backdrop-blur-sm border-slate-800'} hover:border-sky-300 transition`}>
+                                <div className={`text-xs font-semibold ${isToday ? 'text-sky-300' : 'text-slate-300'}`}>{date.getDate()}</div>
                                 <div className="space-y-0.5 mt-1">
                                     {list.slice(0, 3).map(a => {
                                         const t = new Date(a.appointment_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' });
                                         return (
                                             <button key={a.id} onClick={() => onOpen(a.id)}
-                                                className="block w-full text-left text-[10px] px-1.5 py-0.5 rounded truncate hover:bg-sky-100 transition"
+                                                className="block w-full text-left text-[10px] px-1.5 py-0.5 rounded truncate hover:bg-sky-500/20 transition"
                                                 style={{ backgroundColor: (a.status_color || '#0ea5e9') + '20', color: a.status_color || '#0369a1' }}
                                                 title={`${a.name || '—'} · ${t}`}>
                                                 <span className="font-mono mr-1">{t}</span>{a.name || '—'}
@@ -735,8 +739,8 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
                         const list = byDateKey.get(k) || [];
                         const isToday = k === todayKey;
                         return (
-                            <div key={k} className={`bg-white border ${isToday ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-200'} rounded-xl p-2 shadow-sm min-h-[140px]`}>
-                                <div className={`text-xs font-semibold mb-2 ${isToday ? 'text-sky-700' : 'text-slate-700'}`}>
+                            <div key={k} className={`bg-slate-900/60 backdrop-blur-sm border ${isToday ? 'border-sky-300 ring-2 ring-sky-500/30' : 'border-slate-800'} rounded-xl p-2 shadow-sm min-h-[140px]`}>
+                                <div className={`text-xs font-semibold mb-2 ${isToday ? 'text-sky-300' : 'text-slate-200'}`}>
                                     {d.toLocaleDateString('ru-RU', { weekday: 'short', day: '2-digit', month: 'short' })}
                                     {isToday && <span className="ml-1 text-[10px] bg-sky-600 text-white px-1.5 rounded">сегодня</span>}
                                 </div>
@@ -748,10 +752,10 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
                                             const t = new Date(a.appointment_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' });
                                             return (
                                                 <button key={a.id} onClick={() => onOpen(a.id)}
-                                                    className="block w-full text-left text-xs rounded-md p-1.5 hover:bg-sky-50 border border-slate-100">
+                                                    className="block w-full text-left text-xs rounded-md p-1.5 hover:bg-sky-500/10 border border-slate-800/60">
                                                     <div className="font-mono font-bold" style={{ color: a.status_color || '#0369a1' }}>{t}</div>
-                                                    <div className="truncate text-slate-800">{a.name || '—'}</div>
-                                                    {a.phone && <div className="text-[10px] text-slate-500">{a.phone}</div>}
+                                                    <div className="truncate text-slate-100">{a.name || '—'}</div>
+                                                    {a.phone && <div className="text-[10px] text-slate-400">{a.phone}</div>}
                                                 </button>
                                             );
                                         })}
@@ -770,9 +774,9 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
         return (
             <div>
                 {renderHeader()}
-                <div className="bg-white border border-slate-200 rounded-xl p-12 text-center shadow-sm">
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-12 text-center shadow-sm">
                     <div className="text-5xl mb-3">📅</div>
-                    <p className="text-slate-600">Запланированных визитов пока нет.</p>
+                    <p className="text-slate-300">Запланированных визитов пока нет.</p>
                     <p className="text-xs text-slate-400 mt-1">Когда менеджер выберет статус «Подойдёт в офис», встреча появится здесь.</p>
                 </div>
             </div>
@@ -788,33 +792,33 @@ const CalendarView: React.FC<{ appointments: any[]; onOpen: (id: number) => void
                 const isToday = dateKey === todayKey;
                 const weekday = date.toLocaleDateString('ru-RU', { weekday: 'long' });
                 return (
-                    <div key={dateKey} className={`bg-white border ${isToday ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-200'} rounded-xl overflow-hidden shadow-sm`}>
-                        <div className={`px-4 py-2 border-b ${isToday ? 'bg-sky-50 border-sky-200' : 'bg-slate-50 border-slate-200'}`}>
+                    <div key={dateKey} className={`bg-slate-900/60 backdrop-blur-sm border ${isToday ? 'border-sky-300 ring-2 ring-sky-500/30' : 'border-slate-800'} rounded-xl overflow-hidden shadow-sm`}>
+                        <div className={`px-4 py-2 border-b ${isToday ? 'bg-sky-500/10 border-sky-500/30' : 'bg-slate-800/40 border-slate-800'}`}>
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <span className="font-semibold text-slate-900">{dateKey}</span>
-                                    <span className="text-xs text-slate-500 ml-2">· {weekday}</span>
+                                    <span className="font-semibold text-slate-50">{dateKey}</span>
+                                    <span className="text-xs text-slate-400 ml-2">· {weekday}</span>
                                     {isToday && <span className="text-xs bg-sky-600 text-white px-2 py-0.5 rounded ml-2">сегодня</span>}
                                 </div>
-                                <span className="text-xs text-slate-500 font-mono">{list.length} визит(ов)</span>
+                                <span className="text-xs text-slate-400 font-mono">{list.length} визит(ов)</span>
                             </div>
                         </div>
-                        <div className="divide-y divide-slate-100">
+                        <div className="divide-y divide-slate-800/60">
                             {list.map(a => {
                                 const t = new Date(a.appointment_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' });
                                 const wa = a.phone ? whatsappLink(a.phone) : null;
                                 return (
-                                    <div key={a.id} className="px-4 py-3 hover:bg-slate-50 cursor-pointer flex items-center gap-3"
+                                    <div key={a.id} className="px-4 py-3 hover:bg-slate-800/40 cursor-pointer flex items-center gap-3"
                                         onClick={() => onOpen(a.id)}>
                                         <div className="text-center min-w-[60px]">
-                                            <div className="font-mono text-lg font-bold text-slate-900">{t}</div>
+                                            <div className="font-mono text-lg font-bold text-slate-50">{t}</div>
                                             {a.appointment_kind === 'within_day' && <div className="text-[10px] text-slate-400">в течение дня</div>}
                                             {a.appointment_kind === 'range' && <div className="text-[10px] text-slate-400">интервал</div>}
                                         </div>
                                         <Avatar name={a.name} size="sm" />
                                         <div className="flex-grow min-w-0">
-                                            <div className="font-medium text-slate-900 truncate">{a.name || '— без имени —'}</div>
-                                            <div className="text-xs text-slate-500 flex flex-wrap gap-x-3">
+                                            <div className="font-medium text-slate-50 truncate">{a.name || '— без имени —'}</div>
+                                            <div className="text-xs text-slate-400 flex flex-wrap gap-x-3">
                                                 {a.phone && <span className="font-mono">{a.phone}</span>}
                                                 {a.country && <span>🌍 {a.country}</span>}
                                                 {a.manager_name && <span>👤 {a.manager_name}</span>}
@@ -1104,22 +1108,22 @@ const LeadDetailDrawer: React.FC<{
 
     const isCenter = mode === 'center';
     return (
-        <div className={`fixed inset-0 z-50 ${isCenter ? 'flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-[2px]' : 'flex'}`} onClick={onClose}>
-            {!isCenter && <div className="flex-grow bg-slate-900/30 backdrop-blur-[2px]" />}
-            <div className={`bg-slate-50 overflow-y-auto shadow-2xl border-slate-200 ${isCenter
+        <div className={`fixed inset-0 z-50 ${isCenter ? 'flex items-center justify-center p-4 bg-black/70 backdrop-blur-[3px]' : 'flex'}`} onClick={onClose}>
+            {!isCenter && <div className="flex-grow bg-black/60 backdrop-blur-[3px]" />}
+            <div className={`bg-slate-950/95 backdrop-blur-xl overflow-y-auto shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8),0_0_40px_-12px_rgba(56,189,248,0.2)] border-sky-500/20 ${isCenter
                 ? 'w-full max-w-3xl max-h-[92vh] rounded-2xl border'
                 : 'w-full md:w-[640px] h-full border-l'}`}
                 onClick={e => e.stopPropagation()}>
                 {/* Header */}
-                <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-5 py-4">
+                <div className="sticky top-0 z-10 bg-slate-950/90 backdrop-blur-xl border-b border-sky-500/20 px-5 py-4">
                     <div className="flex items-start gap-3">
                         <Avatar name={lead.name} size="lg" />
                         <div className="flex-grow min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="text-xl font-bold text-slate-900 truncate">{lead.name || '— без имени —'}</h2>
+                                <h2 className="text-xl font-bold text-slate-50 truncate">{lead.name || '— без имени —'}</h2>
                                 <span className="text-sm font-mono text-slate-400">#{lead.id}</span>
                             </div>
-                            <div className="text-xs text-slate-500 mt-0.5">Поступил {formatFull(lead.received_at)}</div>
+                            <div className="text-xs text-slate-400 mt-0.5">Поступил {formatFull(lead.received_at)}</div>
                             <div className="flex items-center gap-1.5 flex-wrap mt-2">
                                 <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
                                 {lead.stage_code && <StatusBadge code={lead.stage_code} label={lead.stage_label || ''} color={lead.stage_color || '#0ea5e9'} />}
@@ -1137,7 +1141,7 @@ const LeadDetailDrawer: React.FC<{
                                 <div className="mt-2 flex flex-wrap gap-1">
                                     {sourceOptions.map(opt => (
                                         <button key={opt} onClick={() => changeSource(opt)}
-                                            className={`text-xs px-2 py-1 rounded-md border ${lead.source === opt ? 'bg-sky-600 text-white border-sky-700' : 'bg-white border-slate-300 hover:bg-slate-50'}`}>
+                                            className={`text-xs px-2 py-1 rounded-md border ${lead.source === opt ? 'bg-sky-600 text-white border-sky-700' : 'bg-slate-900/60 backdrop-blur-sm border-slate-700 hover:bg-slate-800/40'}`}>
                                             {opt}
                                         </button>
                                     ))}
@@ -1145,10 +1149,10 @@ const LeadDetailDrawer: React.FC<{
                             )}
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                            <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-2xl leading-none">×</button>
                             <button onClick={onToggleMode}
                                 title={mode === 'side' ? 'Открыть по центру' : 'Открыть сбоку'}
-                                className="text-slate-400 hover:text-slate-700 text-xs px-2 py-0.5 border border-slate-200 rounded hover:bg-slate-100">
+                                className="text-slate-400 hover:text-slate-200 text-xs px-2 py-0.5 border border-slate-800 rounded hover:bg-slate-800/70">
                                 {mode === 'side' ? '⛶ центр' : '⇥ сбоку'}
                             </button>
                         </div>
@@ -1161,17 +1165,17 @@ const LeadDetailDrawer: React.FC<{
                             💬 WhatsApp
                         </a>}
                         {lead.phone && <a href={`tel:${lead.phone}`}
-                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-700">
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-900/60 backdrop-blur-sm border border-slate-800 hover:bg-slate-800/40 text-slate-200">
                             📞 Позвонить
                         </a>}
                         {lead.email && <a href={`mailto:${lead.email}`}
-                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-700">
+                            className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-slate-900/60 backdrop-blur-sm border border-slate-800 hover:bg-slate-800/40 text-slate-200">
                             ✉ Email
                         </a>}
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex gap-1 mt-4 border-b border-slate-200 -mb-4 overflow-x-auto">
+                    <div className="flex gap-1 mt-4 border-b border-slate-800 -mb-4 overflow-x-auto">
                         {[
                             { v: 'overview', l: 'Обзор' },
                             { v: 'deal', l: '💰 Сделка' },
@@ -1180,7 +1184,7 @@ const LeadDetailDrawer: React.FC<{
                             { v: 'related', l: 'Связанные' },
                         ].map(t => (
                             <button key={t.v} onClick={() => setTab(t.v as any)}
-                                className={`px-3 py-2 text-sm font-medium border-b-2 transition whitespace-nowrap flex items-center gap-1 ${tab === t.v ? 'border-sky-600 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                                className={`px-3 py-2 text-sm font-medium border-b-2 transition whitespace-nowrap flex items-center gap-1 ${tab === t.v ? 'border-sky-600 text-sky-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
                                 {t.l}
                                 {t.badge !== undefined && (
                                     <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${(lead.overdue_tasks || 0) > 0 ? 'bg-rose-500 text-white' : 'bg-sky-500 text-white'}`}>{t.badge}</span>
@@ -1194,9 +1198,9 @@ const LeadDetailDrawer: React.FC<{
                 <div className="p-5 space-y-4">
                     {/* Transfer banners */}
                     {isIncomingTransfer && (
-                        <div className="bg-fuchsia-50 border border-fuchsia-200 rounded-xl p-4">
-                            <div className="font-semibold text-fuchsia-900">🤝 Вам передал лид {lead.pending_transfer_by_name}</div>
-                            <div className="text-sm text-fuchsia-700 mt-1">Решите за <strong>{transferCountdown}</strong>, иначе лид вернётся автору</div>
+                        <div className="bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-xl p-4">
+                            <div className="font-semibold text-fuchsia-200">🤝 Вам передал лид {lead.pending_transfer_by_name}</div>
+                            <div className="text-sm text-fuchsia-300 mt-1">Решите за <strong>{transferCountdown}</strong>, иначе лид вернётся автору</div>
                             <div className="flex gap-2 mt-3">
                                 <Btn variant="success" onClick={acceptTransfer}>✓ Принять</Btn>
                                 <Btn variant="danger" onClick={rejectTransfer}>✗ Отказать</Btn>
@@ -1204,8 +1208,8 @@ const LeadDetailDrawer: React.FC<{
                         </div>
                     )}
                     {isOutgoingTransfer && (
-                        <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 flex items-center justify-between">
-                            <div className="text-sm text-violet-900">
+                        <div className="bg-violet-500/10 border border-violet-500/30 rounded-xl p-3 flex items-center justify-between">
+                            <div className="text-sm text-violet-200">
                                 ⏱ Передан <strong>{lead.pending_transfer_to_name}</strong> — ждёт принятия (<strong>{transferCountdown}</strong>)
                             </div>
                             {(isOwner || isTeamlead) && <Btn variant="ghost" onClick={rejectTransfer}>↩ Отменить</Btn>}
@@ -1216,15 +1220,15 @@ const LeadDetailDrawer: React.FC<{
                         <>
                             {/* Status change */}
                             {canEdit && !isIncomingTransfer && (
-                                <section className="bg-white border border-slate-200 rounded-xl p-4">
+                                <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
                                     {/* Lead processing statuses */}
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🎯 Обработка лида</div>
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🎯 Обработка лида</div>
                                     <div className="flex flex-wrap gap-1.5 mb-4">
                                         {statuses.filter(s => !s.is_client_stage).map(s => (
                                             <button key={s.code} disabled={pendingStatus !== null}
                                                 onClick={() => onStatusClick(s)}
                                                 title={s.is_terminal ? 'Закрывает лид' : s.requires_appointment ? 'Запросит дату визита' : s.requires_reason ? 'Запросит причину' : ''}
-                                                className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.status_code === s.code ? 'text-white shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+                                                className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.status_code === s.code ? 'text-white shadow-sm' : 'bg-slate-900/60 backdrop-blur-sm text-slate-200 border-slate-700 hover:bg-slate-800/40'}`}
                                                 style={lead.status_code === s.code ? { backgroundColor: s.color || '#10b981', borderColor: s.color || '#10b981' } : undefined}>
                                                 {pendingStatus === s.code ? '…' : s.label}
                                                 {s.is_terminal && ' ✓'}
@@ -1236,13 +1240,13 @@ const LeadDetailDrawer: React.FC<{
                                     {/* Client pipeline stages — INDEPENDENT from status (separate field) */}
                                     {statuses.filter(s => s.is_client_stage).length > 0 && (
                                         <>
-                                            <div className="flex items-center justify-between mb-2 mt-2 pt-3 border-t border-slate-100">
-                                                <div className="text-xs uppercase tracking-wider font-semibold text-sky-700">
+                                            <div className="flex items-center justify-between mb-2 mt-2 pt-3 border-t border-slate-800/60">
+                                                <div className="text-xs uppercase tracking-wider font-semibold text-sky-300">
                                                     🎓 Этап клиента (независимо от статуса)
                                                 </div>
                                                 {lead.stage_code && (
                                                     <button onClick={() => changeStage('')} disabled={pendingStatus !== null}
-                                                        className="text-xs text-slate-400 hover:text-slate-700 hover:underline">
+                                                        className="text-xs text-slate-400 hover:text-slate-200 hover:underline">
                                                         × снять этап
                                                     </button>
                                                 )}
@@ -1252,7 +1256,7 @@ const LeadDetailDrawer: React.FC<{
                                                     <button key={s.code} disabled={pendingStatus !== null}
                                                         onClick={() => changeStage(s.code)}
                                                         title="Параллельный этап ведения клиента"
-                                                        className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.stage_code === s.code ? 'text-white shadow-sm' : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'}`}
+                                                        className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition disabled:opacity-50 ${lead.stage_code === s.code ? 'text-white shadow-sm' : 'bg-sky-500/10 text-sky-200 border-sky-500/30 hover:bg-sky-500/20'}`}
                                                         style={lead.stage_code === s.code ? { backgroundColor: s.color || '#0ea5e9', borderColor: s.color || '#0ea5e9' } : undefined}>
                                                         {pendingStatus === s.code ? '…' : s.label}
                                                     </button>
@@ -1272,10 +1276,10 @@ const LeadDetailDrawer: React.FC<{
                                         </div>
                                     )}
                                     {rejectionForStatus && (
-                                        <div className="mt-3 bg-rose-50 border border-rose-200 rounded-xl p-3">
-                                            <div className="text-sm font-semibold text-rose-900 mb-2">❌ Причина для «{statuses.find(s => s.code === rejectionForStatus.statusCode)?.label}»</div>
+                                        <div className="mt-3 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3">
+                                            <div className="text-sm font-semibold text-rose-200 mb-2">❌ Причина для «{statuses.find(s => s.code === rejectionForStatus.statusCode)?.label}»</div>
                                             <textarea autoFocus rows={3}
-                                                className="w-full text-sm border border-rose-300 rounded-lg bg-white p-2 mb-2"
+                                                className="w-full text-sm border border-rose-500/40 rounded-lg bg-slate-900/60 backdrop-blur-sm p-2 mb-2"
                                                 value={rejectionForStatus.reason}
                                                 onChange={e => setRejectionForStatus(prev => prev ? { ...prev, reason: e.target.value } : null)}
                                                 placeholder="Клиент передумал / выбрал другое агентство…" />
@@ -1295,8 +1299,8 @@ const LeadDetailDrawer: React.FC<{
 
                             {/* Appointment */}
                             {lead.appointment_at && (
-                                <section className="bg-cyan-50 border border-cyan-200 rounded-xl p-4">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-cyan-700 mb-1">📅 Запланирован визит в офис</div>
+                                <section className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-cyan-300 mb-1">📅 Запланирован визит в офис</div>
                                     <div className="text-sm text-cyan-900 font-semibold">
                                         {lead.appointment_kind === 'within_day'
                                             ? `В течение дня ${new Date(lead.appointment_at).toLocaleDateString('ru-RU')}`
@@ -1309,18 +1313,18 @@ const LeadDetailDrawer: React.FC<{
 
                             {/* Rejection reason */}
                             {lead.rejection_reason && (
-                                <section className="bg-rose-50 border border-rose-200 rounded-xl p-4">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-rose-700 mb-1">❌ Причина отказа</div>
-                                    <div className="text-sm text-rose-900">{lead.rejection_reason}</div>
+                                <section className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-rose-300 mb-1">❌ Причина отказа</div>
+                                    <div className="text-sm text-rose-200">{lead.rejection_reason}</div>
                                 </section>
                             )}
 
                             {/* Customer info card */}
-                            <section className="bg-white border border-slate-200 rounded-xl p-4">
+                            <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
                                 <div className="flex items-center justify-between mb-3">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">📋 Информация о клиенте</div>
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">📋 Информация о клиенте</div>
                                     {canEdit && (
-                                        <button onClick={() => setEditingFields(!editingFields)} className="text-xs text-sky-700 hover:underline">
+                                        <button onClick={() => setEditingFields(!editingFields)} className="text-xs text-sky-300 hover:underline">
                                             {editingFields ? 'Отмена' : 'Редактировать'}
                                         </button>
                                     )}
@@ -1335,41 +1339,41 @@ const LeadDetailDrawer: React.FC<{
                                             ['birth_year', 'Год рождения'], ['current_education', 'Текущее образование'],
                                         ].map(([k, l]) => (
                                             <label key={k}>
-                                                <span className="block text-xs text-slate-500 mb-1">{l}</span>
-                                                <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                <span className="block text-xs text-slate-400 mb-1">{l}</span>
+                                                <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                     value={(draft as any)[k]} onChange={e => setDraft(prev => ({ ...prev, [k]: e.target.value }))} />
                                             </label>
                                         ))}
                                         <label className="md:col-span-2">
-                                            <span className="block text-xs text-slate-500 mb-1">Комментарий клиента</span>
-                                            <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                            <span className="block text-xs text-slate-400 mb-1">Комментарий клиента</span>
+                                            <textarea rows={2} className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                 value={draft.comment} onChange={e => setDraft(prev => ({ ...prev, comment: e.target.value }))} />
                                         </label>
 
                                         <button type="button" onClick={() => setShowExtended(!showExtended)}
-                                            className="md:col-span-2 text-xs font-semibold text-sky-700 hover:underline text-left">
+                                            className="md:col-span-2 text-xs font-semibold text-sky-300 hover:underline text-left">
                                             {showExtended ? '▼ Скрыть' : '▶ Развернуть'} полную анкету клиента
                                         </button>
                                         {showExtended && (
                                             <>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">🎂 Дата рождения</span>
-                                                    <input type="date" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">🎂 Дата рождения</span>
+                                                    <input type="date" className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.dob_date} onChange={e => setDraft(p => ({ ...p, dob_date: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">🛂 Номер паспорта</span>
-                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">🛂 Номер паспорта</span>
+                                                    <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.passport_number} onChange={e => setDraft(p => ({ ...p, passport_number: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">🏙 Город</span>
-                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">🏙 Город</span>
+                                                    <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.city} onChange={e => setDraft(p => ({ ...p, city: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">📲 Удобный канал связи</span>
-                                                    <select className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">📲 Удобный канал связи</span>
+                                                    <select className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.preferred_channel} onChange={e => setDraft(p => ({ ...p, preferred_channel: e.target.value }))}>
                                                         <option value="">—</option>
                                                         <option value="WhatsApp">WhatsApp</option>
@@ -1380,29 +1384,29 @@ const LeadDetailDrawer: React.FC<{
                                                     </select>
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">🕐 Удобное время</span>
-                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">🕐 Удобное время</span>
+                                                    <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         placeholder="например, 18:00–20:00"
                                                         value={draft.preferred_time} onChange={e => setDraft(p => ({ ...p, preferred_time: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">👪 Родитель / опекун</span>
-                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">👪 Родитель / опекун</span>
+                                                    <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.parent_name} onChange={e => setDraft(p => ({ ...p, parent_name: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">📞 Контакт родителя</span>
-                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">📞 Контакт родителя</span>
+                                                    <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.parent_contact} onChange={e => setDraft(p => ({ ...p, parent_contact: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">💼 Профессия родителя</span>
-                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">💼 Профессия родителя</span>
+                                                    <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.parent_profession} onChange={e => setDraft(p => ({ ...p, parent_profession: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">📝 Языковой тест</span>
-                                                    <select className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">📝 Языковой тест</span>
+                                                    <select className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.language_cert_test} onChange={e => setDraft(p => ({ ...p, language_cert_test: e.target.value }))}>
                                                         <option value="">—</option>
                                                         <option value="IELTS">IELTS</option>
@@ -1416,14 +1420,14 @@ const LeadDetailDrawer: React.FC<{
                                                     </select>
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">🎯 Балл</span>
-                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">🎯 Балл</span>
+                                                    <input className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         placeholder="например, 6.5"
                                                         value={draft.language_cert_score} onChange={e => setDraft(p => ({ ...p, language_cert_score: e.target.value }))} />
                                                 </label>
                                                 <label>
-                                                    <span className="block text-xs text-slate-500 mb-1">📅 Сертификат действует до</span>
-                                                    <input type="date" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                    <span className="block text-xs text-slate-400 mb-1">📅 Сертификат действует до</span>
+                                                    <input type="date" className="w-full border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm"
                                                         value={draft.language_cert_expires} onChange={e => setDraft(p => ({ ...p, language_cert_expires: e.target.value }))} />
                                                 </label>
                                             </>
@@ -1454,8 +1458,8 @@ const LeadDetailDrawer: React.FC<{
 
                                 {/* Extended client info */}
                                 {!editingFields && (lead.dob_date || lead.passport_number || lead.city || lead.parent_name || lead.parent_contact || lead.parent_profession || lead.preferred_channel || lead.preferred_time || lead.language_cert_test || lead.language_cert_score || lead.language_cert_expires) && (
-                                    <details className="mt-3 pt-3 border-t border-slate-100">
-                                        <summary className="text-xs uppercase tracking-wider font-semibold text-slate-500 cursor-pointer hover:text-slate-700">
+                                    <details className="mt-3 pt-3 border-t border-slate-800/60">
+                                        <summary className="text-xs uppercase tracking-wider font-semibold text-slate-400 cursor-pointer hover:text-slate-200">
                                             👤 Полная анкета клиента
                                         </summary>
                                         <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm mt-3">
@@ -1476,8 +1480,8 @@ const LeadDetailDrawer: React.FC<{
 
                                 {/* Quick tags strip */}
                                 {leadTags.length > 0 && (
-                                    <div className="mt-3 pt-3 border-t border-slate-100">
-                                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">🏷 Метки</div>
+                                    <div className="mt-3 pt-3 border-t border-slate-800/60">
+                                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">🏷 Метки</div>
                                         <div className="flex flex-wrap gap-1.5">
                                             {leadTags.map(tag => (
                                                 <span key={tag.id} className="text-xs px-2.5 py-1 rounded-full text-white font-medium"
@@ -1490,22 +1494,22 @@ const LeadDetailDrawer: React.FC<{
                                 )}
 
                                 {lead.comment && (
-                                    <div className="mt-3 pt-3 border-t border-slate-100">
-                                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-1">💬 Комментарий клиента</div>
-                                        <p className="text-sm text-slate-700">{lead.comment}</p>
+                                    <div className="mt-3 pt-3 border-t border-slate-800/60">
+                                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-1">💬 Комментарий клиента</div>
+                                        <p className="text-sm text-slate-200">{lead.comment}</p>
                                     </div>
                                 )}
                             </section>
 
                             {/* Transfer / Reassign */}
                             {(isOwner || isTeamlead) && (
-                                <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
-                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">⇄ Передача лида</div>
+                                <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 space-y-3">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">⇄ Передача лида</div>
                                     {isOwner && !lead.pending_transfer_to_id && (
                                         <div>
-                                            <div className="text-xs text-slate-500 mb-1">Передать другому менеджеру (10 мин на принятие)</div>
+                                            <div className="text-xs text-slate-400 mb-1">Передать другому менеджеру (10 мин на принятие)</div>
                                             <div className="flex gap-2">
-                                                <select className="flex-grow border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-sm"
+                                                <select className="flex-grow border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm text-sm"
                                                     value={transferTo} onChange={e => setTransferTo(e.target.value)}>
                                                     <option value="">— выбрать —</option>
                                                     {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at && m.id !== me.id).map(m => (
@@ -1522,9 +1526,9 @@ const LeadDetailDrawer: React.FC<{
                                                 <Btn variant="secondary" onClick={() => doReassign(me.id)}>👤 Взять лид себе</Btn>
                                             )}
                                             <div>
-                                                <div className="text-xs text-slate-500 mb-1">Переназначить (без подтверждения)</div>
+                                                <div className="text-xs text-slate-400 mb-1">Переназначить (без подтверждения)</div>
                                                 <div className="flex gap-2">
-                                                    <select className="flex-grow border border-slate-300 rounded-lg px-2 py-1.5 bg-white text-sm"
+                                                    <select className="flex-grow border border-slate-700 rounded-lg px-2 py-1.5 bg-slate-900/60 backdrop-blur-sm text-sm"
                                                         value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
                                                         <option value="">— выбрать —</option>
                                                         {roster.filter(m => (m.active !== false) && !m.archived_at && m.id !== lead.assigned_manager_id).map(m => (
@@ -1546,25 +1550,25 @@ const LeadDetailDrawer: React.FC<{
                     )}
 
                     {tab === 'deal' && (
-                        <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">💰 Сделка</div>
+                        <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 space-y-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">💰 Сделка</div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-600">Сумма сделки</label>
+                                    <label className="text-xs font-semibold text-slate-300">Сумма сделки</label>
                                     <input type="number" min="0" step="100"
                                         disabled={!canEdit}
                                         value={dealDraft.value}
                                         onChange={e => setDealDraft(d => ({ ...d, value: e.target.value }))}
                                         placeholder="например, 12000"
-                                        className="mt-1 w-full text-base font-bold text-slate-900 border border-slate-300 rounded-lg p-2 bg-slate-50 focus:bg-white" />
+                                        className="mt-1 w-full text-base font-bold text-slate-50 border border-slate-700 rounded-lg p-2 bg-slate-800/40 focus:bg-slate-800/80" />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-600">Валюта</label>
+                                    <label className="text-xs font-semibold text-slate-300">Валюта</label>
                                     <select disabled={!canEdit}
                                         value={dealDraft.currency}
                                         onChange={e => setDealDraft(d => ({ ...d, currency: e.target.value }))}
-                                        className="mt-1 w-full text-sm border border-slate-300 rounded-lg p-2 bg-slate-50 focus:bg-white">
+                                        className="mt-1 w-full text-sm border border-slate-700 rounded-lg p-2 bg-slate-800/40 focus:bg-slate-800/80">
                                         <option value="USD">$ USD</option>
                                         <option value="EUR">€ EUR</option>
                                         <option value="KGS">⃀ KGS</option>
@@ -1572,7 +1576,7 @@ const LeadDetailDrawer: React.FC<{
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-600">Вероятность {dealDraft.probability}%</label>
+                                    <label className="text-xs font-semibold text-slate-300">Вероятность {dealDraft.probability}%</label>
                                     <input type="range" min="0" max="100" step="5"
                                         disabled={!canEdit}
                                         value={dealDraft.probability}
@@ -1583,30 +1587,30 @@ const LeadDetailDrawer: React.FC<{
 
                             {/* Forecast preview */}
                             <div className="grid grid-cols-3 gap-2 text-center">
-                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                                    <div className="text-[10px] uppercase text-slate-500 font-semibold">Pipeline</div>
-                                    <div className="text-lg font-bold text-slate-900">
+                                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                                    <div className="text-[10px] uppercase text-slate-400 font-semibold">Pipeline</div>
+                                    <div className="text-lg font-bold text-slate-50">
                                         {dealDraft.value ? `${dealDraft.currency === 'USD' ? '$' : ''}${Number(dealDraft.value).toLocaleString()}` : '—'}
                                     </div>
                                 </div>
-                                <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
-                                    <div className="text-[10px] uppercase text-sky-700 font-semibold">Взвешенно</div>
+                                <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3">
+                                    <div className="text-[10px] uppercase text-sky-300 font-semibold">Взвешенно</div>
                                     <div className="text-lg font-bold text-sky-900">
                                         {dealDraft.value
                                             ? `${dealDraft.currency === 'USD' ? '$' : ''}${Math.round(Number(dealDraft.value) * dealDraft.probability / 100).toLocaleString()}`
                                             : '—'}
                                     </div>
                                 </div>
-                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                                    <div className="text-[10px] uppercase text-emerald-700 font-semibold">Скоринг</div>
-                                    <div className="text-lg font-bold text-emerald-900">
+                                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                                    <div className="text-[10px] uppercase text-emerald-300 font-semibold">Скоринг</div>
+                                    <div className="text-lg font-bold text-emerald-200">
                                         {lead.score ?? 0}/100
                                     </div>
                                 </div>
                             </div>
 
                             {canEdit && (
-                                <div className="flex justify-end pt-2 border-t border-slate-100">
+                                <div className="flex justify-end pt-2 border-t border-slate-800/60">
                                     <Btn variant="primary" onClick={saveDeal} disabled={savingDeal}>
                                         {savingDeal ? 'Сохранение…' : '💾 Сохранить сделку'}
                                     </Btn>
@@ -1614,8 +1618,8 @@ const LeadDetailDrawer: React.FC<{
                             )}
 
                             {/* Tag picker */}
-                            <div className="pt-3 border-t border-slate-100">
-                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">🏷 Метки</div>
+                            <div className="pt-3 border-t border-slate-800/60">
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">🏷 Метки</div>
                                 {allTags.length === 0 ? (
                                     <div className="text-sm text-slate-400 italic">Меток пока нет — настройте в админке</div>
                                 ) : (
@@ -1625,7 +1629,7 @@ const LeadDetailDrawer: React.FC<{
                                             return (
                                                 <button key={tag.id} disabled={!canEdit}
                                                     onClick={() => toggleTag(tag)}
-                                                    className={`text-xs px-2.5 py-1 rounded-full border transition disabled:opacity-50 ${on ? 'text-white shadow-sm' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                                                    className={`text-xs px-2.5 py-1 rounded-full border transition disabled:opacity-50 ${on ? 'text-white shadow-sm' : 'bg-slate-900/60 backdrop-blur-sm border-slate-700 text-slate-200 hover:bg-slate-800/40'}`}
                                                     style={on ? { backgroundColor: tag.color || '#0ea5e9', borderColor: tag.color || '#0ea5e9' } : undefined}>
                                                     {tag.emoji && <span className="mr-1">{tag.emoji}</span>}
                                                     {tag.label}
@@ -1639,23 +1643,23 @@ const LeadDetailDrawer: React.FC<{
                     )}
 
                     {tab === 'tasks' && (
-                        <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">📋 Задачи</div>
+                        <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 space-y-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">📋 Задачи</div>
 
                             {canEdit && (
-                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3 space-y-2">
                                     <input type="text"
                                         placeholder="Что нужно сделать? (например, «Перезвонить в среду»)"
                                         value={newTaskTitle}
                                         onChange={e => setNewTaskTitle(e.target.value)}
-                                        className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white" />
+                                        className="w-full text-sm border border-slate-700 rounded-lg p-2 bg-slate-900/60 backdrop-blur-sm" />
                                     <div className="flex gap-2 items-end">
                                         <div className="flex-grow">
-                                            <label className="text-[10px] text-slate-500 uppercase font-semibold">Срок</label>
+                                            <label className="text-[10px] text-slate-400 uppercase font-semibold">Срок</label>
                                             <input type="datetime-local"
                                                 value={newTaskDue}
                                                 onChange={e => setNewTaskDue(e.target.value)}
-                                                className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white" />
+                                                className="w-full text-sm border border-slate-700 rounded-lg p-2 bg-slate-900/60 backdrop-blur-sm" />
                                         </div>
                                         <Btn variant="primary" onClick={createTask} disabled={!newTaskTitle.trim() || !newTaskDue}>
                                             ＋ Добавить
@@ -1675,15 +1679,15 @@ const LeadDetailDrawer: React.FC<{
                                         const due = new Date(t.due_at);
                                         const overdue = !done && due.getTime() < Date.now();
                                         return (
-                                            <div key={t.id} className={`flex items-start gap-3 border rounded-lg p-3 ${done ? 'bg-slate-50 border-slate-200 opacity-60' : overdue ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
+                                            <div key={t.id} className={`flex items-start gap-3 border rounded-lg p-3 ${done ? 'bg-slate-800/40 border-slate-800 opacity-60' : overdue ? 'bg-rose-500/10 border-rose-500/30' : 'bg-slate-900/60 backdrop-blur-sm border-slate-800'}`}>
                                                 <button onClick={() => toggleTask(t)}
-                                                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${done ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-300 hover:border-emerald-500'}`}>
+                                                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${done ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-slate-900/60 backdrop-blur-sm border-slate-700 hover:border-emerald-500'}`}>
                                                     {done && '✓'}
                                                 </button>
                                                 <div className="flex-grow min-w-0">
-                                                    <div className={`text-sm font-medium ${done ? 'line-through text-slate-500' : 'text-slate-900'}`}>{t.title}</div>
+                                                    <div className={`text-sm font-medium ${done ? 'line-through text-slate-400' : 'text-slate-50'}`}>{t.title}</div>
                                                     <div className="flex items-center gap-2 mt-0.5 text-xs">
-                                                        <span className={overdue && !done ? 'text-rose-700 font-semibold' : 'text-slate-500'}>
+                                                        <span className={overdue && !done ? 'text-rose-300 font-semibold' : 'text-slate-400'}>
                                                             ⏰ {formatFull(t.due_at)} {overdue && !done && '— просрочено'}
                                                         </span>
                                                     </div>
@@ -1703,8 +1707,8 @@ const LeadDetailDrawer: React.FC<{
                     )}
 
                     {tab === 'activity' && (
-                        <section className="bg-white border border-slate-200 rounded-xl p-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">📜 История событий</div>
+                        <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">📜 История событий</div>
                             <div className="space-y-3">
                                 {comments === null ? (
                                     <div className="text-sm text-slate-400">Загрузка…</div>
@@ -1716,20 +1720,20 @@ const LeadDetailDrawer: React.FC<{
                                             <Avatar name={c.author_name} size="sm" />
                                             <div className="flex-grow">
                                                 <div className="flex items-baseline gap-2 flex-wrap">
-                                                    <span className="font-semibold text-sm text-slate-900">{c.author_name}</span>
-                                                    {c.author_role === 'teamlead' && <Pill cls="bg-violet-100 text-violet-700">тимлид</Pill>}
+                                                    <span className="font-semibold text-sm text-slate-50">{c.author_name}</span>
+                                                    {c.author_role === 'teamlead' && <Pill cls="bg-violet-500/20 text-violet-300">тимлид</Pill>}
                                                     <span className="text-xs text-slate-400 ml-auto">{formatRel(c.created_at)}</span>
                                                 </div>
-                                                <p className="text-sm text-slate-700 whitespace-pre-wrap mt-0.5">{c.body}</p>
+                                                <p className="text-sm text-slate-200 whitespace-pre-wrap mt-0.5">{c.body}</p>
                                             </div>
                                         </div>
                                     ))
                                 )}
                             </div>
                             {canEdit && (
-                                <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2">
+                                <div className="mt-4 pt-4 border-t border-slate-800/60 flex gap-2">
                                     <textarea rows={2}
-                                        className="flex-grow text-sm border border-slate-300 rounded-lg bg-slate-50 focus:bg-white p-2"
+                                        className="flex-grow text-sm border border-slate-700 rounded-lg bg-slate-800/40 focus:bg-slate-800/80 p-2"
                                         value={newComment} onChange={e => setNewComment(e.target.value)}
                                         placeholder="Оставить комментарий…" />
                                     <Btn variant="primary" onClick={submitComment} disabled={!newComment.trim()}>
@@ -1741,8 +1745,8 @@ const LeadDetailDrawer: React.FC<{
                     )}
 
                     {tab === 'related' && (
-                        <section className="bg-white border border-slate-200 rounded-xl p-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">
+                        <section className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">
                                 🔗 Тот же клиент (по телефону или email)
                             </div>
                             {related === null ? (
@@ -1752,12 +1756,12 @@ const LeadDetailDrawer: React.FC<{
                             ) : (
                                 <div className="space-y-2">
                                     {related.map((r: any) => (
-                                        <div key={r.id} className="border border-slate-200 rounded-lg p-3 hover:bg-slate-50">
+                                        <div key={r.id} className="border border-slate-800 rounded-lg p-3 hover:bg-slate-800/40">
                                             <div className="flex items-center gap-3">
                                                 <Avatar name={r.name} size="sm" />
                                                 <div className="flex-grow min-w-0">
-                                                    <div className="text-sm font-medium text-slate-900">{r.name || '— без имени —'} <span className="text-xs text-slate-400">#{r.id}</span></div>
-                                                    <div className="text-xs text-slate-500">
+                                                    <div className="text-sm font-medium text-slate-50">{r.name || '— без имени —'} <span className="text-xs text-slate-400">#{r.id}</span></div>
+                                                    <div className="text-xs text-slate-400">
                                                         {r.phone && <span className="font-mono">{r.phone}</span>}
                                                         {r.phone && r.email && <span> · </span>}
                                                         {r.email}
@@ -1765,7 +1769,7 @@ const LeadDetailDrawer: React.FC<{
                                                 </div>
                                                 <StatusBadge code={r.status_code} label={r.status_label} color={r.status_color} />
                                             </div>
-                                            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500">
+                                            <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-400">
                                                 <span>{formatRel(r.received_at)}</span>
                                                 {r.manager_name && <span>· 👤 {r.manager_name}</span>}
                                                 {r.source && <span>· 🏷 {r.source}</span>}
@@ -1784,8 +1788,8 @@ const LeadDetailDrawer: React.FC<{
 
 const Field: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
     <div>
-        <dt className="text-xs text-slate-500">{label}</dt>
-        <dd className={`text-sm ${value ? 'text-slate-900 font-medium' : 'text-slate-400 italic'}`}>{value || '—'}</dd>
+        <dt className="text-xs text-slate-400">{label}</dt>
+        <dd className={`text-sm ${value ? 'text-slate-50 font-medium' : 'text-slate-400 italic'}`}>{value || '—'}</dd>
     </div>
 );
 
@@ -1827,13 +1831,13 @@ const CreateLeadModal: React.FC<{
     };
     return (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full my-8" onClick={e => e.stopPropagation()}>
-                <div className="border-b border-slate-200 px-5 py-4 flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-slate-900">📞 Создать лид вручную</h3>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
+            <div className="bg-slate-900/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-800 max-w-2xl w-full my-8" onClick={e => e.stopPropagation()}>
+                <div className="border-b border-slate-800 px-5 py-4 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-slate-50">📞 Создать лид вручную</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-2xl leading-none">×</button>
                 </div>
                 <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                    {error && <div className="md:col-span-2 bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-lg">⚠ {error}</div>}
+                    {error && <div className="md:col-span-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 p-2 rounded-lg">⚠ {error}</div>}
                     {[
                         ['name', 'Имя', 'Айбек', 'text'], ['phone', 'Телефон', '+996…', 'tel'],
                         ['email', 'Email', 'mail@…', 'email'], ['country', 'Страна', 'США', 'text'],
@@ -1841,14 +1845,14 @@ const CreateLeadModal: React.FC<{
                         ['budget', 'Бюджет', '$15k–30k', 'text'], ['english_level', 'Английский', 'B2 / IELTS 6.5', 'text'],
                     ].map(([k, l, ph, t]) => (
                         <label key={k}>
-                            <span className="block text-xs text-slate-500 mb-1">{l}</span>
-                            <input type={t} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                            <span className="block text-xs text-slate-400 mb-1">{l}</span>
+                            <input type={t} className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                 placeholder={ph} value={(form as any)[k]} onChange={e => set(k, e.target.value)} />
                         </label>
                     ))}
                     <label className="md:col-span-2">
-                        <span className="block text-xs text-slate-500 mb-1">Источник <span className="text-rose-500">*</span></span>
-                        <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                        <span className="block text-xs text-slate-400 mb-1">Источник <span className="text-rose-500">*</span></span>
+                        <select className="w-full border border-slate-700 rounded-lg px-3 py-2 bg-slate-900/60 backdrop-blur-sm"
                             value={form.source} onChange={e => set('source', e.target.value)}>
                             <option value="">— выберите —</option>
                             {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1856,8 +1860,8 @@ const CreateLeadModal: React.FC<{
                     </label>
                     {isTeamlead && (
                         <label className="md:col-span-2">
-                            <span className="block text-xs text-slate-500 mb-1">Назначить (по умолчанию — себе)</span>
-                            <select className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                            <span className="block text-xs text-slate-400 mb-1">Назначить (по умолчанию — себе)</span>
+                            <select className="w-full border border-slate-700 rounded-lg px-3 py-2 bg-slate-900/60 backdrop-blur-sm"
                                 value={form.assigned_manager_id} onChange={e => set('assigned_manager_id', e.target.value)}>
                                 <option value="">— себе —</option>
                                 {roster.filter(m => m.role === 'manager' && (m.active !== false) && !m.archived_at).map(m => (
@@ -1867,12 +1871,12 @@ const CreateLeadModal: React.FC<{
                         </label>
                     )}
                     <label className="md:col-span-2">
-                        <span className="block text-xs text-slate-500 mb-1">Комментарий</span>
-                        <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                        <span className="block text-xs text-slate-400 mb-1">Комментарий</span>
+                        <textarea rows={2} className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                             value={form.comment} onChange={e => set('comment', e.target.value)} />
                     </label>
                 </div>
-                <div className="border-t border-slate-200 px-5 py-3 flex justify-end gap-2">
+                <div className="border-t border-slate-800 px-5 py-3 flex justify-end gap-2">
                     <Btn variant="ghost" onClick={onClose}>Отмена</Btn>
                     <Btn variant="primary" onClick={submit} disabled={saving}>{saving ? 'Сохранение…' : '💾 Создать'}</Btn>
                 </div>
@@ -1885,12 +1889,12 @@ const CreateLeadModal: React.FC<{
 //  ROSTER PANEL (teamlead-only)
 // ═════════════════════════════════════════════════════════════════════
 const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
-    <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">👥 Команда — 30 дней</div>
+    <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
+        <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">👥 Команда — 30 дней</div>
         <div className="overflow-x-auto">
             <table className="w-full text-sm">
                 <thead>
-                    <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                    <tr className="text-left text-xs text-slate-400 border-b border-slate-800">
                         <th className="py-2">Менеджер</th>
                         <th className="text-center">Статус</th>
                         <th className="text-right">Всего</th>
@@ -1901,17 +1905,17 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
                 </thead>
                 <tbody>
                     {roster.map(m => (
-                        <tr key={m.id} className={`border-b border-slate-100 ${m.archived_at ? 'opacity-50' : ''}`}>
+                        <tr key={m.id} className={`border-b border-slate-800/60 ${m.archived_at ? 'opacity-50' : ''}`}>
                             <td className="py-2">
                                 <div className="flex items-center gap-2">
                                     <Avatar name={m.full_name} size="sm" />
                                     <div>
-                                        <div className="font-medium text-slate-900">
+                                        <div className="font-medium text-slate-50">
                                             {m.full_name}
-                                            {m.role === 'teamlead' && <Pill cls="bg-violet-100 text-violet-700 ml-1">тимлид</Pill>}
-                                            {m.archived_at && <Pill cls="bg-slate-200 text-slate-600 ml-1">УВОЛЕН</Pill>}
+                                            {m.role === 'teamlead' && <Pill cls="bg-violet-500/20 text-violet-300 ml-1">тимлид</Pill>}
+                                            {m.archived_at && <Pill cls="bg-slate-700 text-slate-300 ml-1">УВОЛЕН</Pill>}
                                         </div>
-                                        <div className="text-xs text-slate-500 font-mono">{m.login}</div>
+                                        <div className="text-xs text-slate-400 font-mono">{m.login}</div>
                                     </div>
                                 </div>
                             </td>
@@ -1922,8 +1926,8 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
                             </td>
                             <td className="text-right font-mono">{m.total30 ?? 0}</td>
                             <td className="text-right font-mono">{m.open ?? 0}</td>
-                            <td className="text-right font-mono text-emerald-700">{m.closed30 ?? 0}</td>
-                            <td className={`text-right font-mono ${(m.overdue ?? 0) > 0 ? 'text-rose-700 font-bold' : 'text-slate-400'}`}>{m.overdue ?? 0}</td>
+                            <td className="text-right font-mono text-emerald-300">{m.closed30 ?? 0}</td>
+                            <td className={`text-right font-mono ${(m.overdue ?? 0) > 0 ? 'text-rose-300 font-bold' : 'text-slate-400'}`}>{m.overdue ?? 0}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -2098,46 +2102,50 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     };
 
     return (
-        <div className="min-h-screen flex flex-col relative" style={{ background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' }}>
-            <div className="fixed inset-0 pointer-events-none opacity-[0.05] z-0" style={{
-                backgroundImage: `linear-gradient(rgba(15,23,42,0.6) 1px, transparent 1px),
-                                  linear-gradient(90deg, rgba(15,23,42,0.6) 1px, transparent 1px)`,
+        <div className="min-h-screen flex flex-col relative text-slate-100" style={{ background: 'radial-gradient(ellipse at top, #0f172a 0%, #020617 60%, #000 100%)' }}>
+            <div className="fixed inset-0 pointer-events-none opacity-[0.07] z-0" style={{
+                backgroundImage: `linear-gradient(rgba(56,189,248,0.4) 1px, transparent 1px),
+                                  linear-gradient(90deg, rgba(56,189,248,0.4) 1px, transparent 1px)`,
                 backgroundSize: '32px 32px',
             }} />
+            {/* Glow orbs */}
+            <div className="fixed top-[10%] -left-[5%] w-[400px] h-[400px] rounded-full opacity-15 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.6) 0%, transparent 70%)' }} />
+            <div className="fixed bottom-[15%] -right-[5%] w-[400px] h-[400px] rounded-full opacity-10 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.6) 0%, transparent 70%)' }} />
+
             {/* Top bar */}
-            <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
+            <header className="sticky top-0 z-30 bg-slate-950/85 backdrop-blur-xl border-b border-sky-500/20 shadow-[0_4px_24px_-8px_rgba(56,189,248,0.25)]">
                 <div className="max-w-[1600px] mx-auto px-4 py-2.5 flex items-center gap-3">
                     <button onClick={() => setSidebarOpen(!sidebarOpen)}
-                        className="p-2 hover:bg-slate-100 rounded-lg" title={sidebarOpen ? 'Свернуть фильтры' : 'Развернуть фильтры'}>
-                        <span className="block w-5 h-0.5 bg-slate-700 mb-1" />
-                        <span className="block w-5 h-0.5 bg-slate-700 mb-1" />
-                        <span className="block w-5 h-0.5 bg-slate-700" />
+                        className="p-2 hover:bg-slate-800/60 rounded-lg transition" title={sidebarOpen ? 'Свернуть фильтры' : 'Развернуть фильтры'}>
+                        <span className="block w-5 h-0.5 bg-slate-300 mb-1" />
+                        <span className="block w-5 h-0.5 bg-slate-300 mb-1" />
+                        <span className="block w-5 h-0.5 bg-slate-300" />
                     </button>
                     <img src="/ppp.png" alt="" className="h-7 w-auto" />
                     <div className="hidden md:block">
-                        <div className="font-bold text-slate-900 leading-none">CRM</div>
-                        <div className="text-xs text-slate-500">{manager.full_name}{isTeamlead && ' · тимлид'}</div>
+                        <div className="font-bold leading-none bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">CRM</div>
+                        <div className="text-xs text-slate-400">{manager.full_name}{isTeamlead && ' · тимлид'}</div>
                     </div>
                     {/* Search */}
                     <div className="flex-grow max-w-2xl relative">
                         <input value={search} onChange={e => setSearch(e.target.value)}
                             placeholder="🔍 Поиск по имени, телефону, email, ВУЗу, комментарию…"
-                            className="w-full bg-slate-100 hover:bg-slate-50 focus:bg-white border border-slate-200 focus:border-sky-400 focus:ring-2 focus:ring-sky-100 rounded-xl px-4 py-2 text-sm transition outline-none" />
+                            className="w-full bg-slate-800/70 hover:bg-slate-800/40 focus:bg-slate-800/80 border border-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 rounded-xl px-4 py-2 text-sm transition outline-none" />
                         {search && (
-                            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">×</button>
+                            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">×</button>
                         )}
                     </div>
                     {/* Actions */}
                     <div className="flex items-center gap-1.5">
                         <button onClick={toggleOnline} disabled={togglingOnline}
                             title={isOnline ? 'Я в сети — лиды распределяются' : 'Я не в сети — лиды не идут'}
-                            className={`inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition ${isOnline ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'}`}>
+                            className={`inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg transition ${isOnline ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20' : 'bg-slate-800/70 text-slate-300 border border-slate-800 hover:bg-slate-700'}`}>
                             <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
                             <span className="hidden md:inline">{isOnline ? 'В сети' : 'Не в сети'}</span>
                         </button>
                         <button onClick={() => setAutoRefresh(!autoRefresh)}
                             title={autoRefresh ? 'Автообновление вкл (15с)' : 'Автообновление выкл'}
-                            className={`p-2 rounded-lg ${autoRefresh ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                            className={`p-2 rounded-lg ${autoRefresh ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-slate-900/60 backdrop-blur-sm border border-slate-800 text-slate-300 hover:bg-slate-800/40'}`}>
                             <svg className={`w-4 h-4 ${autoRefresh ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         </button>
                         <Btn variant="secondary" onClick={load} title="Обновить вручную">↻</Btn>
@@ -2152,18 +2160,18 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             <div className="flex flex-grow">
                 {/* Sidebar */}
                 {sidebarOpen && (
-                    <aside className="w-72 flex-shrink-0 bg-white border-r border-slate-200 p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
+                    <aside className="w-72 flex-shrink-0 bg-slate-900/60 backdrop-blur-sm border-r border-slate-800 p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
                         {/* Scope */}
                         {isTeamlead && (
                             <div>
-                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Просмотр</div>
-                                <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Просмотр</div>
+                                <div className="flex bg-slate-800/70 p-0.5 rounded-lg">
                                     <button onClick={() => setScope('all')}
-                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'all' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>
+                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'all' ? 'bg-slate-900/60 backdrop-blur-sm shadow-sm text-slate-50' : 'text-slate-300 hover:text-slate-50'}`}>
                                         Все
                                     </button>
                                     <button onClick={() => setScope('mine')}
-                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'mine' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>
+                                        className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${scope === 'mine' ? 'bg-slate-900/60 backdrop-blur-sm shadow-sm text-slate-50' : 'text-slate-300 hover:text-slate-50'}`}>
                                         Мои
                                     </button>
                                 </div>
@@ -2172,15 +2180,15 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Quick filters */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Быстрые фильтры</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Быстрые фильтры</div>
                             <div className="space-y-1.5">
                                 <button onClick={() => setOverdueOnly(!overdueOnly)}
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${overdueOnly ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${overdueOnly ? 'bg-rose-500/10 text-rose-300 border border-rose-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
                                     <span>⏰ Просроченные</span>
                                     {overdueOnly && <span>✓</span>}
                                 </button>
                                 <button onClick={() => setIncludeClosed(!includeClosed)}
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${includeClosed ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
+                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${includeClosed ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
                                     <span>📂 Показать закрытые</span>
                                     {includeClosed && <span>✓</span>}
                                 </button>
@@ -2189,9 +2197,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Status filter */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Статус</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Статус</div>
                             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm">
                                 <option value="">Все статусы</option>
                                 {statuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                             </select>
@@ -2199,9 +2207,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Source */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Источник</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Источник</div>
                             <select value={filterSource} onChange={e => setFilterSource(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm">
                                 <option value="">Все источники</option>
                                 {sourceOptions.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
@@ -2209,9 +2217,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Country */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Страна</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Страна</div>
                             <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm">
                                 <option value="">Все страны</option>
                                 {uniqueCountries.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
@@ -2219,17 +2227,17 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* University */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Университет</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Университет</div>
                             <input type="text" value={filterUniversity} onChange={e => setFilterUniversity(e.target.value)}
                                 placeholder="Поиск по названию…"
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                                className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm" />
                         </div>
 
                         {/* Level */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Уровень программы</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Уровень программы</div>
                             <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm">
                                 <option value="">Все уровни</option>
                                 {STUDY_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
                             </select>
@@ -2238,9 +2246,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         {/* Manager filter (teamlead, all scope) */}
                         {isTeamlead && scope === 'all' && (
                             <div>
-                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Менеджер</div>
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Менеджер</div>
                                 <select value={filterManagerId} onChange={e => setFilterManagerId(e.target.value)}
-                                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white">
+                                    className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm">
                                     <option value="">Все</option>
                                     {roster.filter(m => m.role === 'manager').map(m => (
                                         <option key={m.id} value={m.id}>{m.full_name}{m.archived_at ? ' (уволен)' : ''}</option>
@@ -2251,12 +2259,12 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                         {/* Date range */}
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">Дата получения</div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Дата получения</div>
                             <div className="space-y-1.5">
                                 <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)}
-                                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                                    className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm" />
                                 <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)}
-                                    className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white" />
+                                    className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900/60 backdrop-blur-sm" />
                             </div>
                         </div>
 
@@ -2272,26 +2280,26 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                 <main className="flex-grow p-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
                     {/* KPI tiles */}
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
-                            <div className="text-xs text-slate-500 uppercase tracking-wider">Всего</div>
-                            <div className="text-2xl font-bold text-slate-900 mt-0.5">{counters.total}</div>
+                        <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-slate-400 uppercase tracking-wider">Всего</div>
+                            <div className="text-2xl font-bold text-slate-50 mt-0.5">{counters.total}</div>
                             {lastRefresh && <div className="text-[10px] text-slate-400 mt-1">обн: {new Date(lastRefresh).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>}
                         </div>
-                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 shadow-sm">
-                            <div className="text-xs text-amber-700 uppercase tracking-wider">Открытых</div>
-                            <div className="text-2xl font-bold text-amber-900 mt-0.5">{counters.open}</div>
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-amber-300 uppercase tracking-wider">Открытых</div>
+                            <div className="text-2xl font-bold text-amber-200 mt-0.5">{counters.open}</div>
                         </div>
-                        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 shadow-sm">
-                            <div className="text-xs text-rose-700 uppercase tracking-wider">Просрочено</div>
-                            <div className="text-2xl font-bold text-rose-900 mt-0.5">{counters.overdue}</div>
+                        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-rose-300 uppercase tracking-wider">Просрочено</div>
+                            <div className="text-2xl font-bold text-rose-200 mt-0.5">{counters.overdue}</div>
                         </div>
-                        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 shadow-sm">
-                            <div className="text-xs text-orange-700 uppercase tracking-wider">В очереди</div>
-                            <div className="text-2xl font-bold text-orange-900 mt-0.5">{counters.queued}</div>
+                        <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-3 shadow-sm">
+                            <div className="text-xs text-orange-300 uppercase tracking-wider">В очереди</div>
+                            <div className="text-2xl font-bold text-orange-200 mt-0.5">{counters.queued}</div>
                         </div>
-                        <div className={`border rounded-xl p-3 shadow-sm transition ${counters.incoming > 0 ? 'bg-fuchsia-50 border-fuchsia-300 animate-pulse' : 'bg-slate-50 border-slate-200'}`}>
-                            <div className="text-xs text-fuchsia-700 uppercase tracking-wider">Передачи мне</div>
-                            <div className="text-2xl font-bold text-fuchsia-900 mt-0.5">{counters.incoming}</div>
+                        <div className={`border rounded-xl p-3 shadow-sm transition ${counters.incoming > 0 ? 'bg-fuchsia-500/10 border-fuchsia-500/40 animate-pulse' : 'bg-slate-800/40 border-slate-800'}`}>
+                            <div className="text-xs text-fuchsia-300 uppercase tracking-wider">Передачи мне</div>
+                            <div className="text-2xl font-bold text-fuchsia-200 mt-0.5">{counters.incoming}</div>
                         </div>
                     </div>
 
@@ -2308,7 +2316,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             </div>
                             <div className="flex gap-2 text-xs">
                                 {myDay.overdueTasksTotal > 0 && (
-                                    <div className="bg-rose-500/20 border border-rose-300/30 backdrop-blur rounded-lg px-3 py-1.5 font-semibold">
+                                    <div className="bg-rose-500/20 border border-rose-500/40 backdrop-blur rounded-lg px-3 py-1.5 font-semibold">
                                         🔥 {myDay.overdueTasksTotal} просрочено
                                     </div>
                                 )}
@@ -2353,11 +2361,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                     {/* Header bar: results count + view switcher */}
                     <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="text-sm text-slate-600">
+                        <div className="text-sm text-slate-300">
                             {loading ? 'Загрузка…' : `Найдено: ${leads.length}`}
                             {search.trim() && <span className="ml-2 text-slate-400">по запросу «{search.trim()}»</span>}
                         </div>
-                        <div className="flex bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
+                        <div className="flex bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-0.5 shadow-sm">
                             {[
                                 { v: 'cards', l: '🪟 Карточки' },
                                 { v: 'table', l: '📋 Таблица' },
@@ -2365,16 +2373,16 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                 { v: 'calendar', l: '📅 Календарь' },
                             ].map(o => (
                                 <button key={o.v} onClick={() => setView(o.v as any)}
-                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800/70'}`}>
                                     {o.l}
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">⚠ {error}</div>}
+                    {error && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 px-4 py-3 rounded-xl text-sm">⚠ {error}</div>}
                     {!isOnline && (
-                        <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm">
+                        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 px-4 py-3 rounded-xl text-sm">
                             ⚪ Вы не в сети — новые лиды не распределяются. Переключите тумблер «Не в сети» в шапке.
                         </div>
                     )}
@@ -2382,9 +2390,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     {loading ? (
                         <div className="text-center py-12 text-slate-400">Загрузка…</div>
                     ) : leads.length === 0 ? (
-                        <div className="bg-white border border-slate-200 rounded-xl p-8 text-center">
+                        <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-8 text-center">
                             <div className="text-5xl mb-3">📭</div>
-                            <p className="text-slate-600">
+                            <p className="text-slate-300">
                                 {activeFiltersCount > 0 || search ? 'Нет лидов под текущие фильтры' : (scope === 'mine' ? 'У вас пока нет лидов' : 'Лидов пока нет')}
                             </p>
                             {(activeFiltersCount > 0 || search) && (
@@ -2392,9 +2400,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             )}
                         </div>
                     ) : view === 'table' ? (
-                        <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto shadow-sm">
+                        <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl overflow-x-auto shadow-sm">
                             <table className="w-full text-sm">
-                                <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
+                                <thead className="bg-slate-800/40 text-xs uppercase tracking-wider text-slate-400">
                                     <tr>
                                         <th className="py-2 px-3 text-left w-10"></th>
                                         <th className="py-2 px-3 text-left">Клиент</th>
@@ -2476,7 +2484,7 @@ const LidyApp: React.FC = () => {
         }).catch(() => {});
     }, []);
 
-    if (checking) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Загрузка…</div>;
+    if (checking) return <div className="min-h-screen flex items-center justify-center bg-slate-800/40 text-slate-400">Загрузка…</div>;
     if (!manager) return <LoginScreen onAuthed={setManager} />;
 
     return <Dashboard manager={manager} onLogout={() => setManager(null)} onMeUpdate={setManager} sourceOptions={sourceOptions} />;

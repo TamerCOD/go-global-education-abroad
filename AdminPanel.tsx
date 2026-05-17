@@ -7,22 +7,22 @@ import { DEFAULT_VISIBILITY, DEFAULT_REGIONS } from './types';
 // =====================================================================
 
 // Material + light neumorphism tokens (was brutalist)
-const A_SHADOW = 'shadow-[0_4px_24px_-6px_rgba(15,23,42,0.12),0_1px_3px_rgba(15,23,42,0.05)]';
-const A_SHADOW_HOVER = 'hover:shadow-[0_10px_28px_-6px_rgba(15,23,42,0.18)] hover:-translate-y-[1px]';
-const A_BORDER = 'border border-slate-200/80';
-const A_BTN = `${A_BORDER} rounded-xl ${A_SHADOW} ${A_SHADOW_HOVER} active:translate-y-[1px] active:shadow-sm transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
-const A_CARD = `bg-white ${A_BORDER} rounded-2xl ${A_SHADOW}`;
+const A_SHADOW = 'shadow-[0_8px_32px_-12px_rgba(0,0,0,0.6),0_2px_6px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.04)]';
+const A_SHADOW_HOVER = 'hover:shadow-[0_16px_48px_-12px_rgba(56,189,248,0.25),0_4px_12px_rgba(0,0,0,0.5)] hover:-translate-y-[1px]';
+const A_BORDER = 'border border-slate-700/60';
+const A_BTN = `${A_BORDER} bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-xl ${A_SHADOW} ${A_SHADOW_HOVER} active:translate-y-[1px] active:shadow-sm transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
+const A_CARD = `bg-slate-900/60 backdrop-blur-sm ${A_BORDER} rounded-2xl ${A_SHADOW}`;
 const SECTION_BG: Record<string, string> = {
-    'CRM': 'bg-fuchsia-100',
-    'аналитика': 'bg-cyan-100',
-    'видимость': 'bg-lime-100',
-    'контент': 'bg-amber-100',
+    'CRM': 'bg-sky-500/20',
+    'аналитика': 'bg-cyan-500/20',
+    'видимость': 'bg-emerald-500/20',
+    'контент': 'bg-amber-500/20',
 };
 
 const ATooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
     <span className="relative inline-flex group">
         {children}
-        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 rounded-md border border-slate-200">
+        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 rounded-md border border-slate-800">
             {text}
         </span>
     </span>
@@ -38,31 +38,31 @@ const Section: React.FC<{
 }> = ({ title, subtitle, defaultOpen = false, children, badge, accent }) => {
     const [open, setOpen] = useState(defaultOpen);
     const accentBg: Record<string, string> = {
-        lime: 'bg-lime-300',
-        cyan: 'bg-cyan-300',
-        fuchsia: 'bg-fuchsia-300',
-        amber: 'bg-amber-300',
-        violet: 'bg-violet-300',
-        red: 'bg-red-400',
+        lime: 'bg-gradient-to-r from-emerald-500/30 via-emerald-500/20 to-transparent',
+        cyan: 'bg-gradient-to-r from-cyan-500/30 via-cyan-500/20 to-transparent',
+        fuchsia: 'bg-gradient-to-r from-fuchsia-500/30 via-fuchsia-500/20 to-transparent',
+        amber: 'bg-gradient-to-r from-amber-500/30 via-amber-500/20 to-transparent',
+        violet: 'bg-gradient-to-r from-violet-500/30 via-violet-500/20 to-transparent',
+        red: 'bg-gradient-to-r from-rose-500/30 via-rose-500/20 to-transparent',
     };
-    const headerBg = accent ? accentBg[accent] : 'bg-yellow-100';
+    const headerBg = accent ? accentBg[accent] : 'bg-gradient-to-r from-sky-500/30 via-sky-500/20 to-transparent';
     return (
         <div className={`${A_CARD} mb-4 overflow-hidden`}>
             <button
                 type="button"
                 onClick={() => setOpen(!open)}
-                className={`w-full flex items-center justify-between px-5 py-3 text-left ${headerBg} hover:brightness-95 transition-all border-b border-slate-200`}
+                className={`w-full flex items-center justify-between px-5 py-3 text-left ${headerBg} hover:brightness-95 transition-all border-b border-slate-800`}
             >
                 <div>
                     <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="text-lg font-black uppercase tracking-tight">{title}</h2>
                         {badge && <span className={`text-[10px] bg-black text-lime-300 px-2 py-0.5 font-mono uppercase tracking-widest`}>{badge}</span>}
                     </div>
-                    {subtitle && <p className="text-sm text-slate-700 mt-0.5 font-mono">{subtitle}</p>}
+                    {subtitle && <p className="text-sm text-slate-200 mt-0.5 font-mono">{subtitle}</p>}
                 </div>
                 <span className={`text-2xl transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
             </button>
-            {open && <div className="p-5 bg-white">{children}</div>}
+            {open && <div className="p-5 bg-slate-900/60 backdrop-blur-sm">{children}</div>}
         </div>
     );
 };
@@ -105,13 +105,13 @@ const ImageInput: React.FC<{
     return (
         <div className="flex gap-2 items-center">
             {value ? (
-                <img src={value} alt="" className="w-12 h-12 object-cover rounded border bg-slate-100 shrink-0" />
+                <img src={value} alt="" className="w-12 h-12 object-cover rounded border bg-slate-800/70 shrink-0" />
             ) : (
-                <div className="w-12 h-12 rounded border bg-slate-100 shrink-0" />
+                <div className="w-12 h-12 rounded border bg-slate-800/70 shrink-0" />
             )}
             <input
                 type="text"
-                className="border border-slate-300 p-2 flex-grow rounded text-sm"
+                className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 flex-grow rounded text-sm"
                 value={value}
                 onChange={e => onChange(e.target.value)}
                 placeholder={placeholder ?? 'URL или загрузите файл'}
@@ -119,7 +119,7 @@ const ImageInput: React.FC<{
             <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
             <button
                 type="button"
-                className="text-sm bg-brand-100 text-brand-700 px-3 py-2 rounded whitespace-nowrap disabled:opacity-50 hover:bg-brand-200"
+                className="text-sm bg-sky-500/20 text-sky-300 px-3 py-2 rounded whitespace-nowrap disabled:opacity-50 hover:bg-brand-200"
                 disabled={uploading}
                 onClick={() => inputRef.current?.click()}
             >
@@ -196,29 +196,29 @@ const ImageListInput: React.FC<{
         <div className="space-y-2">
             {values.map((url, i) => (
                 <div key={i} className="flex gap-2 items-center">
-                    <img src={url} alt="" className="w-10 h-10 object-cover rounded border bg-slate-100 shrink-0" />
+                    <img src={url} alt="" className="w-10 h-10 object-cover rounded border bg-slate-800/70 shrink-0" />
                     <input
-                        className="border border-slate-300 p-1 flex-grow rounded text-xs"
+                        className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 flex-grow rounded text-xs"
                         value={url}
                         onChange={e => updateAt(i, e.target.value)}
                     />
-                    <button type="button" className="text-red-500 text-sm px-2" onClick={() => removeAt(i)} title="Удалить">✕</button>
+                    <button type="button" className="text-red-400 text-sm px-2" onClick={() => removeAt(i)} title="Удалить">✕</button>
                 </div>
             ))}
             <div className="flex gap-2 items-center pt-1">
                 <input
                     type="text"
                     placeholder="Вставить URL изображения..."
-                    className="border border-slate-300 p-1 flex-grow rounded text-xs"
+                    className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 flex-grow rounded text-xs"
                     value={pendingUrl}
                     onChange={e => setPendingUrl(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addUrl(); } }}
                 />
-                <button type="button" className="text-xs bg-slate-200 px-3 py-1 rounded hover:bg-slate-300" onClick={addUrl}>+ URL</button>
+                <button type="button" className="text-xs bg-slate-700 px-3 py-1 rounded hover:bg-slate-300" onClick={addUrl}>+ URL</button>
                 <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
                 <button
                     type="button"
-                    className="text-xs bg-brand-100 text-brand-700 px-3 py-1 rounded whitespace-nowrap disabled:opacity-50 hover:bg-brand-200"
+                    className="text-xs bg-sky-500/20 text-sky-300 px-3 py-1 rounded whitespace-nowrap disabled:opacity-50 hover:bg-brand-200"
                     disabled={uploading}
                     onClick={() => inputRef.current?.click()}
                 >
@@ -231,7 +231,7 @@ const ImageListInput: React.FC<{
 
 const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label: string; hint?: string }> =
     ({ checked, onChange, label, hint }) => (
-        <label className="flex items-start gap-3 p-3 rounded-lg hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-200 transition-all">
+        <label className="flex items-start gap-3 p-3 rounded-lg hover:bg-slate-800/40 cursor-pointer border border-transparent hover:border-slate-800 transition-all">
             <input
                 type="checkbox"
                 checked={checked}
@@ -239,8 +239,8 @@ const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label
                 className="mt-0.5 w-5 h-5 text-brand-600 rounded focus:ring-brand-500 cursor-pointer accent-brand-600"
             />
             <span className="flex-1">
-                <span className={`block font-medium ${checked ? 'text-slate-900' : 'text-slate-500'}`}>{label}</span>
-                {hint && <span className="block text-xs text-slate-500 mt-0.5">{hint}</span>}
+                <span className={`block font-medium ${checked ? 'text-slate-50' : 'text-slate-400'}`}>{label}</span>
+                {hint && <span className="block text-xs text-slate-400 mt-0.5">{hint}</span>}
             </span>
         </label>
     );
@@ -284,8 +284,8 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
 
     useEffect(() => { load(); }, []);
 
-    if (loading) return <p className="text-slate-500 text-sm">Загрузка статистики...</p>;
-    if (error) return <p className="text-red-500 text-sm">Ошибка: {error}</p>;
+    if (loading) return <p className="text-slate-400 text-sm">Загрузка статистики...</p>;
+    if (error) return <p className="text-red-400 text-sm">Ошибка: {error}</p>;
     if (!data) return null;
 
     const maxDaily = Math.max(1, ...data.daily.map(d => d.visits));
@@ -293,36 +293,36 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
     return (
         <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-brand-50 border border-brand-100 rounded-lg p-3">
-                    <div className="text-xs text-slate-600 uppercase tracking-wide">Сегодня</div>
-                    <div className="text-2xl font-bold text-brand-700">{data.today}</div>
-                    <div className="text-xs text-slate-500 mt-1">{data.uniqueToday} уник.</div>
+                <div className="bg-sky-500/10 border border-brand-100 rounded-lg p-3">
+                    <div className="text-xs text-slate-300 uppercase tracking-wide">Сегодня</div>
+                    <div className="text-2xl font-bold text-sky-300">{data.today}</div>
+                    <div className="text-xs text-slate-400 mt-1">{data.uniqueToday} уник.</div>
                 </div>
-                <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3">
-                    <div className="text-xs text-slate-600 uppercase tracking-wide">7 дней</div>
-                    <div className="text-2xl font-bold text-emerald-700">{data.last7Days}</div>
-                    <div className="text-xs text-slate-500 mt-1">{data.uniqueLast7} уник.</div>
+                <div className="bg-emerald-500/10 border border-emerald-100 rounded-lg p-3">
+                    <div className="text-xs text-slate-300 uppercase tracking-wide">7 дней</div>
+                    <div className="text-2xl font-bold text-emerald-300">{data.last7Days}</div>
+                    <div className="text-xs text-slate-400 mt-1">{data.uniqueLast7} уник.</div>
                 </div>
-                <div className="bg-violet-50 border border-violet-100 rounded-lg p-3">
-                    <div className="text-xs text-slate-600 uppercase tracking-wide">30 дней</div>
-                    <div className="text-2xl font-bold text-violet-700">{data.last30Days}</div>
+                <div className="bg-violet-500/10 border border-violet-100 rounded-lg p-3">
+                    <div className="text-xs text-slate-300 uppercase tracking-wide">30 дней</div>
+                    <div className="text-2xl font-bold text-violet-300">{data.last30Days}</div>
                 </div>
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center justify-center">
+                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3 flex items-center justify-center">
                     <button onClick={load} className="text-sm text-brand-600 font-medium hover:underline">↻ Обновить</button>
                 </div>
             </div>
 
             {data.daily.length > 0 && (
                 <div>
-                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">Посещения по дням (30д)</div>
-                    <div className="flex items-end gap-1 h-32 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                    <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">Посещения по дням (30д)</div>
+                    <div className="flex items-end gap-1 h-32 bg-slate-800/40 rounded-lg p-2 border border-slate-800">
                         {data.daily.map(d => (
                             <div key={d.date} className="flex-1 group relative flex flex-col items-center justify-end">
                                 <div
-                                    className="w-full bg-brand-500 hover:bg-brand-600 rounded-t transition-colors"
+                                    className="w-full bg-sky-500 hover:bg-sky-600 rounded-t transition-colors"
                                     style={{ height: `${(d.visits / maxDaily) * 100}%`, minHeight: '2px' }}
                                 />
-                                <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+                                <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
                                     {d.date}: {d.visits} (уник: {d.unique})
                                 </div>
                             </div>
@@ -334,12 +334,12 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
             <div className="grid md:grid-cols-2 gap-4">
                 {data.topPaths.length > 0 && (
                     <div>
-                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">📄 Популярные страницы (30д)</div>
+                        <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">📄 Популярные страницы (30д)</div>
                         <div className="space-y-1">
                             {data.topPaths.map(p => (
-                                <div key={p.path} className="flex justify-between text-sm py-1 border-b border-slate-100">
-                                    <span className="text-slate-700 font-mono text-xs truncate max-w-[70%]" title={p.path}>{p.path}</span>
-                                    <span className="text-slate-500 font-medium">{p.visits}</span>
+                                <div key={p.path} className="flex justify-between text-sm py-1 border-b border-slate-800/60">
+                                    <span className="text-slate-200 font-mono text-xs truncate max-w-[70%]" title={p.path}>{p.path}</span>
+                                    <span className="text-slate-400 font-medium">{p.visits}</span>
                                 </div>
                             ))}
                         </div>
@@ -348,12 +348,12 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
 
                 {data.topRefs && data.topRefs.length > 0 && (
                     <div>
-                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">🌐 Откуда пришли (30д)</div>
+                        <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">🌐 Откуда пришли (30д)</div>
                         <div className="space-y-1">
                             {data.topRefs.map(r => (
-                                <div key={r.source} className="flex justify-between text-sm py-1 border-b border-slate-100">
-                                    <span className="text-slate-700 text-xs truncate max-w-[70%]" title={r.source}>{r.source}</span>
-                                    <span className="text-slate-500 font-medium">{r.visits}</span>
+                                <div key={r.source} className="flex justify-between text-sm py-1 border-b border-slate-800/60">
+                                    <span className="text-slate-200 text-xs truncate max-w-[70%]" title={r.source}>{r.source}</span>
+                                    <span className="text-slate-400 font-medium">{r.visits}</span>
                                 </div>
                             ))}
                         </div>
@@ -363,8 +363,8 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
 
             {data.hourly && data.hourly.length > 0 && (
                 <div>
-                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">⏰ Активность по часам (7д, Asia/Bishkek)</div>
-                    <div className="flex items-end gap-0.5 h-24 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                    <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">⏰ Активность по часам (7д, Asia/Bishkek)</div>
+                    <div className="flex items-end gap-0.5 h-24 bg-slate-800/40 rounded-lg p-2 border border-slate-800">
                         {Array.from({ length: 24 }).map((_, h) => {
                             const item = data.hourly!.find(x => x.hour === h);
                             const v = item?.visits || 0;
@@ -373,7 +373,7 @@ const AnalyticsWidget: React.FC<{ password: string }> = ({ password }) => {
                                 <div key={h} className="flex-1 group relative flex flex-col items-center justify-end">
                                     <div className="w-full bg-cyan-500 hover:bg-cyan-600 rounded-t transition-colors"
                                         style={{ height: `${(v / maxV) * 100}%`, minHeight: v > 0 ? '2px' : '0' }} />
-                                    <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+                                    <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
                                         {String(h).padStart(2, '0')}:00 — {v} визитов
                                     </div>
                                 </div>
@@ -411,30 +411,30 @@ const SharingLinksSection: React.FC<{ contactInfo: any }> = () => {
 
     return (
         <div className="space-y-4">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-300">
                 Это публичная ссылка на форму заявки. В форме клиент сам выберет в выпадающем списке,
                 откуда он о нас узнал — и это значение запишется как источник лида.
                 Список вариантов настраивается ниже в секции «🎯 Варианты источников лидов».
             </p>
-            <div className="rounded-2xl border-2 border-slate-200 bg-gradient-to-br from-blue-50 to-violet-50 p-5">
-                <div className="font-bold text-slate-900 mb-3 flex items-center gap-2">
+            <div className="rounded-2xl border-2 border-slate-800 bg-gradient-to-br from-blue-50 to-violet-50 p-5">
+                <div className="font-bold text-slate-50 mb-3 flex items-center gap-2">
                     🔗 Универсальная форма заявки
                 </div>
-                <div className="font-mono text-sm break-all bg-white rounded-lg border border-slate-300 p-3 mb-3 select-all">{url}</div>
+                <div className="font-mono text-sm break-all bg-slate-900/60 backdrop-blur-sm rounded-lg border border-slate-700 p-3 mb-3 select-all">{url}</div>
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={copy} className="flex-1 bg-slate-900 hover:bg-black text-white text-sm font-bold rounded-lg px-4 py-2.5 transition-colors min-w-[140px]">
+                    <button onClick={copy} className="flex-1 bg-slate-900/60 backdrop-blur-sm hover:bg-black text-white text-sm font-bold rounded-lg px-4 py-2.5 transition-colors min-w-[140px]">
                         {copied ? '✓ Скопировано' : '📋 Копировать'}
                     </button>
                     <a href={url} target="_blank" rel="noopener noreferrer"
-                        className="bg-white border border-slate-300 hover:bg-slate-50 text-sm font-medium rounded-lg px-4 py-2.5">
+                        className="bg-slate-900/60 backdrop-blur-sm border border-slate-700 hover:bg-slate-800/40 text-sm font-medium rounded-lg px-4 py-2.5">
                         🔍 Открыть форму
                     </a>
                 </div>
                 <details className="mt-3">
-                    <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">QR-код для печати/баннеров</summary>
+                    <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200">QR-код для печати/баннеров</summary>
                     <img
                         src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(url)}`}
-                        alt="QR" className="mt-2 rounded-lg border border-slate-300 bg-white"
+                        alt="QR" className="mt-2 rounded-lg border border-slate-700 bg-slate-900/60 backdrop-blur-sm"
                     />
                 </details>
             </div>
@@ -508,48 +508,48 @@ const EventsSection: React.FC<{ password: string }> = ({ password }) => {
         } catch { alert('Скопируйте вручную: ' + text); }
     };
 
-    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+    if (loading) return <p className="text-slate-400 text-sm">Загрузка...</p>;
 
     return (
         <div className="space-y-3">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-300">
                 Каждое событие получает свою ссылку с auto-генерируемым slug.
                 Лиды, пришедшие по ссылке события, будут помечены этим событием в карточке + Telegram-уведомлении.
                 Клиент в форме увидит баннер с названием/описанием события.
             </p>
 
-            <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-3 grid md:grid-cols-3 gap-2 items-end">
-                <input className="md:col-span-2 border border-slate-300 rounded-lg p-2 text-sm"
+            <div className="bg-emerald-500/10 border-2 border-emerald-500/30 rounded-xl p-3 grid md:grid-cols-3 gap-2 items-end">
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 md:col-span-2 border border-slate-700 rounded-lg p-2 text-sm"
                     placeholder="Название события (напр. День открытых дверей в США)"
                     value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
-                <button onClick={create} className="bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-lg text-sm font-medium">+ Создать событие</button>
-                <textarea className="md:col-span-3 border border-slate-300 rounded-lg p-2 text-sm" rows={2}
+                <button onClick={create} className="bg-sky-600 hover:bg-sky-700 text-white py-2 rounded-lg text-sm font-medium">+ Создать событие</button>
+                <textarea className="bg-slate-800/60 text-slate-100 placeholder-slate-500 md:col-span-3 border border-slate-700 rounded-lg p-2 text-sm" rows={2}
                     placeholder="Описание (необязательно — показывается клиенту в баннере на форме)"
                     value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} />
             </div>
 
             {events.length === 0 ? (
-                <p className="text-slate-500 text-sm italic">Событий пока нет</p>
+                <p className="text-slate-400 text-sm italic">Событий пока нет</p>
             ) : (
                 <div className="space-y-3">
                     {events.map(ev => {
                         const url = `${PUBLIC_BASE}/apply?event=${encodeURIComponent(ev.slug)}`;
                         return (
-                            <div key={ev.id} className={`border border-slate-200 rounded-xl p-3 ${ev.active ? 'bg-white' : 'bg-slate-50 opacity-70'}`}>
+                            <div key={ev.id} className={`border border-slate-800 rounded-xl p-3 ${ev.active ? 'bg-slate-900/60 backdrop-blur-sm' : 'bg-slate-800/40 opacity-70'}`}>
                                 <div className="grid md:grid-cols-[1fr_auto] gap-2 items-start">
                                     <div className="space-y-2">
-                                        <input className="w-full border border-slate-300 rounded-lg p-2 text-sm font-bold"
+                                        <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2 text-sm font-bold"
                                             value={ev.name}
                                             onChange={e => setEvents(prev => prev.map(p => p.id === ev.id ? { ...p, name: e.target.value } : p))}
                                             onBlur={e => update(ev.id, { name: e.target.value })} />
-                                        <textarea className="w-full border border-slate-300 rounded-lg p-2 text-xs" rows={2}
+                                        <textarea className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2 text-xs" rows={2}
                                             placeholder="Описание (необязательно)"
                                             value={ev.description || ''}
                                             onChange={e => setEvents(prev => prev.map(p => p.id === ev.id ? { ...p, description: e.target.value } : p))}
                                             onBlur={e => update(ev.id, { description: e.target.value })} />
                                         <div className="flex items-center gap-2 flex-wrap">
-                                            <code className="text-xs font-mono bg-slate-100 px-2 py-1 rounded">slug: {ev.slug}</code>
-                                            <span className="text-xs text-slate-500">лидов: <strong>{ev.lead_count ?? 0}</strong></span>
+                                            <code className="text-xs font-mono bg-slate-800/70 px-2 py-1 rounded">slug: {ev.slug}</code>
+                                            <span className="text-xs text-slate-400">лидов: <strong>{ev.lead_count ?? 0}</strong></span>
                                             <label className="text-xs flex items-center gap-1">
                                                 <input type="checkbox" className="accent-emerald-600"
                                                     checked={ev.active}
@@ -557,19 +557,19 @@ const EventsSection: React.FC<{ password: string }> = ({ password }) => {
                                                 активно
                                             </label>
                                         </div>
-                                        <div className="text-xs font-mono break-all bg-slate-100 rounded p-2 select-all">{url}</div>
+                                        <div className="text-xs font-mono break-all bg-slate-800/70 rounded p-2 select-all">{url}</div>
                                     </div>
                                     <div className="flex md:flex-col gap-2">
                                         <button onClick={() => copy(url, ev.slug)}
-                                            className="bg-slate-900 hover:bg-black text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap">
+                                            className="bg-slate-900/60 backdrop-blur-sm hover:bg-black text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap">
                                             {copied === ev.slug ? '✓ Скопировано' : '📋 Копировать'}
                                         </button>
                                         <a href={url} target="_blank" rel="noopener noreferrer"
-                                            className="bg-white border border-slate-300 hover:bg-slate-50 text-xs font-medium px-3 py-2 rounded-lg whitespace-nowrap text-center">
+                                            className="bg-slate-900/60 backdrop-blur-sm border border-slate-700 hover:bg-slate-800/40 text-xs font-medium px-3 py-2 rounded-lg whitespace-nowrap text-center">
                                             🔍 Открыть
                                         </a>
                                         <button onClick={() => remove(ev.id, ev.name)}
-                                            className="bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium px-3 py-2 rounded-lg whitespace-nowrap">
+                                            className="bg-red-500/10 hover:bg-red-100 text-red-300 text-xs font-medium px-3 py-2 rounded-lg whitespace-nowrap">
                                             Удалить
                                         </button>
                                     </div>
@@ -592,7 +592,7 @@ const CalculatorConfigSection: React.FC<{ sc: any; setSC: (patch: any) => void }
 
     return (
         <div className="space-y-4">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-300">
                 Цена в калькуляторе считается так: <strong>минимальная стоимость обучения</strong> из университетов выбранной страны
                 <strong> + минимальная стоимость проживания</strong> для страны
                 <strong> + услуги GoGlobal</strong>. Если у университета не задано «Стоимость обучения / год», используется значение страны (поле «Tuition Min» внизу).
@@ -600,51 +600,51 @@ const CalculatorConfigSection: React.FC<{ sc: any; setSC: (patch: any) => void }
 
             <div className="grid md:grid-cols-2 gap-3">
                 <label className="block text-sm">
-                    <span className="block font-medium text-slate-700 mb-1">Заголовок секции</span>
-                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.title || ''}
+                    <span className="block font-medium text-slate-200 mb-1">Заголовок секции</span>
+                    <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2" value={cfg.title || ''}
                         onChange={e => setCfg({ title: e.target.value })} placeholder="Планируйте бюджет" />
                 </label>
                 <label className="block text-sm">
-                    <span className="block font-medium text-slate-700 mb-1">Подзаголовок</span>
-                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.subtitle || ''}
+                    <span className="block font-medium text-slate-200 mb-1">Подзаголовок</span>
+                    <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2" value={cfg.subtitle || ''}
                         onChange={e => setCfg({ subtitle: e.target.value })} placeholder="Узнайте примерную..." />
                 </label>
                 <label className="block text-sm">
-                    <span className="block font-medium text-slate-700 mb-1">💵 Стоимость услуг GoGlobal / год ($)</span>
-                    <input type="number" className="w-full border border-slate-300 rounded-lg p-2 font-mono"
+                    <span className="block font-medium text-slate-200 mb-1">💵 Стоимость услуг GoGlobal / год ($)</span>
+                    <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2 font-mono"
                         value={cfg.companyServicesCost ?? 0}
                         onChange={e => setCfg({ companyServicesCost: Math.max(0, parseInt(e.target.value) || 0) })} />
-                    <span className="text-xs text-slate-500 block mt-1">Прибавляется к итогу. 0 — не учитывать.</span>
+                    <span className="text-xs text-slate-400 block mt-1">Прибавляется к итогу. 0 — не учитывать.</span>
                 </label>
                 <label className="block text-sm md:col-span-1">
-                    <span className="block font-medium text-slate-700 mb-1">Подпись чекбокса «гранты»</span>
-                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.grantToggleLabel || ''}
+                    <span className="block font-medium text-slate-200 mb-1">Подпись чекбокса «гранты»</span>
+                    <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2" value={cfg.grantToggleLabel || ''}
                         onChange={e => setCfg({ grantToggleLabel: e.target.value })} placeholder="Рассматриваю гранты / Бюджет" />
                 </label>
                 <label className="block text-sm md:col-span-2">
-                    <span className="block font-medium text-slate-700 mb-1">Подсказка под чекбоксом «гранты»</span>
-                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.grantToggleHint || ''}
+                    <span className="block font-medium text-slate-200 mb-1">Подсказка под чекбоксом «гранты»</span>
+                    <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2" value={cfg.grantToggleHint || ''}
                         onChange={e => setCfg({ grantToggleHint: e.target.value })} placeholder="Учитывать возможность бесплатного обучения..." />
                 </label>
                 <label className="block text-sm md:col-span-2">
-                    <span className="block font-medium text-slate-700 mb-1">Дисклеймер внизу</span>
-                    <input className="w-full border border-slate-300 rounded-lg p-2" value={cfg.disclaimer || ''}
+                    <span className="block font-medium text-slate-200 mb-1">Дисклеймер внизу</span>
+                    <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg p-2" value={cfg.disclaimer || ''}
                         onChange={e => setCfg({ disclaimer: e.target.value })} placeholder="*Не является публичной офертой..." />
                 </label>
             </div>
 
             <div>
-                <div className="text-sm font-medium text-slate-700 mb-2">✓ Чек-лист «что входит» (отображается под ценой)</div>
+                <div className="text-sm font-medium text-slate-200 mb-2">✓ Чек-лист «что входит» (отображается под ценой)</div>
                 <div className="space-y-2">
                     {items.map((it, i) => (
                         <div key={i} className="flex gap-2 items-center">
-                            <span className="text-emerald-600 text-lg">✓</span>
-                            <input className="flex-grow border border-slate-300 rounded-lg p-2 text-sm" value={it}
+                            <span className="text-emerald-400 text-lg">✓</span>
+                            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 flex-grow border border-slate-700 rounded-lg p-2 text-sm" value={it}
                                 onChange={e => {
                                     const next = [...items]; next[i] = e.target.value;
                                     setCfg({ checklistItems: next });
                                 }} />
-                            <button className="text-red-500 text-sm px-2"
+                            <button className="text-red-400 text-sm px-2"
                                 onClick={() => {
                                     const next = [...items]; next.splice(i, 1);
                                     setCfg({ checklistItems: next });
@@ -653,11 +653,11 @@ const CalculatorConfigSection: React.FC<{ sc: any; setSC: (patch: any) => void }
                     ))}
                 </div>
                 <div className="flex gap-2 mt-2">
-                    <input className="flex-grow border border-slate-300 rounded-lg p-2 text-sm"
+                    <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 flex-grow border border-slate-700 rounded-lg p-2 text-sm"
                         placeholder="Например: Сопровождение от подачи до прилёта"
                         value={draftItem} onChange={e => setDraftItem(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (draftItem.trim()) { setCfg({ checklistItems: [...items, draftItem.trim()] }); setDraftItem(''); } } }} />
-                    <button className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                    <button className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
                         onClick={() => { if (draftItem.trim()) { setCfg({ checklistItems: [...items, draftItem.trim()] }); setDraftItem(''); } }}>+ Добавить пункт</button>
                 </div>
             </div>
@@ -673,15 +673,15 @@ const AttributionOptionsSection: React.FC<{ value: string[]; onChange: (next: st
     const [draft, setDraft] = useState('');
     return (
         <div className="space-y-2">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-300">
                 Эти варианты появляются в выпадающем списке «Откуда вы о нас узнали?» на форме заявки.
                 Менеджер также может вручную изменить источник лида в карточке — на любое из этих значений.
             </p>
             <div className="flex flex-wrap gap-2">
                 {list.map((s, i) => (
-                    <span key={i} className="inline-flex items-center gap-1 bg-slate-100 border border-slate-300 rounded-lg pl-3 pr-1 py-1 text-sm">
+                    <span key={i} className="inline-flex items-center gap-1 bg-slate-800/70 border border-slate-700 rounded-lg pl-3 pr-1 py-1 text-sm">
                         {s}
-                        <button className="text-slate-400 hover:text-red-500 px-2" title="Удалить"
+                        <button className="text-slate-400 hover:text-red-400 px-2" title="Удалить"
                             onClick={() => {
                                 const next = [...list]; next.splice(i, 1);
                                 onChange(next);
@@ -690,7 +690,7 @@ const AttributionOptionsSection: React.FC<{ value: string[]; onChange: (next: st
                 ))}
             </div>
             <div className="flex gap-2 pt-2">
-                <input className="flex-grow rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 flex-grow rounded-lg border border-slate-700 px-3 py-2 text-sm"
                     placeholder="Например: TikTok"
                     value={draft} onChange={e => setDraft(e.target.value)}
                     onKeyDown={e => {
@@ -703,7 +703,7 @@ const AttributionOptionsSection: React.FC<{ value: string[]; onChange: (next: st
                             }
                         }
                     }} />
-                <button className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                <button className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
                     onClick={() => {
                         const v = draft.trim();
                         if (v && !list.includes(v)) {
@@ -750,43 +750,43 @@ const WorkingHoursEditor: React.FC<{ value: WorkingSchedule | null; onChange: (s
                 const isWorking = !!day;
                 return (
                     <div key={i} className="flex items-center gap-2 text-sm">
-                        <span className="w-8 font-medium text-slate-700">{label}</span>
+                        <span className="w-8 font-medium text-slate-200">{label}</span>
                         <label className="flex items-center gap-1">
                             <input type="checkbox" className="accent-brand-600"
                                 checked={isWorking}
                                 onChange={e => updateDay(i, e.target.checked ? { from: '09:00', to: '18:00' } : null)} />
-                            <span className="text-xs text-slate-500">рабочий</span>
+                            <span className="text-xs text-slate-400">рабочий</span>
                         </label>
                         <input type="time" disabled={!isWorking}
-                            className="border border-slate-300 px-2 py-1 rounded text-sm w-24 disabled:opacity-30"
+                            className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1 rounded text-sm w-24 disabled:opacity-30"
                             value={day?.from || '09:00'}
                             onChange={e => updateDay(i, { from: e.target.value, to: day?.to || '18:00' })} />
                         <span className="text-slate-400">—</span>
                         <input type="time" disabled={!isWorking}
-                            className="border border-slate-300 px-2 py-1 rounded text-sm w-24 disabled:opacity-30"
+                            className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1 rounded text-sm w-24 disabled:opacity-30"
                             value={day?.to || '18:00'}
                             onChange={e => updateDay(i, { from: day?.from || '09:00', to: e.target.value })} />
                     </div>
                 );
             })}
             <div className="flex gap-2 pt-2">
-                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                <button type="button" className="text-xs bg-slate-800/70 hover:bg-slate-700 px-2 py-1 rounded"
                     onClick={() => onChange(DEFAULT_WORKING_SCHEDULE)}>Пн–Пт 9–18</button>
-                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                <button type="button" className="text-xs bg-slate-800/70 hover:bg-slate-700 px-2 py-1 rounded"
                     onClick={() => onChange([
                         null,
                         { from: '10:00', to: '19:00' }, { from: '10:00', to: '19:00' },
                         { from: '10:00', to: '19:00' }, { from: '10:00', to: '19:00' },
                         { from: '10:00', to: '19:00' }, null,
                     ])}>Пн–Пт 10–19</button>
-                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                <button type="button" className="text-xs bg-slate-800/70 hover:bg-slate-700 px-2 py-1 rounded"
                     onClick={() => onChange([
                         null,
                         { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' },
                         { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' },
                         { from: '09:00', to: '18:00' }, { from: '10:00', to: '15:00' },
                     ])}>Пн–Пт 9–18 + Сб 10–15</button>
-                <button type="button" className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                <button type="button" className="text-xs bg-slate-800/70 hover:bg-slate-700 px-2 py-1 rounded"
                     onClick={() => onChange([null, null, null, null, null, null, null])}>Все выходные</button>
             </div>
         </div>
@@ -908,34 +908,34 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
         await load();
     };
 
-    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+    if (loading) return <p className="text-slate-400 text-sm">Загрузка...</p>;
 
     return (
         <div className="space-y-4">
-            <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 grid md:grid-cols-5 gap-2 items-end">
-                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Логин (англ., в нижнем регистре)"
+            <div className="bg-slate-800/40 rounded-lg p-3 border border-slate-800 grid md:grid-cols-5 gap-2 items-end">
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded text-sm" placeholder="Логин (англ., в нижнем регистре)"
                     value={draft.login} onChange={e => setDraft({ ...draft, login: e.target.value.toLowerCase().replace(/\s/g, '') })} />
-                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Пароль" type="password"
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded text-sm" placeholder="Пароль" type="password"
                     value={draft.password} onChange={e => setDraft({ ...draft, password: e.target.value })} />
-                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="ФИО"
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded text-sm" placeholder="ФИО"
                     value={draft.full_name} onChange={e => setDraft({ ...draft, full_name: e.target.value })} />
-                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Telegram (@ivan_tg)"
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded text-sm" placeholder="Telegram (@ivan_tg)"
                     value={draft.telegram_tag} onChange={e => setDraft({ ...draft, telegram_tag: e.target.value })} />
-                <select className="border border-slate-300 p-2 rounded text-sm bg-white"
+                <select className="border border-slate-700 p-2 rounded text-sm bg-slate-900/60 backdrop-blur-sm"
                     value={draft.role} onChange={e => setDraft({ ...draft, role: e.target.value as 'manager' | 'teamlead' })}>
                     <option value="manager">Менеджер</option>
                     <option value="teamlead">Тимлид</option>
                 </select>
-                <button onClick={create} className="md:col-span-5 bg-brand-600 hover:bg-brand-700 text-white py-2 rounded font-medium">+ Создать пользователя</button>
+                <button onClick={create} className="md:col-span-5 bg-sky-600 hover:bg-sky-700 text-white py-2 rounded font-medium">+ Создать пользователя</button>
             </div>
 
             {managers.length === 0 ? (
-                <p className="text-slate-500 text-sm">Менеджеров пока нет — создайте первого выше.</p>
+                <p className="text-slate-400 text-sm">Менеджеров пока нет — создайте первого выше.</p>
             ) : (
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead>
-                            <tr className="text-left border-b border-slate-200">
+                            <tr className="text-left border-b border-slate-800">
                                 <th className="py-2 px-2">ID</th>
                                 <th className="py-2 px-2">Логин</th>
                                 <th className="py-2 px-2">ФИО</th>
@@ -955,24 +955,24 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                 const currentSchedule = (e.working_hours ?? m.working_hours) as WorkingSchedule | null;
                                 return (
                                     <React.Fragment key={m.id}>
-                                        <tr className={`border-b border-slate-100 hover:bg-slate-50 ${m.archived_at ? 'opacity-60' : ''}`}>
+                                        <tr className={`border-b border-slate-800/60 hover:bg-slate-800/40 ${m.archived_at ? 'opacity-60' : ''}`}>
                                             <td className="py-2 px-2 text-slate-400">
                                                 #{m.id}
                                                 {m.archived_at && <div className="text-[10px] bg-slate-700 text-white px-1 mt-0.5 inline-block">УВОЛЕН</div>}
                                             </td>
                                             <td className="py-2 px-2 font-mono">{m.login}</td>
                                             <td className="py-2 px-2">
-                                                <input className="border border-slate-300 p-1 rounded text-sm w-full"
+                                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 rounded text-sm w-full"
                                                     value={(e.full_name ?? m.full_name) as string}
                                                     onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], full_name: ev.target.value } }))} />
                                             </td>
                                             <td className="py-2 px-2">
-                                                <input className="border border-slate-300 p-1 rounded text-sm w-full"
+                                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 rounded text-sm w-full"
                                                     value={(e.telegram_tag ?? m.telegram_tag ?? '') as string}
                                                     onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], telegram_tag: ev.target.value } }))} />
                                             </td>
                                             <td className="py-2 px-2">
-                                                <select className="border border-slate-300 p-1 rounded text-sm w-full bg-white"
+                                                <select className="border border-slate-700 p-1 rounded text-sm w-full bg-slate-900/60 backdrop-blur-sm"
                                                     value={(e.role ?? m.role ?? 'manager') as string}
                                                     onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], role: ev.target.value as 'manager' | 'teamlead' } }))}>
                                                     <option value="manager">Менеджер</option>
@@ -981,9 +981,9 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                             </td>
                                             <td className="py-2 px-2 text-center">
                                                 {m.is_online ? (
-                                                    <span className="inline-flex items-center gap-1 text-emerald-700 text-xs"><span className="w-2 h-2 rounded-full bg-emerald-500" /> в сети</span>
+                                                    <span className="inline-flex items-center gap-1 text-emerald-300 text-xs"><span className="w-2 h-2 rounded-full bg-emerald-500" /> в сети</span>
                                                 ) : (
-                                                    <span className="inline-flex items-center gap-1 text-slate-500 text-xs"><span className="w-2 h-2 rounded-full bg-slate-300" /> офлайн</span>
+                                                    <span className="inline-flex items-center gap-1 text-slate-400 text-xs"><span className="w-2 h-2 rounded-full bg-slate-300" /> офлайн</span>
                                                 )}
                                             </td>
                                             <td className="py-2 px-2 text-center">
@@ -992,32 +992,32 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                                     onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], active: ev.target.checked } }))} />
                                             </td>
                                             <td className="py-2 px-2">
-                                                <input className="border border-slate-300 p-1 rounded text-sm w-full" type="password" placeholder="—"
+                                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 rounded text-sm w-full" type="password" placeholder="—"
                                                     value={e.password ?? ''}
                                                     onChange={ev => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], password: ev.target.value } }))} />
                                             </td>
                                             <td className="py-2 px-2 whitespace-nowrap">
                                                 <button onClick={() => setOpenSchedule(p => ({ ...p, [m.id]: !p[m.id] }))}
-                                                    className={`text-xs px-2 py-1 rounded mr-1 ${isScheduleOpen ? 'bg-brand-200 text-brand-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+                                                    className={`text-xs px-2 py-1 rounded mr-1 ${isScheduleOpen ? 'bg-brand-200 text-brand-800' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>
                                                     🕐 Часы
                                                 </button>
                                                 <button onClick={() => update(m.id)} disabled={!hasEdit} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-30 text-white text-xs px-3 py-1 rounded mr-1">Сохранить</button>
                                                 {m.archived_at ? (
-                                                    <button onClick={() => restore(m.id, m.full_name)} className="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-xs px-3 py-1 rounded">↺ Восстановить</button>
+                                                    <button onClick={() => restore(m.id, m.full_name)} className="bg-emerald-500/20 hover:bg-emerald-200 text-emerald-300 text-xs px-3 py-1 rounded">↺ Восстановить</button>
                                                 ) : (
-                                                    <button onClick={() => remove(m.id, m.full_name, (m as any).lead_count || 0)} className="bg-red-100 hover:bg-red-200 text-red-700 text-xs px-3 py-1 rounded">Уволить</button>
+                                                    <button onClick={() => remove(m.id, m.full_name, (m as any).lead_count || 0)} className="bg-red-100 hover:bg-red-200 text-red-300 text-xs px-3 py-1 rounded">Уволить</button>
                                                 )}
                                             </td>
                                         </tr>
                                         {isScheduleOpen && (
-                                            <tr className="border-b border-slate-100 bg-slate-50">
+                                            <tr className="border-b border-slate-800/60 bg-slate-800/40">
                                                 <td colSpan={9} className="px-4 py-3">
-                                                    <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Рабочие часы (Asia/Bishkek, UTC+6)</div>
+                                                    <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Рабочие часы (Asia/Bishkek, UTC+6)</div>
                                                     <WorkingHoursEditor
                                                         value={currentSchedule}
                                                         onChange={s => setEditing(prev => ({ ...prev, [m.id]: { ...prev[m.id], working_hours: s } }))}
                                                     />
-                                                    <p className="text-xs text-slate-500 mt-2">SLA-таймер (3ч) тикает только в рабочие часы. Лиды, поступившие ночью, начинают отсчёт с начала следующего рабочего дня.</p>
+                                                    <p className="text-xs text-slate-400 mt-2">SLA-таймер (3ч) тикает только в рабочие часы. Лиды, поступившие ночью, начинают отсчёт с начала следующего рабочего дня.</p>
                                                 </td>
                                             </tr>
                                         )}
@@ -1068,22 +1068,22 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
         await load();
     };
 
-    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+    if (loading) return <p className="text-slate-400 text-sm">Загрузка...</p>;
 
     const leadStatuses = statuses.filter(s => !s.is_client_stage);
     const clientStages = statuses.filter(s => !!s.is_client_stage);
 
     const renderRow = (s: LeadStatusRec) => (
-        <div key={s.code} className="grid gap-2 items-center bg-slate-50 p-2 rounded border border-slate-200"
+        <div key={s.code} className="grid gap-2 items-center bg-slate-800/40 p-2 rounded border border-slate-800"
             style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto auto' }}>
             <code className="text-xs font-mono px-2">{s.code}</code>
-            <input className="border border-slate-300 p-1.5 rounded text-sm"
+            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 rounded text-sm"
                 value={s.label}
                 onChange={e => upsert({ ...s, label: e.target.value })} />
-            <input type="color" className="h-8 border border-slate-300 rounded"
+            <input type="color" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 h-8 border border-slate-700 rounded"
                 value={s.color || '#3b82f6'}
                 onChange={e => upsert({ ...s, color: e.target.value })} />
-            <input type="number" className="border border-slate-300 p-1.5 rounded text-sm"
+            <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 rounded text-sm"
                 value={s.sort}
                 onChange={e => upsert({ ...s, sort: parseInt(e.target.value) || 0 })} />
             <label className="text-xs flex items-center gap-1 whitespace-nowrap">
@@ -1105,7 +1105,7 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
                 этап клиента
             </label>
             <button onClick={() => remove(s.code)} disabled={s.code === 'new'}
-                className="text-xs bg-red-50 hover:bg-red-100 disabled:opacity-30 text-red-700 px-3 py-1.5 rounded whitespace-nowrap">
+                className="text-xs bg-red-500/10 hover:bg-red-100 disabled:opacity-30 text-red-300 px-3 py-1.5 rounded whitespace-nowrap">
                 Удалить
             </button>
         </div>
@@ -1113,7 +1113,7 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
 
     return (
         <div className="space-y-3">
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-400">
                 <strong>Терминальные</strong> = закрывают лид и снимают с SLA-таймера. <strong>Требует причины</strong> = при выборе менеджер вводит обязательный текст.
                 <strong>Этап клиента</strong> = пост-победный этап ведения (сопровождение от заявки до зачисления).
             </p>
@@ -1121,36 +1121,36 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
             {/* Lead processing statuses */}
             <div>
                 <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-semibold text-slate-700">🎯 Обработка лидов</span>
-                    <span className="text-xs text-slate-500">— статусы воронки до закрытия</span>
+                    <span className="text-sm font-semibold text-slate-200">🎯 Обработка лидов</span>
+                    <span className="text-xs text-slate-400">— статусы воронки до закрытия</span>
                 </div>
                 {leadStatuses.map(renderRow)}
             </div>
 
             {/* Client pipeline stages */}
-            <div className="pt-3 mt-3 border-t border-slate-200">
+            <div className="pt-3 mt-3 border-t border-slate-800">
                 <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-semibold text-sky-700">🎓 Этапы клиента (после выигрыша)</span>
-                    <span className="text-xs text-slate-500">— контракт, оплата, документы, экзамены, виза, и т.д.</span>
+                    <span className="text-sm font-semibold text-sky-300">🎓 Этапы клиента (после выигрыша)</span>
+                    <span className="text-xs text-slate-400">— контракт, оплата, документы, экзамены, виза, и т.д.</span>
                 </div>
                 {clientStages.length === 0
                     ? <p className="text-xs text-slate-400 italic">Этапов клиента нет. Создайте статус и отметьте «этап клиента».</p>
                     : clientStages.map(renderRow)}
             </div>
             <hr />
-            <div className="grid gap-2 items-center bg-emerald-50 p-2 rounded border border-emerald-200" style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto' }}>
-                <input className="border border-slate-300 p-1.5 rounded text-sm font-mono w-24"
+            <div className="grid gap-2 items-center bg-emerald-500/10 p-2 rounded border border-emerald-500/30" style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto' }}>
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 rounded text-sm font-mono w-24"
                     placeholder="code"
                     value={draft.code}
                     onChange={e => setDraft({ ...draft, code: e.target.value.toLowerCase().replace(/\s/g, '_') })} />
-                <input className="border border-slate-300 p-1.5 rounded text-sm"
+                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 rounded text-sm"
                     placeholder="Метка для UI"
                     value={draft.label}
                     onChange={e => setDraft({ ...draft, label: e.target.value })} />
-                <input type="color" className="h-8 border border-slate-300 rounded"
+                <input type="color" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 h-8 border border-slate-700 rounded"
                     value={draft.color || '#3b82f6'}
                     onChange={e => setDraft({ ...draft, color: e.target.value })} />
-                <input type="number" className="border border-slate-300 p-1.5 rounded text-sm"
+                <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 rounded text-sm"
                     value={draft.sort}
                     onChange={e => setDraft({ ...draft, sort: parseInt(e.target.value) || 0 })} />
                 <label className="text-xs flex items-center gap-1 whitespace-nowrap">
@@ -1169,7 +1169,7 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
                     if (!draft.code || !draft.label) { alert('code и label обязательны'); return; }
                     await upsert(draft);
                     setDraft({ code: '', label: '', color: '#3b82f6', is_terminal: false, sort: 50 });
-                }} className="text-xs bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded whitespace-nowrap">+ Добавить</button>
+                }} className="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded whitespace-nowrap">+ Добавить</button>
             </div>
         </div>
     );
@@ -1209,41 +1209,41 @@ const TagsSection: React.FC<{ password: string }> = ({ password }) => {
 
     return (
         <div className="space-y-3">
-            <div className="text-xs text-slate-500">Метки — цветные ярлыки для категоризации лидов (горячий, VIP, бюджетник и т.д.). Менеджеры выбирают их во вкладке «Сделка» в карточке лида.</div>
-            {!tags ? <p className="text-slate-500 text-sm">Загрузка…</p> : (
+            <div className="text-xs text-slate-400">Метки — цветные ярлыки для категоризации лидов (горячий, VIP, бюджетник и т.д.). Менеджеры выбирают их во вкладке «Сделка» в карточке лида.</div>
+            {!tags ? <p className="text-slate-400 text-sm">Загрузка…</p> : (
                 <div className="space-y-2">
                     {tags.length === 0 && <div className="text-sm text-slate-400 italic">Меток пока нет — добавьте первую ниже</div>}
                     {tags.map(t => (
-                        <div key={t.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2">
+                        <div key={t.id} className="flex items-center gap-2 bg-slate-800/40 border border-slate-800 rounded-lg p-2">
                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-white text-xs font-medium" style={{ backgroundColor: t.color || '#0ea5e9' }}>
                                 {t.emoji && <span>{t.emoji}</span>}
                                 {t.label}
                             </span>
-                            <span className="text-xs text-slate-500">используется в <span className="font-semibold text-slate-700">{t.usage_count || 0}</span> лидах</span>
+                            <span className="text-xs text-slate-400">используется в <span className="font-semibold text-slate-200">{t.usage_count || 0}</span> лидах</span>
                             <button onClick={() => remove(t.id, t.label)} className="ml-auto text-xs text-rose-600 hover:underline">Удалить</button>
                         </div>
                     ))}
                 </div>
             )}
 
-            <div className="border-t border-slate-200 pt-3 mt-3">
-                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">+ Новая метка</div>
+            <div className="border-t border-slate-800 pt-3 mt-3">
+                <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">+ Новая метка</div>
                 <div className="flex flex-wrap gap-2 items-end">
                     <label className="text-xs">
-                        <span className="block text-slate-500 mb-0.5">Название</span>
-                        <input className="border border-slate-300 px-2 py-1.5 rounded text-sm w-48"
+                        <span className="block text-slate-400 mb-0.5">Название</span>
+                        <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded text-sm w-48"
                             placeholder="например, VIP"
                             value={draft.label} onChange={e => setDraft({ ...draft, label: e.target.value })} />
                     </label>
                     <label className="text-xs">
-                        <span className="block text-slate-500 mb-0.5">Эмодзи</span>
-                        <input className="border border-slate-300 px-2 py-1.5 rounded text-sm w-16 text-center"
+                        <span className="block text-slate-400 mb-0.5">Эмодзи</span>
+                        <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded text-sm w-16 text-center"
                             placeholder="⭐"
                             value={draft.emoji} onChange={e => setDraft({ ...draft, emoji: e.target.value })} />
                     </label>
                     <label className="text-xs">
-                        <span className="block text-slate-500 mb-0.5">Цвет</span>
-                        <input type="color" className="w-12 h-9 border border-slate-300 rounded cursor-pointer"
+                        <span className="block text-slate-400 mb-0.5">Цвет</span>
+                        <input type="color" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-12 h-9 border border-slate-700 rounded cursor-pointer"
                             value={draft.color} onChange={e => setDraft({ ...draft, color: e.target.value })} />
                     </label>
                     <div className="flex flex-wrap gap-1">
@@ -1259,7 +1259,7 @@ const TagsSection: React.FC<{ password: string }> = ({ password }) => {
                             upsert(draft);
                             setDraft({ label: '', color: '#0ea5e9', emoji: '' });
                         }}
-                        className="text-xs bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 rounded font-medium">
+                        className="text-xs bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white px-4 py-2 rounded font-medium">
                         + Добавить
                     </button>
                 </div>
@@ -1299,8 +1299,8 @@ const DonutChart: React.FC<{ data: { label: string; value: number; color?: strin
                 {data.slice(0, 8).map((d, i) => (
                     <div key={i} className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-sm" style={{ background: d.color || palette[i % palette.length] }} />
-                        <span className="text-slate-700">{d.label}</span>
-                        <span className="font-mono font-semibold text-slate-900">{d.value}</span>
+                        <span className="text-slate-200">{d.label}</span>
+                        <span className="font-mono font-semibold text-slate-50">{d.value}</span>
                         <span className="text-slate-400">({total > 0 ? Math.round((d.value / total) * 100) : 0}%)</span>
                     </div>
                 ))}
@@ -1313,10 +1313,10 @@ const DonutChart: React.FC<{ data: { label: string; value: number; color?: strin
 const HBar: React.FC<{ label: string; value: number; max: number; color?: string }> = ({ label, value, max, color }) => (
     <div>
         <div className="flex items-baseline justify-between text-xs mb-0.5">
-            <span className="text-slate-700">{label}</span>
-            <span className="font-mono font-semibold text-slate-900">{value}</span>
+            <span className="text-slate-200">{label}</span>
+            <span className="font-mono font-semibold text-slate-50">{value}</span>
         </div>
-        <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div className="w-full h-2 bg-slate-800/70 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all" style={{ width: `${max > 0 ? (value / max) * 100 : 0}%`, background: color || '#3b82f6' }} />
         </div>
     </div>
@@ -1355,7 +1355,7 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
         URL.revokeObjectURL(a.href);
     };
 
-    if (loading || !data) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+    if (loading || !data) return <p className="text-slate-400 text-sm">Загрузка...</p>;
 
     const t = data.totals;
     const maxDaily = Math.max(1, ...data.daily.map((d: any) => d.received));
@@ -1365,34 +1365,34 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2 items-center">
-                <span className="text-xs uppercase tracking-wide text-slate-500">Окно:</span>
+                <span className="text-xs uppercase tracking-wide text-slate-400">Окно:</span>
                 {[7, 30, 90, 180].map(d => (
                     <button key={d} onClick={() => setDays(d)}
-                        className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-brand-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}>
+                        className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>
                         {d} дн
                     </button>
                 ))}
-                <button onClick={load} className="text-sm bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded ml-auto">↻</button>
+                <button onClick={load} className="text-sm bg-slate-800/70 hover:bg-slate-700 px-3 py-1 rounded ml-auto">↻</button>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                    <div className="text-xs uppercase text-slate-600">Всего лидов</div>
-                    <div className="text-2xl font-bold text-slate-900">{t.total}</div>
+                <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-300">Всего лидов</div>
+                    <div className="text-2xl font-bold text-slate-50">{t.total}</div>
                 </div>
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <div className="text-xs uppercase text-amber-700">Открытых</div>
-                    <div className="text-2xl font-bold text-amber-700">{t.open}</div>
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                    <div className="text-xs uppercase text-amber-300">Открытых</div>
+                    <div className="text-2xl font-bold text-amber-300">{t.open}</div>
                 </div>
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                    <div className="text-xs uppercase text-emerald-700">Закрыто (won)</div>
-                    <div className="text-2xl font-bold text-emerald-700">{t.won}</div>
-                    <div className="text-xs text-slate-500 mt-1">конверсия: {t.conversionPct}%</div>
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                    <div className="text-xs uppercase text-emerald-300">Закрыто (won)</div>
+                    <div className="text-2xl font-bold text-emerald-300">{t.won}</div>
+                    <div className="text-xs text-slate-400 mt-1">конверсия: {t.conversionPct}%</div>
                 </div>
-                <div className={`rounded-lg p-3 border ${t.slaCompliancePct >= 80 ? 'bg-emerald-50 border-emerald-200' : t.slaCompliancePct >= 60 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
-                    <div className="text-xs uppercase text-slate-700">SLA соблюдён</div>
-                    <div className="text-2xl font-bold text-slate-900">{t.slaCompliancePct}%</div>
-                    <div className="text-xs text-slate-500 mt-1">просрочено сейчас: {t.slaBreachedOpen}</div>
+                <div className={`rounded-lg p-3 border ${t.slaCompliancePct >= 80 ? 'bg-emerald-500/10 border-emerald-500/30' : t.slaCompliancePct >= 60 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                    <div className="text-xs uppercase text-slate-200">SLA соблюдён</div>
+                    <div className="text-2xl font-bold text-slate-50">{t.slaCompliancePct}%</div>
+                    <div className="text-xs text-slate-400 mt-1">просрочено сейчас: {t.slaBreachedOpen}</div>
                 </div>
             </div>
 
@@ -1416,12 +1416,12 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                         <div className="text-2xl font-extrabold mt-1">{fmt$(f.weighted)}</div>
                         <div className="text-xs text-white/60 mt-1">× вероятность</div>
                     </div>
-                    <div className="bg-emerald-500/15 border border-emerald-300/30 backdrop-blur rounded-xl p-3">
+                    <div className="bg-emerald-500/15 border border-emerald-500/40 backdrop-blur rounded-xl p-3">
                         <div className="text-[10px] uppercase tracking-wider text-emerald-200 font-semibold">Закрыто (won) MTD</div>
                         <div className="text-2xl font-extrabold mt-1">{fmt$(f.won_this_month)}</div>
                         <div className="text-xs text-white/60 mt-1">с начала месяца</div>
                     </div>
-                    <div className="bg-amber-500/15 border border-amber-300/30 backdrop-blur rounded-xl p-3">
+                    <div className="bg-amber-500/15 border border-amber-500/40 backdrop-blur rounded-xl p-3">
                         <div className="text-[10px] uppercase tracking-wider text-amber-200 font-semibold">Конверсия</div>
                         <div className="text-2xl font-extrabold mt-1">{t.conversionPct}%</div>
                         <div className="text-xs text-white/60 mt-1">won / closed</div>
@@ -1431,8 +1431,8 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
 
             {/* 🪜 Conversion funnel SVG */}
             {data.funnel && data.funnel.length > 0 && (
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🪜 Воронка обработки лидов</div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🪜 Воронка обработки лидов</div>
                     {(() => {
                         const funnel = data.funnel.filter((s: any) => s.n > 0);
                         if (funnel.length === 0) return <div className="text-sm text-slate-400 italic">нет данных</div>;
@@ -1464,14 +1464,14 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
 
             {/* Client stages mini-bar */}
             {data.stages && data.stages.some((s: any) => s.n > 0) && (
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🎓 Этапы клиентов (post-win)</div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🎓 Этапы клиентов (post-win)</div>
                     <div className="flex flex-wrap gap-2">
                         {data.stages.map((s: any) => (
-                            <div key={s.code} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                            <div key={s.code} className="flex items-center gap-2 bg-slate-800/40 border border-slate-800 rounded-lg px-3 py-2">
                                 <span className="w-2 h-2 rounded-full" style={{ background: s.color || '#0ea5e9' }} />
-                                <span className="text-xs font-medium text-slate-700">{s.label}</span>
-                                <span className="text-sm font-bold text-slate-900">{s.n}</span>
+                                <span className="text-xs font-medium text-slate-200">{s.label}</span>
+                                <span className="text-sm font-bold text-slate-50">{s.n}</span>
                             </div>
                         ))}
                     </div>
@@ -1480,8 +1480,8 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
 
             {/* 👥 Workload per manager — horizontal bars */}
             {data.byManager && data.byManager.length > 0 && (
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">👥 Нагрузка менеджеров</div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">👥 Нагрузка менеджеров</div>
                     {(() => {
                         const top = data.byManager.filter((m: any) => m.total > 0).slice(0, 12);
                         if (top.length === 0) return <div className="text-sm text-slate-400 italic">нет данных</div>;
@@ -1495,17 +1495,17 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                                     return (
                                         <div key={m.id}>
                                             <div className="flex items-baseline justify-between text-xs mb-1">
-                                                <span className="text-slate-700 font-medium">
+                                                <span className="text-slate-200 font-medium">
                                                     {m.full_name} <span className="text-slate-400">{m.login}</span>
                                                     {!m.active && <span className="ml-1 text-rose-500">·неактивен</span>}
                                                 </span>
-                                                <span className="text-slate-500">
-                                                    <span className="font-mono font-bold text-slate-900">{m.total}</span>
-                                                    {m.pipeline > 0 && <span className="ml-2 text-emerald-700">{fmt$(m.pipeline)}</span>}
+                                                <span className="text-slate-400">
+                                                    <span className="font-mono font-bold text-slate-50">{m.total}</span>
+                                                    {m.pipeline > 0 && <span className="ml-2 text-emerald-300">{fmt$(m.pipeline)}</span>}
                                                     {m.sla_breached > 0 && <span className="ml-2 text-rose-600">⚠{m.sla_breached}</span>}
                                                 </span>
                                             </div>
-                                            <div className="flex w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                                            <div className="flex w-full h-3 bg-slate-800/70 rounded-full overflow-hidden">
                                                 <div className="h-full bg-amber-500" style={{ width: `${pctOpen}%` }} title={`Открыто: ${m.open}`} />
                                                 <div className="h-full bg-emerald-500" style={{ width: `${pctWon}%` }} title={`Won: ${m.won}`} />
                                                 <div className="h-full bg-rose-400" style={{ width: `${pctLost}%` }} title={`Lost: ${m.closed - m.won}`} />
@@ -1513,7 +1513,7 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                                         </div>
                                     );
                                 })}
-                                <div className="flex gap-4 text-xs text-slate-500 pt-2 mt-2 border-t border-slate-100">
+                                <div className="flex gap-4 text-xs text-slate-400 pt-2 mt-2 border-t border-slate-800/60">
                                     <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-500 rounded" />Открытых</span>
                                     <span className="flex items-center gap-1"><span className="w-2 h-2 bg-emerald-500 rounded" />Won</span>
                                     <span className="flex items-center gap-1"><span className="w-2 h-2 bg-rose-400 rounded" />Lost</span>
@@ -1525,13 +1525,13 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
             )}
 
             <div>
-                <div className="text-xs uppercase text-slate-500 mb-2">Лиды по дням</div>
-                <div className="flex items-end gap-1 h-32 bg-slate-50 rounded-lg p-2 border border-slate-200">
+                <div className="text-xs uppercase text-slate-400 mb-2">Лиды по дням</div>
+                <div className="flex items-end gap-1 h-32 bg-slate-800/40 rounded-lg p-2 border border-slate-800">
                     {data.daily.map((d: any) => (
                         <div key={d.date} className="flex-1 group relative flex flex-col items-center justify-end">
-                            <div className="w-full bg-brand-500 hover:bg-brand-600 rounded-t transition-colors"
+                            <div className="w-full bg-sky-500 hover:bg-sky-600 rounded-t transition-colors"
                                 style={{ height: `${(d.received / maxDaily) * 100}%`, minHeight: '2px' }} />
-                            <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
+                            <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900/60 backdrop-blur-sm text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10">
                                 {d.date}: получено {d.received} / закрыто {d.closed}
                             </div>
                         </div>
@@ -1540,15 +1540,15 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🍩 По статусам</div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🍩 По статусам</div>
                     {data.byStatus && data.byStatus.length > 0 ? (
                         <DonutChart data={data.byStatus.filter((s: any) => s.n > 0).map((s: any) => ({ label: s.label, value: s.n, color: s.color || undefined }))} />
                     ) : <div className="text-sm text-slate-400 italic">нет данных</div>}
                 </div>
 
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm md:col-span-2">
-                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">📡 По источникам (откуда узнали)</div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 shadow-sm md:col-span-2">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">📡 По источникам (откуда узнали)</div>
                     {data.bySource && data.bySource.length > 0 ? (
                         <div className="grid md:grid-cols-2 gap-x-6 gap-y-2.5">
                             {(() => {
@@ -1559,13 +1559,13 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                                     return (
                                         <div key={s.source}>
                                             <div className="flex items-baseline justify-between text-xs mb-0.5">
-                                                <span className="text-slate-700 font-medium">{s.source}</span>
-                                                <span className="text-slate-500">
-                                                    <span className="font-mono font-bold text-slate-900">{s.total}</span>
-                                                    {s.closed > 0 && <span className="ml-2 text-emerald-700">won {s.won} · {conv}%</span>}
+                                                <span className="text-slate-200 font-medium">{s.source}</span>
+                                                <span className="text-slate-400">
+                                                    <span className="font-mono font-bold text-slate-50">{s.total}</span>
+                                                    {s.closed > 0 && <span className="ml-2 text-emerald-300">won {s.won} · {conv}%</span>}
                                                 </span>
                                             </div>
-                                            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                            <div className="w-full h-2.5 bg-slate-800/70 rounded-full overflow-hidden">
                                                 <div className="h-full rounded-full" style={{ width: `${(s.total / max) * 100}%`, background: palette[i % palette.length] }} />
                                             </div>
                                         </div>
@@ -1578,26 +1578,26 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                     )}
                 </div>
 
-                <div className="bg-white border border-slate-200 rounded-lg p-3">
-                    <div className="text-xs uppercase text-slate-500 mb-2">По менеджерам (за {data.windowDays} дн)</div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-400 mb-2">По менеджерам (за {data.windowDays} дн)</div>
                     <table className="w-full text-xs">
-                        <thead className="text-left text-slate-500">
+                        <thead className="text-left text-slate-400">
                             <tr><th className="py-1">Менеджер</th><th className="text-right">Всего</th><th className="text-right">Откр.</th><th className="text-right">Закр.</th><th className="text-right">SLA✓</th><th className="text-right">SLA✗</th></tr>
                         </thead>
                         <tbody>
                             {data.byManager.map((m: any) => {
                                 const slaTotal = (m.sla_met || 0) + (m.sla_breached || 0);
                                 return (
-                                    <tr key={m.id} className="border-t border-slate-100">
+                                    <tr key={m.id} className="border-t border-slate-800/60">
                                         <td className="py-1">
                                             <div>{m.full_name} <span className="text-slate-400">{m.login}</span></div>
-                                            {!m.active && <span className="text-xs text-red-500">неактивен</span>}
+                                            {!m.active && <span className="text-xs text-red-400">неактивен</span>}
                                         </td>
                                         <td className="text-right">{m.total}</td>
                                         <td className="text-right">{m.open}</td>
                                         <td className="text-right">{m.closed}</td>
-                                        <td className="text-right text-emerald-600">{m.sla_met}</td>
-                                        <td className={`text-right ${m.sla_breached > 0 ? 'text-red-600 font-medium' : ''}`}>{m.sla_breached}</td>
+                                        <td className="text-right text-emerald-400">{m.sla_met}</td>
+                                        <td className={`text-right ${m.sla_breached > 0 ? 'text-red-400 font-medium' : ''}`}>{m.sla_breached}</td>
                                     </tr>
                                 );
                             })}
@@ -1607,7 +1607,7 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
             </div>
 
             {t.avgCloseMinutes !== null && (
-                <div className="text-sm text-slate-600">
+                <div className="text-sm text-slate-300">
                     Среднее время от получения до закрытия: <strong>{Math.floor(t.avgCloseMinutes / 60)}ч {Math.round(t.avgCloseMinutes % 60)}м</strong>
                 </div>
             )}
@@ -1615,8 +1615,8 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
             {/* Country / University / Event / Study Level breakdowns */}
             <div className="grid md:grid-cols-2 gap-4">
                 {data.byCountry && data.byCountry.length > 0 && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🌍 По странам</div>
+                    <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 shadow-sm">
+                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🌍 По странам</div>
                         <div className="space-y-2.5">
                             {(() => {
                                 const max = Math.max(1, ...data.byCountry.map((c: any) => c.total));
@@ -1630,18 +1630,18 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                 )}
 
                 {data.byUniversity && data.byUniversity.length > 0 && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-3">
-                        <div className="text-xs uppercase text-slate-500 mb-2">🎓 По университетам</div>
+                    <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-3">
+                        <div className="text-xs uppercase text-slate-400 mb-2">🎓 По университетам</div>
                         <table className="w-full text-xs">
                             <thead className="text-left text-slate-400">
                                 <tr><th>Университет</th><th className="text-right">Всего</th><th className="text-right">Won</th></tr>
                             </thead>
                             <tbody>
                                 {data.byUniversity.map((u: any) => (
-                                    <tr key={u.university} className="border-t border-slate-100">
+                                    <tr key={u.university} className="border-t border-slate-800/60">
                                         <td className="py-1 truncate max-w-[60%]" title={u.university}>{u.university}</td>
                                         <td className="text-right font-mono">{u.total}</td>
-                                        <td className="text-right font-mono text-emerald-700">{u.won}</td>
+                                        <td className="text-right font-mono text-emerald-300">{u.won}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -1650,11 +1650,11 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                 )}
 
                 {data.byStudyLevel && data.byStudyLevel.length > 0 && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-3">
-                        <div className="text-xs uppercase text-slate-500 mb-2">📚 По уровню программы</div>
+                    <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-3">
+                        <div className="text-xs uppercase text-slate-400 mb-2">📚 По уровню программы</div>
                         <div className="space-y-1">
                             {data.byStudyLevel.map((l: any) => (
-                                <div key={l.level} className="flex justify-between text-xs py-1 border-t border-slate-100">
+                                <div key={l.level} className="flex justify-between text-xs py-1 border-t border-slate-800/60">
                                     <span>{l.level}</span>
                                     <span className="font-mono">{l.total}</span>
                                 </div>
@@ -1664,18 +1664,18 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                 )}
 
                 {data.byEvent && data.byEvent.length > 0 && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-3">
-                        <div className="text-xs uppercase text-slate-500 mb-2">🎟 По событиям</div>
+                    <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-3">
+                        <div className="text-xs uppercase text-slate-400 mb-2">🎟 По событиям</div>
                         <table className="w-full text-xs">
                             <thead className="text-left text-slate-400">
                                 <tr><th>Событие</th><th className="text-right">Всего</th><th className="text-right">Won</th></tr>
                             </thead>
                             <tbody>
                                 {data.byEvent.map((e: any) => (
-                                    <tr key={e.event} className="border-t border-slate-100">
+                                    <tr key={e.event} className="border-t border-slate-800/60">
                                         <td className="py-1 truncate max-w-[60%]">{e.event}</td>
                                         <td className="text-right font-mono">{e.total}</td>
-                                        <td className="text-right font-mono text-emerald-700">{e.won}</td>
+                                        <td className="text-right font-mono text-emerald-300">{e.won}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -1684,14 +1684,14 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                 )}
             </div>
 
-            <div className="border-t border-slate-200 pt-3 mt-3">
-                <div className="text-xs uppercase text-slate-500 mb-2">Экспорт CSV</div>
+            <div className="border-t border-slate-800 pt-3 mt-3">
+                <div className="text-xs uppercase text-slate-400 mb-2">Экспорт CSV</div>
                 <div className="flex flex-wrap gap-2 items-center">
                     <label className="text-sm">с
-                        <input type="date" className="ml-1 border border-slate-300 px-2 py-1 rounded text-sm" value={from} onChange={e => setFrom(e.target.value)} />
+                        <input type="date" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 ml-1 border border-slate-700 px-2 py-1 rounded text-sm" value={from} onChange={e => setFrom(e.target.value)} />
                     </label>
                     <label className="text-sm">по
-                        <input type="date" className="ml-1 border border-slate-300 px-2 py-1 rounded text-sm" value={to} onChange={e => setTo(e.target.value)} />
+                        <input type="date" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 ml-1 border border-slate-700 px-2 py-1 rounded text-sm" value={to} onChange={e => setTo(e.target.value)} />
                     </label>
                     <button onClick={exportCsv} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-1.5 rounded-lg font-medium shadow-sm">
                         📊 Скачать Excel (.xlsx)
@@ -1757,46 +1757,46 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
         }
     };
 
-    if (loading) return <p className="text-slate-500 text-sm">Загрузка...</p>;
+    if (loading) return <p className="text-slate-400 text-sm">Загрузка...</p>;
 
     return (
         <div className="space-y-4">
             {stats && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                        <div className="text-xs text-slate-600 uppercase">Всего лидов</div>
-                        <div className="text-2xl font-bold text-slate-900">{stats.total}</div>
+                    <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                        <div className="text-xs text-slate-300 uppercase">Всего лидов</div>
+                        <div className="text-2xl font-bold text-slate-50">{stats.total}</div>
                     </div>
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                        <div className="text-xs text-amber-700 uppercase">Открытых</div>
-                        <div className="text-2xl font-bold text-amber-700">{stats.open}</div>
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                        <div className="text-xs text-amber-300 uppercase">Открытых</div>
+                        <div className="text-2xl font-bold text-amber-300">{stats.open}</div>
                     </div>
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                        <div className="text-xs text-red-700 uppercase">SLA просрочен</div>
-                        <div className="text-2xl font-bold text-red-700">{stats.slaBreached}</div>
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                        <div className="text-xs text-red-300 uppercase">SLA просрочен</div>
+                        <div className="text-2xl font-bold text-red-300">{stats.slaBreached}</div>
                     </div>
-                    <button onClick={load} className="bg-brand-50 border border-brand-200 rounded-lg p-3 text-sm text-brand-700 font-medium">↻ Обновить</button>
+                    <button onClick={load} className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3 text-sm text-sky-300 font-medium">↻ Обновить</button>
                 </div>
             )}
 
             <div className="flex gap-2 items-center">
                 <button onClick={() => setIncludeClosed(!includeClosed)}
-                    className={`text-sm px-4 py-2 rounded-lg font-medium border transition-colors ${includeClosed ? 'bg-emerald-100 border-emerald-300 text-emerald-800' : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'}`}>
+                    className={`text-sm px-4 py-2 rounded-lg font-medium border transition-colors ${includeClosed ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200' : 'bg-slate-800/70 border-slate-700 text-slate-200 hover:bg-slate-700'}`}>
                     {includeClosed ? '📂 Показаны: все лиды (включая закрытые)' : '📂 Скрыты закрытые/обработанные лиды'}
                 </button>
-                <span className="text-xs text-slate-500">Клик чтобы переключить</span>
+                <span className="text-xs text-slate-400">Клик чтобы переключить</span>
             </div>
 
             {stats?.byManager?.length > 0 && (
-                <div className="bg-white border border-slate-200 rounded-lg p-3">
-                    <div className="text-xs uppercase text-slate-500 mb-2">По менеджерам</div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-lg p-3">
+                    <div className="text-xs uppercase text-slate-400 mb-2">По менеджерам</div>
                     <table className="w-full text-sm">
-                        <thead className="border-b border-slate-200">
+                        <thead className="border-b border-slate-800">
                             <tr><th className="text-left py-1">Менеджер</th><th className="text-right">Всего</th><th className="text-right">Открыто</th><th className="text-right">Закрыто</th></tr>
                         </thead>
                         <tbody>
                             {stats.byManager.map((m: any) => (
-                                <tr key={m.id} className="border-b border-slate-100">
+                                <tr key={m.id} className="border-b border-slate-800/60">
                                     <td className="py-1">{m.full_name} <span className="text-slate-400">({m.login})</span></td>
                                     <td className="text-right">{m.total}</td>
                                     <td className="text-right">{m.open}</td>
@@ -1811,71 +1811,71 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
             {editing && (
                 <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
                     onClick={() => setEditing(null)}>
-                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full my-8"
+                    <div className="bg-slate-900/60 backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-800 max-w-2xl w-full my-8"
                         onClick={e => e.stopPropagation()}>
-                        <div className="border-b border-slate-200 p-4 flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-slate-900">✎ Редактировать лид #{editing.id}</h3>
-                            <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
+                        <div className="border-b border-slate-800 p-4 flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-slate-50">✎ Редактировать лид #{editing.id}</h3>
+                            <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-300 text-2xl">×</button>
                         </div>
                         <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                             <label className="block">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Имя</span>
-                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Имя</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                     value={editing.name || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, name: e.target.value } : prev)} />
                             </label>
                             <label className="block">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Телефон</span>
-                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Телефон</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2 font-mono"
                                     value={editing.phone || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, phone: e.target.value } : prev)} />
                             </label>
                             <label className="block">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Email</span>
-                                <input type="email" className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Email</span>
+                                <input type="email" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                     value={editing.email || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, email: e.target.value } : prev)} />
                             </label>
                             <label className="block">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Страна</span>
-                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Страна</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                     value={editing.country || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, country: e.target.value } : prev)} />
                             </label>
                             <label className="block md:col-span-2">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Желаемый университет</span>
-                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Желаемый университет</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                     value={(editing as any).desired_university || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, desired_university: e.target.value } as any : prev)} />
                             </label>
                             <label className="block">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Источник</span>
-                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Источник</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                     value={editing.source || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, source: e.target.value } : prev)} />
                             </label>
                             <label className="block">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Status code</span>
-                                <input className="w-full border border-slate-300 rounded-lg px-3 py-2 font-mono"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Status code</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2 font-mono"
                                     value={editing.status_code || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, status_code: e.target.value } : prev)} />
                             </label>
                             <label className="block md:col-span-2">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Комментарий клиента</span>
-                                <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Комментарий клиента</span>
+                                <textarea rows={2} className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                     value={editing.comment || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, comment: e.target.value } : prev)} />
                             </label>
                             <label className="block md:col-span-2">
-                                <span className="block text-xs font-medium text-slate-700 mb-1">Заметка менеджера</span>
-                                <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                                <span className="block text-xs font-medium text-slate-200 mb-1">Заметка менеджера</span>
+                                <textarea rows={2} className="bg-slate-800/60 text-slate-100 placeholder-slate-500 w-full border border-slate-700 rounded-lg px-3 py-2"
                                     value={editing.notes || ''}
                                     onChange={e => setEditing(prev => prev ? { ...prev, notes: e.target.value } : prev)} />
                             </label>
                         </div>
-                        <div className="border-t border-slate-200 p-4 flex justify-end gap-2">
+                        <div className="border-t border-slate-800 p-4 flex justify-end gap-2">
                             <button onClick={() => setEditing(null)}
-                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium">
+                                className="bg-slate-800/70 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium">
                                 Отмена
                             </button>
                             <button onClick={saveEdit}
@@ -1889,7 +1889,7 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
 
             <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                    <thead className="bg-slate-100">
+                    <thead className="bg-slate-800/70">
                         <tr className="text-left">
                             <th className="px-2 py-2">ID</th>
                             <th className="px-2 py-2">Когда</th>
@@ -1916,16 +1916,16 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                                             : src.includes('modal') ? { label: 'Popup', bg: 'bg-slate-600' }
                                                 : { label: 'Site', bg: 'bg-slate-500' };
                             return (
-                                <tr key={l.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                <tr key={l.id} className="border-b border-slate-800/60 hover:bg-slate-800/40">
                                     <td className="px-2 py-2 text-slate-400 font-mono text-xs">#{l.id}</td>
-                                    <td className="px-2 py-2 text-xs text-slate-600">{new Date(l.received_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                                    <td className="px-2 py-2 text-xs text-slate-300">{new Date(l.received_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}</td>
                                     <td className="px-2 py-2">
                                         <span className={`text-[10px] px-2 py-0.5 rounded text-white font-bold ${srcInfo.bg}`} title={l.source}>{srcInfo.label}</span>
                                     </td>
                                     <td className="px-2 py-2 font-medium">{l.name || '—'}</td>
                                     <td className="px-2 py-2 text-xs">
                                         {l.phone && <div>📞 {l.phone}</div>}
-                                        {l.email && <div className="text-slate-500">{l.email}</div>}
+                                        {l.email && <div className="text-slate-400">{l.email}</div>}
                                     </td>
                                     <td className="px-2 py-2 text-xs">{l.country}</td>
                                     <td className="px-2 py-2 text-xs">{l.manager_name || <em className="text-slate-400">не назначен</em>}</td>
@@ -1935,9 +1935,9 @@ const LeadsView: React.FC<{ password: string }> = ({ password }) => {
                                     <td className="px-2 py-2 text-xs">{sla}</td>
                                     <td className="px-2 py-2 whitespace-nowrap">
                                         <button onClick={() => setEditing(l)}
-                                            className="text-xs bg-brand-50 hover:bg-brand-100 text-brand-700 px-2 py-1 rounded mr-1" title="Редактировать">✎</button>
+                                            className="text-xs bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 px-2 py-1 rounded mr-1" title="Редактировать">✎</button>
                                         <button onClick={() => removeLead(l.id, l.name)}
-                                            className="text-xs bg-red-50 hover:bg-red-100 text-red-700 px-2 py-1 rounded" title="Удалить">🗑</button>
+                                            className="text-xs bg-red-500/10 hover:bg-red-100 text-red-300 px-2 py-1 rounded" title="Удалить">🗑</button>
                                     </td>
                                 </tr>
                             );
@@ -2016,27 +2016,28 @@ const AdminPanel: React.FC = () => {
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-cyan-200 via-blue-100 to-violet-100 p-4" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
-                <div className="absolute inset-0 opacity-30 pointer-events-none" style={{
-                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 24px, rgba(0,0,0,0.06) 24px, rgba(0,0,0,0.06) 25px), repeating-linear-gradient(90deg, transparent, transparent 24px, rgba(0,0,0,0.06) 24px, rgba(0,0,0,0.06) 25px)',
+            <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{ fontFamily: "'Space Grotesk', system-ui", background: 'radial-gradient(ellipse at top, #0f172a 0%, #020617 50%, #000 100%)' }}>
+                <div className="absolute inset-0 opacity-20 pointer-events-none" style={{
+                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 32px, rgba(56,189,248,0.15) 32px, rgba(56,189,248,0.15) 33px), repeating-linear-gradient(90deg, transparent, transparent 32px, rgba(56,189,248,0.15) 32px, rgba(56,189,248,0.15) 33px)',
                 }} />
-                <form onSubmit={handleLogin} className={`relative ${A_CARD} p-8 w-full max-w-md`}>
-                    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">
+                <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full opacity-20 pointer-events-none" style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.6) 0%, transparent 70%)' }} />
+                <form onSubmit={handleLogin} className={`relative ${A_CARD} p-8 w-full max-w-md text-slate-100`}>
+                    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-800">
                         <img src="/ppp.png" alt="" className="w-12 h-auto" />
                         <div>
-                            <h2 className="text-2xl font-black uppercase tracking-tight">Admin</h2>
-                            <p className="text-xs font-mono text-slate-500">// AUTH_REQUIRED</p>
+                            <h2 className="text-2xl font-black uppercase tracking-tight text-slate-50">Admin</h2>
+                            <p className="text-xs font-mono text-sky-400">// AUTH_REQUIRED</p>
                         </div>
                     </div>
-                    <label className="block text-xs uppercase tracking-widest font-bold mb-1">Пароль</label>
+                    <label className="block text-xs uppercase tracking-widest font-bold mb-1 text-slate-300">Пароль</label>
                     <input
                         type="password" autoFocus
                         placeholder="••••••••"
-                        className={`w-full ${A_BORDER} bg-yellow-100 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-white`}
+                        className={`w-full ${A_BORDER} bg-slate-800/50 text-slate-100 placeholder-slate-500 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-slate-800 focus:border-sky-500 rounded-lg`}
                         value={password}
                         onChange={e => setPassword(e.target.value)}
                     />
-                    <button type="submit" className={`${A_BTN} w-full bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700`}>→ ВОЙТИ</button>
+                    <button type="submit" className={`w-full bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white border border-sky-400/50 rounded-xl shadow-[0_0_24px_-4px_rgba(56,189,248,0.5)] active:translate-y-[1px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-3`}>→ ВОЙТИ</button>
                 </form>
             </div>
         );
@@ -2054,32 +2055,35 @@ const AdminPanel: React.FC = () => {
     const setVisibility = (patch: any) => setSC({ visibility: { ...v, ...patch } });
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 relative" style={{ fontFamily: "'Space Grotesk', system-ui" }}>
+        <div className="min-h-screen relative text-slate-100" style={{ fontFamily: "'Space Grotesk', system-ui", background: 'radial-gradient(ellipse at top, #0f172a 0%, #020617 60%, #000 100%)' }}>
             {/* Admin-configurable background image */}
             {(sc as any).adminBgUrl && (
                 <div className="fixed inset-0 pointer-events-none z-0" style={{
                     backgroundImage: `url("${(sc as any).adminBgUrl}")`,
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
-                    opacity: 0.18,
+                    opacity: 0.08,
                 }} />
             )}
             {/* Subtle grid background overlay (only when no custom image) */}
             {!((sc as any).adminBgUrl) && (
-                <div className="fixed inset-0 pointer-events-none opacity-[0.06] z-0" style={{
-                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 30px, #000 30px, #000 31px), repeating-linear-gradient(90deg, transparent, transparent 30px, #000 30px, #000 31px)',
+                <div className="fixed inset-0 pointer-events-none opacity-[0.08] z-0" style={{
+                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 32px, rgba(56,189,248,0.4) 32px, rgba(56,189,248,0.4) 33px), repeating-linear-gradient(90deg, transparent, transparent 32px, rgba(56,189,248,0.4) 32px, rgba(56,189,248,0.4) 33px)',
                 }} />
             )}
+            {/* Glow orbs */}
+            <div className="fixed top-[10%] -left-[10%] w-[500px] h-[500px] rounded-full opacity-15 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.8) 0%, transparent 70%)' }} />
+            <div className="fixed bottom-[10%] -right-[10%] w-[500px] h-[500px] rounded-full opacity-10 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.8) 0%, transparent 70%)' }} />
 
             {/* Sticky header */}
-            <div className="sticky top-0 z-40 bg-slate-900 text-lime-300 border-b border-slate-800 shadow-md">
+            <div className="sticky top-0 z-40 bg-slate-950/85 backdrop-blur-xl text-sky-300 border-b border-sky-500/20 shadow-[0_4px_24px_-8px_rgba(56,189,248,0.3)]">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-                    <h1 className="text-xl font-black uppercase tracking-tight">⚙️ ADMIN_PANEL</h1>
+                    <h1 className="text-xl font-black uppercase tracking-tight bg-gradient-to-r from-sky-400 via-cyan-300 to-sky-400 bg-clip-text text-transparent">⚙️ ADMIN_PANEL</h1>
                     <div className="flex items-center gap-3">
-                        {savedAt && <span className="text-sm font-mono text-lime-300">✓ SAVED</span>}
+                        {savedAt && <span className="text-sm font-mono text-emerald-400 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />SAVED</span>}
                         <ATooltip text="Сохранить все изменения сайта в БД">
                             <button onClick={handleSave} disabled={saving}
-                                className={`${A_BTN} bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-600 disabled:opacity-50`}>
+                                className={`bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white border border-sky-400/50 rounded-xl shadow-[0_0_24px_-4px_rgba(56,189,248,0.5)] active:translate-y-[1px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-2 disabled:opacity-50`}>
                                 {saving ? '💾 ...' : '💾 СОХРАНИТЬ'}
                             </button>
                         </ATooltip>
@@ -2147,75 +2151,75 @@ const AdminPanel: React.FC = () => {
                 <Section title="📞 Контакты, WhatsApp и график работы" subtitle="Телефон, email, расписание для футера" defaultOpen={false}>
                     <div className="space-y-3">
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Телефон (отображается на сайте)</span>
-                            <input className="border border-slate-300 p-2 w-full rounded" value={ci.phone || ''}
+                            <span className="block font-medium text-slate-200 mb-1">Телефон (отображается на сайте)</span>
+                            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={ci.phone || ''}
                                 onChange={e => setCI({ phone: e.target.value })} />
                         </label>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Email</span>
-                            <input className="border border-slate-300 p-2 w-full rounded" value={ci.email || ''}
+                            <span className="block font-medium text-slate-200 mb-1">Email</span>
+                            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={ci.email || ''}
                                 onChange={e => setCI({ email: e.target.value })} />
                         </label>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Адрес офиса</span>
-                            <input className="border border-slate-300 p-2 w-full rounded" value={ci.address || ''}
+                            <span className="block font-medium text-slate-200 mb-1">Адрес офиса</span>
+                            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={ci.address || ''}
                                 onChange={e => setCI({ address: e.target.value })} />
                         </label>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Ссылка на 2GIS / карты</span>
-                            <input className="border border-slate-300 p-2 w-full rounded" value={ci.addressLink || ''}
+                            <span className="block font-medium text-slate-200 mb-1">Ссылка на 2GIS / карты</span>
+                            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={ci.addressLink || ''}
                                 onChange={e => setCI({ addressLink: e.target.value })} />
                         </label>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Instagram</span>
-                            <input className="border border-slate-300 p-2 w-full rounded" value={ci.instagram || ''}
+                            <span className="block font-medium text-slate-200 mb-1">Instagram</span>
+                            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={ci.instagram || ''}
                                 onChange={e => setCI({ instagram: e.target.value })} />
                         </label>
                         <hr className="my-3" />
-                        <h3 className="font-semibold text-slate-800">WhatsApp-кнопка (плавающая зелёная справа)</h3>
+                        <h3 className="font-semibold text-slate-100">WhatsApp-кнопка (плавающая зелёная справа)</h3>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Номер телефона (только цифры с кодом страны)</span>
+                            <span className="block font-medium text-slate-200 mb-1">Номер телефона (только цифры с кодом страны)</span>
                             <input
-                                className="border border-slate-300 p-2 w-full rounded font-mono"
+                                className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded font-mono"
                                 placeholder="996999530092"
                                 value={ci.whatsappNumber || ''}
                                 onChange={e => setCI({ whatsappNumber: e.target.value.replace(/\D/g, '') })}
                             />
-                            <span className="text-xs text-slate-500 block mt-1">Например: 996999530092 (без + и пробелов)</span>
+                            <span className="text-xs text-slate-400 block mt-1">Например: 996999530092 (без + и пробелов)</span>
                         </label>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Автотекст в окно WhatsApp</span>
+                            <span className="block font-medium text-slate-200 mb-1">Автотекст в окно WhatsApp</span>
                             <textarea
-                                className="border border-slate-300 p-2 w-full rounded"
+                                className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded"
                                 rows={2}
                                 placeholder="Добрый день! Пишу с сайта GoGlobal!"
                                 value={ci.whatsappMessage || ''}
                                 onChange={e => setCI({ whatsappMessage: e.target.value })}
                             />
-                            <span className="text-xs text-slate-500 block mt-1">Подставляется в текстовое поле когда посетитель открывает виджет</span>
+                            <span className="text-xs text-slate-400 block mt-1">Подставляется в текстовое поле когда посетитель открывает виджет</span>
                         </label>
 
                         <hr className="my-3" />
-                        <h3 className="font-semibold text-slate-800">⏰ График работы (показывается в футере сайта)</h3>
+                        <h3 className="font-semibold text-slate-100">⏰ График работы (показывается в футере сайта)</h3>
                         {((sc.workSchedule as Array<{ day: string; hours: string }>) || [
                             { day: 'Пн–Пт', hours: '09:00 – 18:00' },
                             { day: 'Сб', hours: '10:00 – 15:00' },
                             { day: 'Вс', hours: 'Выходной' },
                         ]).map((row, i, arr) => (
                             <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-2">
-                                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="День (например, Пн–Пт)"
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded text-sm" placeholder="День (например, Пн–Пт)"
                                     value={row.day}
                                     onChange={e => {
                                         const list = [...arr]; list[i] = { ...row, day: e.target.value };
                                         setSC({ workSchedule: list });
                                     }} />
-                                <input className="border border-slate-300 p-2 rounded text-sm" placeholder="Часы (например, 09:00 – 18:00 или Выходной)"
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded text-sm" placeholder="Часы (например, 09:00 – 18:00 или Выходной)"
                                     value={row.hours}
                                     onChange={e => {
                                         const list = [...arr]; list[i] = { ...row, hours: e.target.value };
                                         setSC({ workSchedule: list });
                                     }} />
-                                <button className="text-red-500 text-sm px-2"
+                                <button className="text-red-400 text-sm px-2"
                                     onClick={() => {
                                         const list = [...arr]; list.splice(i, 1);
                                         setSC({ workSchedule: list });
@@ -2233,9 +2237,9 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🎬 Loader (анимация при загрузке)" subtitle="Текст под логотипом во время заставки">
                     <label className="block text-sm">
-                        <span className="block font-medium text-slate-700 mb-1">Тагалайн</span>
+                        <span className="block font-medium text-slate-200 mb-1">Тагалайн</span>
                         <input
-                            className="border border-slate-300 p-2 w-full rounded"
+                            className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded"
                             placeholder="Образование за рубежом"
                             value={sc.loaderTagline ?? ''}
                             onChange={e => setSC({ loaderTagline: e.target.value })}
@@ -2245,19 +2249,19 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🎨 Внешний вид админки" subtitle="Фоновое изображение и оформление" accent="violet">
                     <div className="space-y-3">
-                        <p className="text-sm text-slate-600">
+                        <p className="text-sm text-slate-300">
                             Фоновое изображение применяется только в админке (на главной сайта остаётся брендовое оформление).
                             Картинка отображается с лёгкой полупрозрачностью, чтобы карточки оставались читаемыми.
                         </p>
                         <label className="block">
-                            <span className="block text-sm font-medium text-slate-700 mb-1">Фон админки (URL или загрузка)</span>
+                            <span className="block text-sm font-medium text-slate-200 mb-1">Фон админки (URL или загрузка)</span>
                             <ImageInput
                                 value={(sc as any).adminBgUrl || ''}
                                 password={password}
                                 onChange={v => setSC({ adminBgUrl: v })}
                                 placeholder="URL или загрузите файл"
                             />
-                            <span className="block text-xs text-slate-500 mt-1">
+                            <span className="block text-xs text-slate-400 mt-1">
                                 Оставьте пустым чтобы использовать стандартный градиент. Рекомендую светлые изображения с природой / технологичными узорами.
                             </span>
                         </label>
@@ -2275,17 +2279,17 @@ const AdminPanel: React.FC = () => {
                 <Section title="🖼 Изображения сайта" subtitle="Hero и About">
                     <div className="space-y-4">
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">Hero — фоновая картинка</span>
+                            <span className="block font-medium text-slate-200 mb-1">Hero — фоновая картинка</span>
                             <ImageInput value={sc.heroImage || ''} password={password}
                                 onChange={v => setSC({ heroImage: v })} />
                         </label>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">About — картинка 1</span>
+                            <span className="block font-medium text-slate-200 mb-1">About — картинка 1</span>
                             <ImageInput value={sc.aboutImage1 || ''} password={password}
                                 onChange={v => setSC({ aboutImage1: v })} />
                         </label>
                         <label className="block text-sm">
-                            <span className="block font-medium text-slate-700 mb-1">About — картинка 2</span>
+                            <span className="block font-medium text-slate-200 mb-1">About — картинка 2</span>
                             <ImageInput value={sc.aboutImage2 || ''} password={password}
                                 onChange={v => setSC({ aboutImage2: v })} />
                         </label>
@@ -2296,7 +2300,7 @@ const AdminPanel: React.FC = () => {
                     {(sc.partnerUniversities || []).map((uni: any, index: number) => (
                         <div key={index} className="flex gap-2 mb-2 items-center">
                             <input
-                                className="border border-slate-300 p-2 flex-grow rounded"
+                                className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 flex-grow rounded"
                                 placeholder="Название университета"
                                 value={uni.name}
                                 onChange={e => {
@@ -2314,7 +2318,7 @@ const AdminPanel: React.FC = () => {
                                     }} /> Highlight
                             </label>
                             <button
-                                className="text-red-500 font-bold px-2"
+                                className="text-red-400 font-bold px-2"
                                 onClick={() => {
                                     const list = [...(sc.partnerUniversities || [])];
                                     list.splice(index, 1);
@@ -2330,11 +2334,11 @@ const AdminPanel: React.FC = () => {
                 </Section>
 
                 <Section title="🌍 Континенты / Регионы" subtitle="Группировка стран в Destinations">
-                    <p className="text-xs text-slate-500 mb-3">ID региона должен совпадать с тем, что выбран у каждой страны. Совет: оставить латиницей (Asia, Europe, USA) и менять только Название.</p>
+                    <p className="text-xs text-slate-400 mb-3">ID региона должен совпадать с тем, что выбран у каждой страны. Совет: оставить латиницей (Asia, Europe, USA) и менять только Название.</p>
                     {regions.map((r: any, i: number) => (
                         <div key={i} className="flex gap-2 mb-2 items-center">
                             <input
-                                className="border border-slate-300 p-2 rounded font-mono text-xs w-24"
+                                className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded font-mono text-xs w-24"
                                 placeholder="ID"
                                 value={r.id}
                                 onChange={e => {
@@ -2344,7 +2348,7 @@ const AdminPanel: React.FC = () => {
                                 }}
                             />
                             <input
-                                className="border border-slate-300 p-2 rounded flex-grow"
+                                className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded flex-grow"
                                 placeholder="Отображаемое имя (например, Азия)"
                                 value={r.name}
                                 onChange={e => {
@@ -2354,7 +2358,7 @@ const AdminPanel: React.FC = () => {
                                 }}
                             />
                             <button
-                                className="text-red-500 font-bold px-2"
+                                className="text-red-400 font-bold px-2"
                                 onClick={() => {
                                     const list = [...regions];
                                     list.splice(i, 1);
@@ -2371,7 +2375,7 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🌐 Страны и Университеты">
                     <button
-                        className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded mb-4 font-medium"
+                        className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded mb-4 font-medium"
                         onClick={() => {
                             setLocalData({
                                 ...localData,
@@ -2390,10 +2394,10 @@ const AdminPanel: React.FC = () => {
                     >+ Добавить страну</button>
 
                     {(localData.countries || []).map((country: any, cIndex: number) => (
-                        <div key={country.id} className="mb-6 border border-slate-200 p-4 rounded-lg bg-slate-50">
+                        <div key={country.id} className="mb-6 border border-slate-800 p-4 rounded-lg bg-slate-800/40">
                             <div className="flex items-start justify-between mb-3">
                                 <input
-                                    className="font-bold text-lg border border-slate-300 p-2 rounded flex-grow mr-3"
+                                    className="bg-slate-800/60 text-slate-100 placeholder-slate-500 font-bold text-lg border border-slate-700 p-2 rounded flex-grow mr-3"
                                     value={country.name}
                                     onChange={e => {
                                         const list = [...localData.countries];
@@ -2402,7 +2406,7 @@ const AdminPanel: React.FC = () => {
                                     }}
                                 />
                                 <button
-                                    className="text-red-500 text-sm hover:underline"
+                                    className="text-red-400 text-sm hover:underline"
                                     onClick={() => {
                                         if (confirm(`Удалить страну "${country.name}"?`)) {
                                             const list = [...localData.countries];
@@ -2414,9 +2418,9 @@ const AdminPanel: React.FC = () => {
                             </div>
                             <div className="grid md:grid-cols-2 gap-3 mb-4">
                                 <label className="text-sm">
-                                    <span className="block font-medium text-slate-700 mb-1">Континент / Регион</span>
+                                    <span className="block font-medium text-slate-200 mb-1">Континент / Регион</span>
                                     <select
-                                        className="border border-slate-300 p-2 w-full rounded bg-white"
+                                        className="border border-slate-700 p-2 w-full rounded bg-slate-900/60 backdrop-blur-sm"
                                         value={country.region || ''}
                                         onChange={e => {
                                             const list = [...localData.countries];
@@ -2430,8 +2434,8 @@ const AdminPanel: React.FC = () => {
                                     </select>
                                 </label>
                                 <label className="text-sm">
-                                    <span className="block font-medium text-slate-700 mb-1">Краткое описание</span>
-                                    <input className="border border-slate-300 p-2 w-full rounded" value={country.description}
+                                    <span className="block font-medium text-slate-200 mb-1">Краткое описание</span>
+                                    <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={country.description}
                                         onChange={e => {
                                             const list = [...localData.countries];
                                             list[cIndex].description = e.target.value;
@@ -2440,8 +2444,8 @@ const AdminPanel: React.FC = () => {
                                     />
                                 </label>
                                 <label className="text-sm">
-                                    <span className="block font-medium text-slate-700 mb-1">Стоимость обучения min ($)</span>
-                                    <input type="number" className="border border-slate-300 p-2 w-full rounded" value={country.costs.tuition.min}
+                                    <span className="block font-medium text-slate-200 mb-1">Стоимость обучения min ($)</span>
+                                    <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={country.costs.tuition.min}
                                         onChange={e => {
                                             const list = [...localData.countries];
                                             list[cIndex].costs.tuition.min = parseInt(e.target.value) || 0;
@@ -2449,8 +2453,8 @@ const AdminPanel: React.FC = () => {
                                         }} />
                                 </label>
                                 <label className="text-sm">
-                                    <span className="block font-medium text-slate-700 mb-1">Стоимость жизни min ($)</span>
-                                    <input type="number" className="border border-slate-300 p-2 w-full rounded" value={country.costs.living.min}
+                                    <span className="block font-medium text-slate-200 mb-1">Стоимость жизни min ($)</span>
+                                    <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" value={country.costs.living.min}
                                         onChange={e => {
                                             const list = [...localData.countries];
                                             list[cIndex].costs.living.min = parseInt(e.target.value) || 0;
@@ -2458,18 +2462,18 @@ const AdminPanel: React.FC = () => {
                                         }} />
                                 </label>
                                 <label className="text-sm md:col-span-2">
-                                    <span className="block font-medium text-slate-700 mb-1">💼 Услуги GoGlobal для этой страны ($)</span>
-                                    <input type="number" className="border border-slate-300 p-2 w-full rounded font-mono" placeholder="оставить пустым = взять глобальное значение"
+                                    <span className="block font-medium text-slate-200 mb-1">💼 Услуги GoGlobal для этой страны ($)</span>
+                                    <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded font-mono" placeholder="оставить пустым = взять глобальное значение"
                                         value={(country as any).servicesCost ?? ''}
                                         onChange={e => {
                                             const list = [...localData.countries];
                                             (list[cIndex] as any).servicesCost = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value) || 0);
                                             setLocalData({ ...localData, countries: list });
                                         }} />
-                                    <span className="text-xs text-slate-500 block mt-1">Fallback: если у конкретного университета не задано — используется это значение. Если и здесь пусто — берётся из глобального калькулятор-конфига.</span>
+                                    <span className="text-xs text-slate-400 block mt-1">Fallback: если у конкретного университета не задано — используется это значение. Если и здесь пусто — берётся из глобального калькулятор-конфига.</span>
                                 </label>
                                 <div className="md:col-span-2 text-sm">
-                                    <span className="block font-medium text-slate-700 mb-1">Картинка страны</span>
+                                    <span className="block font-medium text-slate-200 mb-1">Картинка страны</span>
                                     <ImageInput
                                         value={country.image}
                                         password={password}
@@ -2482,12 +2486,12 @@ const AdminPanel: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="mt-3 pt-3 border-t border-slate-200">
+                            <div className="mt-3 pt-3 border-t border-slate-800">
                                 <h4 className="font-semibold text-sm mb-2">Университеты</h4>
                                 {country.universities.map((uni: any, uIndex: number) => (
-                                    <div key={uIndex} className="ml-2 mb-3 p-3 border border-slate-200 bg-white rounded">
+                                    <div key={uIndex} className="ml-2 mb-3 p-3 border border-slate-800 bg-slate-900/60 backdrop-blur-sm rounded">
                                         <input
-                                            className="border border-slate-300 p-1 w-full font-bold mb-2 rounded"
+                                            className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 w-full font-bold mb-2 rounded"
                                             placeholder="Название университета"
                                             value={uni.name}
                                             onChange={e => {
@@ -2497,7 +2501,7 @@ const AdminPanel: React.FC = () => {
                                             }}
                                         />
                                         <textarea
-                                            className="border border-slate-300 p-1 w-full text-sm mb-2 rounded"
+                                            className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 w-full text-sm mb-2 rounded"
                                             placeholder="Описание"
                                             value={uni.description}
                                             onChange={e => {
@@ -2508,8 +2512,8 @@ const AdminPanel: React.FC = () => {
                                         />
                                         <div className="grid grid-cols-2 gap-2 mb-2">
                                             <label className="text-sm">
-                                                <span className="block text-xs text-slate-500 mb-1">💵 Стоимость обучения / год ($)</span>
-                                                <input type="number" className="border border-slate-300 p-1.5 w-full rounded text-sm"
+                                                <span className="block text-xs text-slate-400 mb-1">💵 Стоимость обучения / год ($)</span>
+                                                <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 w-full rounded text-sm"
                                                     placeholder="20000"
                                                     value={uni.tuition ?? ''}
                                                     onChange={e => {
@@ -2520,8 +2524,8 @@ const AdminPanel: React.FC = () => {
                                                     }} />
                                             </label>
                                             <label className="text-sm">
-                                                <span className="block text-xs text-slate-500 mb-1">💼 Услуги GoGlobal / год ($)</span>
-                                                <input type="number" className="border border-slate-300 p-1.5 w-full rounded text-sm"
+                                                <span className="block text-xs text-slate-400 mb-1">💼 Услуги GoGlobal / год ($)</span>
+                                                <input type="number" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 w-full rounded text-sm"
                                                     placeholder="взять из страны"
                                                     value={uni.servicesCost ?? ''}
                                                     onChange={e => {
@@ -2544,7 +2548,7 @@ const AdminPanel: React.FC = () => {
                                         </div>
                                         {uni.grantAvailable && (
                                             <input
-                                                className="border border-slate-300 p-1 w-full text-xs mb-2 rounded"
+                                                className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1 w-full text-xs mb-2 rounded"
                                                 placeholder="Описание гранта (необязательно)"
                                                 value={uni.grantNote || ''}
                                                 onChange={e => {
@@ -2554,7 +2558,7 @@ const AdminPanel: React.FC = () => {
                                                 }}
                                             />
                                         )}
-                                        <div className="text-xs font-medium text-slate-700 mb-1">Картинки</div>
+                                        <div className="text-xs font-medium text-slate-200 mb-1">Картинки</div>
                                         <ImageListInput
                                             values={uni.images || []}
                                             password={password}
@@ -2565,7 +2569,7 @@ const AdminPanel: React.FC = () => {
                                             }}
                                         />
                                         <button
-                                            className="text-red-500 text-xs mt-2 hover:underline"
+                                            className="text-red-400 text-xs mt-2 hover:underline"
                                             onClick={() => {
                                                 const list = [...localData.countries];
                                                 list[cIndex].universities.splice(uIndex, 1);
@@ -2589,7 +2593,7 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="💬 Отзывы студентов">
                     <button
-                        className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded mb-4 font-medium"
+                        className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded mb-4 font-medium"
                         onClick={() => {
                             setLocalData({
                                 ...localData,
@@ -2606,10 +2610,10 @@ const AdminPanel: React.FC = () => {
                     >+ Добавить отзыв</button>
 
                     {(localData.testimonials || []).map((t: any, i: number) => (
-                        <div key={t.id} className="mb-4 p-3 border border-slate-200 rounded-lg bg-slate-50 grid md:grid-cols-2 gap-2">
+                        <div key={t.id} className="mb-4 p-3 border border-slate-800 rounded-lg bg-slate-800/40 grid md:grid-cols-2 gap-2">
                             <label className="text-sm">
-                                <span className="block font-medium text-slate-700 mb-1">Имя</span>
-                                <input className="border border-slate-300 p-2 w-full rounded"
+                                <span className="block font-medium text-slate-200 mb-1">Имя</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded"
                                     value={t.name}
                                     onChange={e => {
                                         const list = [...localData.testimonials]; list[i].name = e.target.value;
@@ -2617,8 +2621,8 @@ const AdminPanel: React.FC = () => {
                                     }} />
                             </label>
                             <label className="text-sm">
-                                <span className="block font-medium text-slate-700 mb-1">Страна (ID)</span>
-                                <select className="border border-slate-300 p-2 w-full rounded bg-white"
+                                <span className="block font-medium text-slate-200 mb-1">Страна (ID)</span>
+                                <select className="border border-slate-700 p-2 w-full rounded bg-slate-900/60 backdrop-blur-sm"
                                     value={t.countryId || ''}
                                     onChange={e => {
                                         const list = [...localData.testimonials]; list[i].countryId = e.target.value;
@@ -2631,8 +2635,8 @@ const AdminPanel: React.FC = () => {
                                 </select>
                             </label>
                             <label className="text-sm md:col-span-2">
-                                <span className="block font-medium text-slate-700 mb-1">Университет</span>
-                                <input className="border border-slate-300 p-2 w-full rounded"
+                                <span className="block font-medium text-slate-200 mb-1">Университет</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded"
                                     value={t.university}
                                     onChange={e => {
                                         const list = [...localData.testimonials]; list[i].university = e.target.value;
@@ -2640,8 +2644,8 @@ const AdminPanel: React.FC = () => {
                                     }} />
                             </label>
                             <label className="text-sm md:col-span-2">
-                                <span className="block font-medium text-slate-700 mb-1">Цитата (короткая)</span>
-                                <input className="border border-slate-300 p-2 w-full rounded"
+                                <span className="block font-medium text-slate-200 mb-1">Цитата (короткая)</span>
+                                <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded"
                                     value={t.quote}
                                     onChange={e => {
                                         const list = [...localData.testimonials]; list[i].quote = e.target.value;
@@ -2649,8 +2653,8 @@ const AdminPanel: React.FC = () => {
                                     }} />
                             </label>
                             <label className="text-sm md:col-span-2">
-                                <span className="block font-medium text-slate-700 mb-1">История (полный текст)</span>
-                                <textarea className="border border-slate-300 p-2 w-full rounded" rows={3}
+                                <span className="block font-medium text-slate-200 mb-1">История (полный текст)</span>
+                                <textarea className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" rows={3}
                                     value={t.story}
                                     onChange={e => {
                                         const list = [...localData.testimonials]; list[i].story = e.target.value;
@@ -2658,7 +2662,7 @@ const AdminPanel: React.FC = () => {
                                     }} />
                             </label>
                             <div className="md:col-span-2 flex justify-end">
-                                <button className="text-red-500 text-sm hover:underline"
+                                <button className="text-red-400 text-sm hover:underline"
                                     onClick={() => {
                                         if (!confirm(`Удалить отзыв ${t.name}?`)) return;
                                         const list = [...localData.testimonials]; list.splice(i, 1);
@@ -2671,7 +2675,7 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="❓ FAQ — Частые вопросы">
                     <button
-                        className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded mb-4 font-medium"
+                        className="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded mb-4 font-medium"
                         onClick={() => {
                             setLocalData({
                                 ...localData,
@@ -2681,22 +2685,22 @@ const AdminPanel: React.FC = () => {
                     >+ Добавить вопрос</button>
 
                     {(localData.faqs || []).map((q: any, i: number) => (
-                        <div key={i} className="mb-3 p-3 border border-slate-200 rounded-lg bg-slate-50 space-y-2">
-                            <input className="border border-slate-300 p-2 w-full rounded font-medium"
+                        <div key={i} className="mb-3 p-3 border border-slate-800 rounded-lg bg-slate-800/40 space-y-2">
+                            <input className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded font-medium"
                                 placeholder="Вопрос"
                                 value={q.question}
                                 onChange={e => {
                                     const list = [...localData.faqs]; list[i].question = e.target.value;
                                     setLocalData({ ...localData, faqs: list });
                                 }} />
-                            <textarea className="border border-slate-300 p-2 w-full rounded" rows={2}
+                            <textarea className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 w-full rounded" rows={2}
                                 placeholder="Ответ"
                                 value={q.answer}
                                 onChange={e => {
                                     const list = [...localData.faqs]; list[i].answer = e.target.value;
                                     setLocalData({ ...localData, faqs: list });
                                 }} />
-                            <button className="text-red-500 text-sm hover:underline"
+                            <button className="text-red-400 text-sm hover:underline"
                                 onClick={() => {
                                     const list = [...localData.faqs]; list.splice(i, 1);
                                     setLocalData({ ...localData, faqs: list });
@@ -2706,10 +2710,10 @@ const AdminPanel: React.FC = () => {
                 </Section>
 
                 <Section title="🔔 Telegram-уведомления" subtitle="Бот для нотификаций о лидах (используется в CRM)">
-                    <p className="text-sm text-slate-600 mb-3">
+                    <p className="text-sm text-slate-300 mb-3">
                         Чат и токен бота настраиваются через переменные окружения Railway:
-                        <code className="bg-slate-100 px-1 mx-1 rounded text-xs">TELEGRAM_BOT_TOKEN</code>,
-                        <code className="bg-slate-100 px-1 mx-1 rounded text-xs">TELEGRAM_CHAT_ID</code>.
+                        <code className="bg-slate-800/70 px-1 mx-1 rounded text-xs">TELEGRAM_BOT_TOKEN</code>,
+                        <code className="bg-slate-800/70 px-1 mx-1 rounded text-xs">TELEGRAM_CHAT_ID</code>.
                         Их можно поменять только из Railway — не из админки.
                     </p>
                     <button
