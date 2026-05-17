@@ -1175,6 +1175,717 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
     );
 };
 
+// ─────────────────────────── LEADERBOARD ───────────────────────────
+const LeaderboardSection: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [days, setDays] = useState(30);
+    useEffect(() => {
+        fetch(`/api/admin/leaderboard?days=${days}`, { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setData);
+    }, [days]);
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    const ranked = [...(data.rows || [])].sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0));
+    const fmt = (n: number) => n == null ? '—' : Math.round(Number(n) * 10) / 10;
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Окно:</span>
+                {[7, 30, 90].map(d => (
+                    <button key={d} onClick={() => setDays(d)}
+                        className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>
+                        {d} дн
+                    </button>
+                ))}
+            </div>
+            <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl overflow-x-auto">
+                <table className="w-full text-sm">
+                    <thead className="bg-slate-800/40 text-xs uppercase tracking-wider text-slate-400">
+                        <tr>
+                            <th className="text-left py-2 px-3 w-12">#</th>
+                            <th className="text-left py-2 px-3">Менеджер</th>
+                            <th className="text-right py-2 px-3">Обработано</th>
+                            <th className="text-right py-2 px-3">Won</th>
+                            <th className="text-right py-2 px-3">Выручка</th>
+                            <th className="text-right py-2 px-3">Касаний</th>
+                            <th className="text-right py-2 px-3">Avg score</th>
+                            <th className="text-right py-2 px-3">Ср.отклик (мин)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {ranked.map((m: any, i: number) => {
+                            const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+                            return (
+                                <tr key={m.id} className="border-t border-slate-800 hover:bg-slate-800/30">
+                                    <td className="py-2 px-3 text-slate-300 font-bold">{medal || i + 1}</td>
+                                    <td className="py-2 px-3 text-slate-100">{m.full_name} <span className="text-slate-500 text-xs font-mono">{m.login}</span></td>
+                                    <td className="py-2 px-3 text-right font-mono text-slate-200">{m.handled}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-emerald-300">{m.won}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-emerald-200 font-bold">${Math.round(Number(m.revenue || 0)).toLocaleString()}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-sky-300">{m.touches}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-amber-300">{fmt(m.avg_score)}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-violet-300">{fmt(m.median_response_min)}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── TIME-IN-STAGE ───────────────────────────
+const TimeInStageSection: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [stuck, setStuck] = useState<any[]>([]);
+    const [days, setDays] = useState(30);
+    useEffect(() => {
+        fetch(`/api/admin/time-in-stage?days=${days}`, { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setData);
+        fetch('/api/admin/stuck-leads', { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(j => setStuck(j.stuck || []));
+    }, [days]);
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    const maxAvg = Math.max(1, ...(data.rows || []).map((r: any) => Number(r.avg_hours || 0)));
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Окно:</span>
+                {[7, 30, 90].map(d => (
+                    <button key={d} onClick={() => setDays(d)} className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>{d}дн</button>
+                ))}
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs uppercase font-semibold text-slate-400 mb-3">⏱ Среднее время в статусе</div>
+                    {(data.rows || []).length === 0 ? <div className="text-sm text-slate-500 italic">нет переходов</div> : (
+                        <div className="space-y-2">
+                            {(data.rows || []).map((r: any) => (
+                                <div key={r.kind + r.code}>
+                                    <div className="flex items-baseline justify-between text-xs mb-1">
+                                        <span className="text-slate-200">
+                                            <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: r.color || '#94a3b8' }} />
+                                            {r.label || r.code}
+                                            <span className="text-slate-500 ml-1">({r.kind === 'stage' ? 'этап' : 'статус'})</span>
+                                        </span>
+                                        <span className="font-mono text-slate-300">
+                                            avg <b className="text-slate-100">{Math.round(Number(r.avg_hours || 0))}ч</b>
+                                            <span className="text-slate-500 ml-2">max {Math.round(Number(r.max_hours || 0))}ч</span>
+                                            <span className="text-slate-500 ml-2">n={r.samples}</span>
+                                        </span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-full" style={{ width: `${(Number(r.avg_hours || 0) / maxAvg) * 100}%`, background: r.color || '#0ea5e9' }} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs uppercase font-semibold text-slate-400 mb-3">🐌 Зависшие лиды &gt;72ч (топ-50)</div>
+                    {stuck.length === 0 ? <div className="text-sm text-slate-500 italic">нет</div> : (
+                        <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                            {stuck.map((l: any) => (
+                                <div key={l.lead_id} className="flex items-center gap-2 bg-slate-800/40 border border-slate-800 rounded p-2 text-xs">
+                                    <span className="text-slate-100 truncate flex-grow">#{l.lead_id} {l.name}</span>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: (l.status_color || '#94a3b8') + '33', color: l.status_color || '#cbd5e1' }}>{l.status_label}</span>
+                                    <span className="font-mono text-rose-300 font-bold">{Math.round(Number(l.hours_in_stage))}ч</span>
+                                    <span className="text-slate-500">· {l.manager_name || '—'}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── RESPONSE TIME ───────────────────────────
+const ResponseTimeSection: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [days, setDays] = useState(30);
+    useEffect(() => {
+        fetch(`/api/admin/response-time?days=${days}`, { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setData);
+    }, [days]);
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Окно:</span>
+                {[7, 30, 90].map(d => (
+                    <button key={d} onClick={() => setDays(d)} className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>{d}дн</button>
+                ))}
+            </div>
+            <p className="text-xs text-slate-500">Время от поступления лида до первого ответа менеджера (комментарий, изменение статуса, или клик на касание).</p>
+            <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl overflow-x-auto">
+                <table className="w-full text-sm">
+                    <thead className="bg-slate-800/40 text-xs uppercase tracking-wider text-slate-400">
+                        <tr>
+                            <th className="text-left py-2 px-3">Менеджер</th>
+                            <th className="text-right py-2 px-3">Замеров</th>
+                            <th className="text-right py-2 px-3">Median (P50)</th>
+                            <th className="text-right py-2 px-3">P90</th>
+                            <th className="text-right py-2 px-3">Avg</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {(data.rows || []).map((m: any) => {
+                            const med = Number(m.p50_min);
+                            const color = !med ? 'text-slate-500' : med < 30 ? 'text-emerald-300' : med < 120 ? 'text-amber-300' : 'text-rose-300';
+                            return (
+                                <tr key={m.id} className="border-t border-slate-800">
+                                    <td className="py-2 px-3 text-slate-100">{m.full_name}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-slate-200">{m.n}</td>
+                                    <td className={`py-2 px-3 text-right font-mono font-bold ${color}`}>{m.p50_min ? `${Math.round(Number(m.p50_min))} мин` : '—'}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-slate-300">{m.p90_min ? `${Math.round(Number(m.p90_min))} мин` : '—'}</td>
+                                    <td className="py-2 px-3 text-right font-mono text-slate-300">{m.avg_min ? `${Math.round(Number(m.avg_min))} мин` : '—'}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── LEAD HEATMAP ───────────────────────────
+const LeadHeatmapSection: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [days, setDays] = useState(30);
+    useEffect(() => {
+        fetch(`/api/admin/lead-heatmap?days=${days}`, { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setData);
+    }, [days]);
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    const cells = data.cells || [];
+    const matrix: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+    // dow: 0 = Sunday → reindex to 0=Monday..6=Sunday
+    for (const c of cells) {
+        const d = (c.dow + 6) % 7;
+        matrix[d][c.hour] += c.n;
+    }
+    const max = Math.max(1, ...matrix.flat());
+    const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Окно:</span>
+                {[7, 30, 90].map(d => (
+                    <button key={d} onClick={() => setDays(d)} className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>{d}дн</button>
+                ))}
+            </div>
+            <p className="text-xs text-slate-500">Когда заходят лиды (по дню недели × часу, локальная зона Бишкек). Темнее → больше лидов. Сравни с графиком онлайна менеджеров.</p>
+            <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4 overflow-x-auto">
+                <table className="text-[10px]">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            {Array.from({ length: 24 }, (_, h) => (<th key={h} className="px-1 text-slate-500 font-mono">{h.toString().padStart(2, '0')}</th>))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {DAYS.map((d, i) => (
+                            <tr key={d}>
+                                <td className="pr-2 text-slate-300 font-semibold">{d}</td>
+                                {matrix[i].map((n, h) => {
+                                    const intensity = n / max;
+                                    return (
+                                        <td key={h} title={`${d} ${h}:00 → ${n} лидов`}
+                                            className="w-6 h-6 border border-slate-900"
+                                            style={{ background: intensity === 0 ? 'rgba(30,41,59,0.5)' : `rgba(56,189,248,${0.15 + intensity * 0.75})` }}>
+                                            {n > 0 && intensity > 0.4 && <span className="text-[8px] text-white font-bold">{n}</span>}
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── CHURN BREAKDOWN ───────────────────────────
+const ChurnBreakdownSection: React.FC<{ password: string }> = ({ password }) => {
+    const [data, setData] = useState<any>(null);
+    const [days, setDays] = useState(90);
+    useEffect(() => {
+        fetch(`/api/admin/churn-breakdown?days=${days}`, { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setData);
+    }, [days]);
+    if (!data) return <div className="text-sm text-slate-400">Загрузка…</div>;
+    const rows = data.rows || [];
+    const total = rows.reduce((s: number, r: any) => s + Number(r.n || 0), 0);
+    const totalLost = rows.reduce((s: number, r: any) => s + Number(r.lost_value || 0), 0);
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <span className="text-xs uppercase text-slate-400">Окно:</span>
+                {[30, 90, 180].map(d => (
+                    <button key={d} onClick={() => setDays(d)} className={`text-sm px-3 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>{d}дн</button>
+                ))}
+                <div className="ml-auto text-sm text-slate-400">Всего отказов: <b className="text-rose-300">{total}</b> · потеряно: <b className="text-rose-200">${Math.round(totalLost).toLocaleString()}</b></div>
+            </div>
+            <div className="space-y-2">
+                {rows.length === 0 ? <div className="text-sm text-slate-500 italic">Нет отказов в окне</div> : rows.map((r: any) => {
+                    const pct = total > 0 ? Math.round((Number(r.n || 0) / total) * 100) : 0;
+                    return (
+                        <div key={r.id} className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                            <div className="flex items-baseline justify-between text-sm mb-1.5">
+                                <span className="text-slate-100">{r.emoji} <b>{r.label}</b></span>
+                                <span className="text-slate-300 font-mono">
+                                    <b className="text-rose-300">{r.n}</b> ({pct}%) · ${Math.round(Number(r.lost_value || 0)).toLocaleString()}
+                                </span>
+                            </div>
+                            <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden">
+                                <div className="h-full" style={{ width: `${pct}%`, background: r.color || '#ef4444' }} />
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── 1-ON-1 REPORT ───────────────────────────
+const OneOnOneSection: React.FC<{ password: string }> = ({ password }) => {
+    const [managers, setManagers] = useState<any[]>([]);
+    const [selected, setSelected] = useState<string>('');
+    const [report, setReport] = useState<any>(null);
+    useEffect(() => {
+        fetch('/api/admin/managers', { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(j => setManagers(j.managers || []));
+    }, []);
+    const load = async (id: string) => {
+        setSelected(id);
+        if (!id) { setReport(null); return; }
+        const r = await fetch(`/api/admin/oneonone/${id}`, { headers: { 'X-Admin-Password': password } });
+        setReport(await r.json());
+    };
+    const delta = (a: number, b: number) => b > 0 ? Math.round(((a - b) / b) * 100) : (a > 0 ? 100 : 0);
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-500">Авто-генерация еженедельного отчёта для 1-on-1 встречи тимлида с менеджером.</p>
+            <select value={selected} onChange={e => load(e.target.value)}
+                className="bg-slate-800/60 text-slate-100 border border-slate-700 px-3 py-2 rounded">
+                <option value="">— Выберите менеджера —</option>
+                {managers.filter((m: any) => m.role !== 'partner').map((m: any) => (
+                    <option key={m.id} value={m.id}>{m.full_name}{m.role === 'teamlead' ? ' 👑' : ''}</option>
+                ))}
+            </select>
+            {report && (
+                <div className="space-y-3 bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-5">
+                    <h3 className="text-lg font-bold text-slate-50">{report.manager?.full_name}</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                        <div className="bg-slate-800/40 border border-slate-800 rounded p-3">
+                            <div className="text-[10px] uppercase text-slate-500">Лидов за неделю</div>
+                            <div className="text-xl font-bold text-slate-50">{report.kpi?.leads_this || 0}</div>
+                            <div className="text-[10px] text-slate-400">{delta(report.kpi?.leads_this || 0, report.kpi?.leads_prev || 0) >= 0 ? '↑' : '↓'} vs прошлой</div>
+                        </div>
+                        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded p-3">
+                            <div className="text-[10px] uppercase text-emerald-300">Won</div>
+                            <div className="text-xl font-bold text-emerald-200">{report.kpi?.won_this || 0}</div>
+                            <div className="text-[10px] text-slate-400">prev: {report.kpi?.won_prev || 0}</div>
+                        </div>
+                        <div className="bg-sky-500/10 border border-sky-500/30 rounded p-3">
+                            <div className="text-[10px] uppercase text-sky-300">Выручка</div>
+                            <div className="text-xl font-bold text-sky-200">${Math.round(Number(report.kpi?.revenue_this || 0)).toLocaleString()}</div>
+                        </div>
+                        <div className="bg-slate-800/40 border border-slate-800 rounded p-3">
+                            <div className="text-[10px] uppercase text-slate-500">Avg отклик</div>
+                            <div className="text-xl font-bold text-slate-50">{report.kpi?.resp_min ? `${Math.round(Number(report.kpi.resp_min))} мин` : '—'}</div>
+                            <div className="text-[10px] text-slate-400">скоринг {Math.round(Number(report.kpi?.avg_score || 0))}/100</div>
+                        </div>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-3">
+                        <div>
+                            <div className="text-xs uppercase font-semibold text-slate-400 mb-2">🔥 Топ 5 лидов в работе</div>
+                            {(report.top_leads || []).length === 0 ? <div className="text-sm text-slate-500 italic">нет</div> : (
+                                <ul className="text-sm space-y-1">
+                                    {report.top_leads.map((l: any) => (
+                                        <li key={l.id} className="border-b border-slate-800/60 pb-1">
+                                            <span className="font-mono text-slate-500">#{l.id}</span> {l.name} —
+                                            <span className="text-emerald-300 font-mono"> {l.deal_value ? '$' + Math.round(Number(l.deal_value)).toLocaleString() : '—'}</span>
+                                            <span className="text-slate-500"> · score {l.score || 0}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                        <div>
+                            <div className="text-xs uppercase font-semibold text-slate-400 mb-2">🐌 Зависли &gt;48ч</div>
+                            {(report.stuck_leads || []).length === 0 ? <div className="text-sm text-slate-500 italic">всё ок</div> : (
+                                <ul className="text-sm space-y-1">
+                                    {report.stuck_leads.map((l: any) => (
+                                        <li key={l.id} className="border-b border-slate-800/60 pb-1">
+                                            <span className="font-mono text-slate-500">#{l.id}</span> {l.name}
+                                            <span className="text-rose-300 font-mono"> · {Math.round(Number(l.hours))}ч в «{l.status}»</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                    {(report.touches || []).length > 0 && (
+                        <div>
+                            <div className="text-xs uppercase font-semibold text-slate-400 mb-2">📞 Касания за неделю</div>
+                            <div className="flex gap-2 flex-wrap">
+                                {report.touches.map((t: any) => (
+                                    <span key={t.channel} className="bg-slate-800/60 border border-slate-700 text-slate-200 text-xs px-2.5 py-1 rounded-full">
+                                        {t.channel}: <b className="text-sky-300">{t.n}</b>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ─────────────────────────── AUTOMATIONS CRUD ───────────────────────────
+const AutomationsSection: React.FC<{ password: string }> = ({ password }) => {
+    const [rules, setRules] = useState<any[]>([]);
+    const [draft, setDraft] = useState({
+        name: '',
+        trigger_kind: 'time_in_status', trigger_config: { status_code: 'new', hours: 4 },
+        action_kind: 'create_task', action_config: { title: 'Позвонить — не отвечает >4ч', due_in_hours: 4 },
+    });
+    const [statuses, setStatuses] = useState<any[]>([]);
+    const load = () => fetch('/api/admin/automations', { headers: { 'X-Admin-Password': password } })
+        .then(r => r.json()).then(j => setRules(j.automations || []));
+    useEffect(() => {
+        load();
+        fetch('/api/admin/lead-statuses', { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(j => setStatuses(j.statuses || []));
+    }, []);
+    const save = async () => {
+        if (!draft.name) return;
+        await fetch('/api/admin/automations', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify({ ...draft, active: true }),
+        });
+        setDraft({ name: '', trigger_kind: 'time_in_status', trigger_config: { status_code: 'new', hours: 4 }, action_kind: 'create_task', action_config: { title: '', due_in_hours: 4 } });
+        load();
+    };
+    const remove = async (id: number) => {
+        if (!confirm('Удалить правило?')) return;
+        await fetch(`/api/admin/automations/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        load();
+    };
+    const triggerLabel = (k: string, c: any) => {
+        if (k === 'time_in_status') return `Лид в статусе «${c.status_code}» дольше ${c.hours}ч`;
+        if (k === 'no_response') return `Нет ответа от менеджера ${c.hours}ч`;
+        return k;
+    };
+    const actionLabel = (k: string, c: any) => {
+        if (k === 'create_task') return `Создать задачу: «${c.title}» (через ${c.due_in_hours}ч)`;
+        if (k === 'notify_teamlead') return `Уведомить тимлида: "${(c.text || '').slice(0, 50)}…"`;
+        if (k === 'tag_lead') return `Поставить метку #${c.tag_id}`;
+        if (k === 'change_status') return `Сменить статус → «${c.status_code}»`;
+        return k;
+    };
+
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-500">No-code сценарии. Сработает: триггер (по cron каждую минуту) → действие. Каждое правило срабатывает 1 раз на лид (нельзя задвоиться).</p>
+            <div className="space-y-2">
+                {rules.length === 0 && <div className="text-sm text-slate-500 italic">Правил пока нет</div>}
+                {rules.map(r => (
+                    <div key={r.id} className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-slate-100">{r.name}</span>
+                            {r.active ? <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">активно</span> : <span className="text-[10px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded">выкл</span>}
+                            <span className="text-[10px] text-slate-500 ml-auto">сработало: {r.fire_count}</span>
+                            <button onClick={() => remove(r.id)} className="text-xs text-rose-400 hover:underline">🗑</button>
+                        </div>
+                        <div className="text-xs text-slate-400 space-y-0.5">
+                            <div>🕐 <b>КОГДА:</b> {triggerLabel(r.trigger_kind, r.trigger_config)}</div>
+                            <div>⚡ <b>ТОГДА:</b> {actionLabel(r.action_kind, r.action_config)}</div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="border-t border-slate-800 pt-3 space-y-2">
+                <div className="text-xs uppercase font-semibold text-slate-400">+ Новое правило</div>
+                <input placeholder="Название (например: «Заброшенный лид»)" className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-1.5 rounded"
+                    value={draft.name} onChange={e => setDraft(p => ({ ...p, name: e.target.value }))} />
+                <div className="grid md:grid-cols-2 gap-3">
+                    <div className="space-y-2 bg-slate-800/40 border border-slate-800 rounded p-3">
+                        <div className="text-xs font-bold text-sky-300">🕐 КОГДА</div>
+                        <select className="w-full bg-slate-800/70 text-slate-100 border border-slate-700 px-2 py-1 rounded text-sm"
+                            value={draft.trigger_kind} onChange={e => setDraft(p => ({ ...p, trigger_kind: e.target.value, trigger_config: e.target.value === 'time_in_status' ? { status_code: 'new', hours: 4 } : { hours: 4 } }))}>
+                            <option value="time_in_status">Лид завис в статусе</option>
+                            <option value="no_response">Нет первого ответа</option>
+                        </select>
+                        {draft.trigger_kind === 'time_in_status' && (
+                            <select className="w-full bg-slate-800/70 text-slate-100 border border-slate-700 px-2 py-1 rounded text-sm"
+                                value={(draft.trigger_config as any).status_code}
+                                onChange={e => setDraft(p => ({ ...p, trigger_config: { ...p.trigger_config, status_code: e.target.value } }))}>
+                                {statuses.map((s: any) => <option key={s.code} value={s.code}>{s.label}</option>)}
+                            </select>
+                        )}
+                        <input type="number" placeholder="Часы" className="w-full bg-slate-800/70 text-slate-100 border border-slate-700 px-2 py-1 rounded text-sm"
+                            value={(draft.trigger_config as any).hours || 0}
+                            onChange={e => setDraft(p => ({ ...p, trigger_config: { ...p.trigger_config, hours: Number(e.target.value) } }))} />
+                    </div>
+                    <div className="space-y-2 bg-slate-800/40 border border-slate-800 rounded p-3">
+                        <div className="text-xs font-bold text-emerald-300">⚡ ТОГДА</div>
+                        <select className="w-full bg-slate-800/70 text-slate-100 border border-slate-700 px-2 py-1 rounded text-sm"
+                            value={draft.action_kind}
+                            onChange={e => setDraft(p => ({ ...p, action_kind: e.target.value, action_config: e.target.value === 'create_task' ? { title: '', due_in_hours: 4 } : e.target.value === 'notify_teamlead' ? { text: '' } : e.target.value === 'tag_lead' ? { tag_id: 0 } : { status_code: '' } }))}>
+                            <option value="create_task">Создать задачу</option>
+                            <option value="notify_teamlead">Уведомить тимлида (Telegram)</option>
+                            <option value="tag_lead">Поставить метку</option>
+                            <option value="change_status">Сменить статус</option>
+                        </select>
+                        {draft.action_kind === 'create_task' && (
+                            <>
+                                <input placeholder="Текст задачи" className="w-full bg-slate-800/70 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1 rounded text-sm"
+                                    value={(draft.action_config as any).title || ''}
+                                    onChange={e => setDraft(p => ({ ...p, action_config: { ...p.action_config, title: e.target.value } }))} />
+                                <input type="number" placeholder="Дедлайн (ч)" className="w-full bg-slate-800/70 text-slate-100 border border-slate-700 px-2 py-1 rounded text-sm"
+                                    value={(draft.action_config as any).due_in_hours || 4}
+                                    onChange={e => setDraft(p => ({ ...p, action_config: { ...p.action_config, due_in_hours: Number(e.target.value) } }))} />
+                            </>
+                        )}
+                        {draft.action_kind === 'notify_teamlead' && (
+                            <textarea rows={2} placeholder="Текст уведомления" className="w-full bg-slate-800/70 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1 rounded text-sm"
+                                value={(draft.action_config as any).text || ''}
+                                onChange={e => setDraft(p => ({ ...p, action_config: { ...p.action_config, text: e.target.value } }))} />
+                        )}
+                        {draft.action_kind === 'change_status' && (
+                            <select className="w-full bg-slate-800/70 text-slate-100 border border-slate-700 px-2 py-1 rounded text-sm"
+                                value={(draft.action_config as any).status_code || ''}
+                                onChange={e => setDraft(p => ({ ...p, action_config: { ...p.action_config, status_code: e.target.value } }))}>
+                                <option value="">— выбрать —</option>
+                                {statuses.map((s: any) => <option key={s.code} value={s.code}>{s.label}</option>)}
+                            </select>
+                        )}
+                    </div>
+                </div>
+                <button onClick={save} disabled={!draft.name} className="bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 disabled:opacity-50 text-white text-sm px-4 py-1.5 rounded font-medium">+ Создать правило</button>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── CHURN REASONS CRUD ───────────────────────────
+const ChurnReasonsSection: React.FC<{ password: string }> = ({ password }) => {
+    const [items, setItems] = useState<any[]>([]);
+    const [draft, setDraft] = useState({ label: '', color: '#ef4444', emoji: '', sort: 100 });
+    const load = () => fetch('/api/admin/churn-reasons', { headers: { 'X-Admin-Password': password } })
+        .then(r => r.json()).then(j => setItems(j.reasons || []));
+    useEffect(() => { load(); }, []);
+    const save = async () => {
+        if (!draft.label) return;
+        await fetch('/api/admin/churn-reasons', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify(draft),
+        });
+        setDraft({ label: '', color: '#ef4444', emoji: '', sort: 100 });
+        load();
+    };
+    const remove = async (id: number) => {
+        if (!confirm('Удалить причину?')) return;
+        await fetch(`/api/admin/churn-reasons/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        load();
+    };
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-500">Категории закрытий «closed_lost». Менеджер выбирает в карточке лида.</p>
+            <div className="space-y-1.5">
+                {items.map(r => (
+                    <div key={r.id} className="flex items-center gap-2 bg-slate-800/40 border border-slate-800 rounded p-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-white text-xs font-medium" style={{ backgroundColor: r.color || '#ef4444' }}>
+                            {r.emoji} {r.label}
+                        </span>
+                        <span className="text-xs text-slate-500 font-mono ml-auto">sort={r.sort}</span>
+                        <button onClick={() => remove(r.id)} className="text-xs text-rose-400 hover:underline">×</button>
+                    </div>
+                ))}
+            </div>
+            <div className="border-t border-slate-800 pt-3 flex gap-2 flex-wrap items-end">
+                <input placeholder="Название" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded text-sm w-48"
+                    value={draft.label} onChange={e => setDraft(p => ({ ...p, label: e.target.value }))} />
+                <input placeholder="Emoji" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-2 py-1.5 rounded text-sm w-16 text-center"
+                    value={draft.emoji} onChange={e => setDraft(p => ({ ...p, emoji: e.target.value }))} />
+                <input type="color" className="w-12 h-9 border border-slate-700 rounded cursor-pointer"
+                    value={draft.color} onChange={e => setDraft(p => ({ ...p, color: e.target.value }))} />
+                <input type="number" placeholder="Sort" className="bg-slate-800/60 text-slate-100 border border-slate-700 px-2 py-1.5 rounded text-sm w-20"
+                    value={draft.sort} onChange={e => setDraft(p => ({ ...p, sort: Number(e.target.value) }))} />
+                <button onClick={save} className="bg-sky-600 hover:bg-sky-500 text-white text-sm px-4 py-1.5 rounded font-medium">+ Добавить</button>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── KNOWLEDGE BASE CRUD ───────────────────────────
+const KnowledgeBaseAdminSection: React.FC<{ password: string }> = ({ password }) => {
+    const [items, setItems] = useState<any[]>([]);
+    const [editing, setEditing] = useState<any>({ slug: '', title: '', body: '', tags: [] });
+    const [tagsInput, setTagsInput] = useState('');
+    const load = () => fetch('/api/admin/kb', { headers: { 'X-Admin-Password': password } })
+        .then(r => r.json()).then(j => setItems(j.articles || []));
+    useEffect(() => { load(); }, []);
+    const save = async () => {
+        if (!editing.slug || !editing.title || !editing.body) return;
+        await fetch('/api/admin/kb', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify({ ...editing, tags: tagsInput.split(',').map(s => s.trim()).filter(Boolean) }),
+        });
+        setEditing({ slug: '', title: '', body: '', tags: [] }); setTagsInput('');
+        load();
+    };
+    const edit = (a: any) => { setEditing(a); setTagsInput((a.tags || []).join(', ')); };
+    const remove = async (id: number) => {
+        if (!confirm('Удалить статью?')) return;
+        await fetch(`/api/admin/kb/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        load();
+    };
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-500">Статьи доступны менеджерам через кнопку 📖 в CRM. Markdown форматирование поддерживается.</p>
+            <div className="space-y-1.5">
+                {items.length === 0 && <div className="text-sm text-slate-500 italic">Статей пока нет</div>}
+                {items.map(a => (
+                    <div key={a.id} className="bg-slate-800/40 border border-slate-800 rounded p-3 flex items-center gap-2">
+                        <div className="flex-grow">
+                            <div className="text-sm font-semibold text-slate-100">{a.title}</div>
+                            <div className="text-xs text-slate-500 font-mono">{a.slug} {(a.tags || []).map((t: string) => <span key={t} className="ml-1 text-sky-400">#{t}</span>)}</div>
+                        </div>
+                        <button onClick={() => edit(a)} className="text-xs text-sky-300 hover:underline">✎</button>
+                        <button onClick={() => remove(a.id)} className="text-xs text-rose-400 hover:underline">🗑</button>
+                    </div>
+                ))}
+            </div>
+            <div className="border-t border-slate-800 pt-3 space-y-2">
+                <div className="text-xs uppercase font-semibold text-slate-400">{editing.id ? '✎ Редактирование' : '+ Новая статья'}</div>
+                <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="slug (latin-only)" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-1.5 rounded text-sm"
+                        value={editing.slug} onChange={e => setEditing((p: any) => ({ ...p, slug: e.target.value }))} />
+                    <input placeholder="Заголовок" className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-1.5 rounded text-sm"
+                        value={editing.title} onChange={e => setEditing((p: any) => ({ ...p, title: e.target.value }))} />
+                </div>
+                <input placeholder="Теги через запятую" className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-1.5 rounded text-sm"
+                    value={tagsInput} onChange={e => setTagsInput(e.target.value)} />
+                <textarea rows={10} placeholder="Текст статьи (markdown)" className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 px-3 py-2 rounded text-sm font-mono"
+                    value={editing.body} onChange={e => setEditing((p: any) => ({ ...p, body: e.target.value }))} />
+                <div className="flex gap-2">
+                    <button onClick={save} className="bg-sky-600 hover:bg-sky-500 text-white text-sm px-4 py-1.5 rounded font-medium">{editing.id ? '💾 Обновить' : '+ Создать'}</button>
+                    {editing.id && <button onClick={() => { setEditing({ slug: '', title: '', body: '', tags: [] }); setTagsInput(''); }} className="text-sm text-slate-400 hover:underline">отмена</button>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─────────────────────────── COMMISSION ───────────────────────────
+const CommissionSection: React.FC<{ password: string }> = ({ password }) => {
+    const [rules, setRules] = useState<any[]>([]);
+    const [payout, setPayout] = useState<any>(null);
+    const [days, setDays] = useState(30);
+    const [draft, setDraft] = useState({ scope: 'global', manager_id: '', percent: 5, min_deal_value: 0 });
+    const [managers, setManagers] = useState<any[]>([]);
+    const load = () => {
+        fetch('/api/admin/commission/rules', { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(j => setRules(j.rules || []));
+        fetch(`/api/admin/commission/payout?days=${days}`, { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(setPayout);
+    };
+    useEffect(() => {
+        load();
+        fetch('/api/admin/managers', { headers: { 'X-Admin-Password': password } })
+            .then(r => r.json()).then(j => setManagers(j.managers || []));
+    }, [days]);
+    const save = async () => {
+        await fetch('/api/admin/commission/rules', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+            body: JSON.stringify({ ...draft, active: true, manager_id: draft.scope === 'global' ? null : Number(draft.manager_id) }),
+        });
+        setDraft({ scope: 'global', manager_id: '', percent: 5, min_deal_value: 0 });
+        load();
+    };
+    const remove = async (id: number) => {
+        if (!confirm('Удалить правило комиссии?')) return;
+        await fetch(`/api/admin/commission/rules/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        load();
+    };
+    const totalPayout = (payout?.rows || []).reduce((s: number, r: any) => s + Number(r.payout || 0), 0);
+    return (
+        <div className="space-y-4">
+            <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs uppercase font-semibold text-slate-400 mb-2">📐 Правила комиссии</div>
+                {rules.map(r => (
+                    <div key={r.id} className="flex items-center gap-2 text-sm py-1 border-b border-slate-800/60 last:border-0">
+                        <span className="font-mono text-xs bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">{r.scope === 'global' ? 'global' : '@' + (r.manager_name || r.manager_id)}</span>
+                        <span className="text-slate-100"><b>{Number(r.percent).toFixed(1)}%</b> от deal_value</span>
+                        {Number(r.min_deal_value) > 0 && <span className="text-xs text-slate-500">мин ${Number(r.min_deal_value).toLocaleString()}</span>}
+                        <button onClick={() => remove(r.id)} className="ml-auto text-xs text-rose-400 hover:underline">×</button>
+                    </div>
+                ))}
+                <div className="flex gap-2 flex-wrap mt-3 items-end">
+                    <select className="bg-slate-800/60 text-slate-100 border border-slate-700 px-2 py-1.5 rounded text-sm"
+                        value={draft.scope} onChange={e => setDraft(p => ({ ...p, scope: e.target.value }))}>
+                        <option value="global">Global (для всех)</option>
+                        <option value="manager">Per manager</option>
+                    </select>
+                    {draft.scope === 'manager' && (
+                        <select className="bg-slate-800/60 text-slate-100 border border-slate-700 px-2 py-1.5 rounded text-sm"
+                            value={draft.manager_id} onChange={e => setDraft(p => ({ ...p, manager_id: e.target.value }))}>
+                            <option value="">— выбрать —</option>
+                            {managers.map((m: any) => <option key={m.id} value={m.id}>{m.full_name}</option>)}
+                        </select>
+                    )}
+                    <input type="number" step="0.1" placeholder="%" className="bg-slate-800/60 text-slate-100 border border-slate-700 px-2 py-1.5 rounded text-sm w-20"
+                        value={draft.percent} onChange={e => setDraft(p => ({ ...p, percent: Number(e.target.value) }))} />
+                    <input type="number" placeholder="Мин $" className="bg-slate-800/60 text-slate-100 border border-slate-700 px-2 py-1.5 rounded text-sm w-24"
+                        value={draft.min_deal_value} onChange={e => setDraft(p => ({ ...p, min_deal_value: Number(e.target.value) }))} />
+                    <button onClick={save} className="bg-sky-600 hover:bg-sky-500 text-white text-sm px-4 py-1.5 rounded">+ Добавить</button>
+                </div>
+            </div>
+
+            <div className="bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                    <div className="text-xs uppercase font-semibold text-slate-400">💵 Начисления за период</div>
+                    <div className="flex items-center gap-1.5">
+                        {[7, 30, 90].map(d => (
+                            <button key={d} onClick={() => setDays(d)} className={`text-xs px-2.5 py-1 rounded ${days === d ? 'bg-sky-600 text-white' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>{d}дн</button>
+                        ))}
+                    </div>
+                </div>
+                <table className="w-full text-sm">
+                    <thead className="text-xs uppercase tracking-wider text-slate-400">
+                        <tr><th className="text-left py-1">Менеджер</th><th className="text-right">%</th><th className="text-right">Won</th><th className="text-right">Revenue</th><th className="text-right">К выплате</th></tr>
+                    </thead>
+                    <tbody>
+                        {(payout?.rows || []).map((m: any) => (
+                            <tr key={m.id} className="border-t border-slate-800">
+                                <td className="py-1.5 text-slate-100">{m.full_name}</td>
+                                <td className="py-1.5 text-right font-mono text-slate-300">{Number(m.percent).toFixed(1)}%</td>
+                                <td className="py-1.5 text-right font-mono text-emerald-300">{m.won_count}</td>
+                                <td className="py-1.5 text-right font-mono text-sky-300">${Math.round(Number(m.revenue || 0)).toLocaleString()}</td>
+                                <td className="py-1.5 text-right font-mono text-emerald-200 font-bold">${Math.round(Number(m.payout || 0)).toLocaleString()}</td>
+                            </tr>
+                        ))}
+                        <tr className="border-t-2 border-sky-500/30 bg-sky-500/5">
+                            <td colSpan={4} className="py-2 text-right text-xs uppercase font-semibold text-sky-300">Итого к выплате:</td>
+                            <td className="py-2 text-right font-mono text-emerald-200 font-bold text-base">${Math.round(totalPayout).toLocaleString()}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 // ─────────────────────────── SALES HEALTH (traffic light) ───────────────────────────
 const SalesHealthWidget: React.FC<{ password: string }> = ({ password }) => {
     const [data, setData] = useState<any>(null);
@@ -2555,6 +3266,46 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="📨 Шаблоны быстрых ответов" subtitle="Готовые сообщения для менеджеров в WhatsApp/Telegram (с плейсхолдерами)" badge="CRM" accent="cyan">
                     <QuickRepliesSection password={password} />
+                </Section>
+
+                <Section title="🏆 Leaderboard менеджеров" subtitle="Рейтинг по выручке + ключевые KPI" badge="CRM" defaultOpen accent="amber">
+                    <LeaderboardSection password={password} />
+                </Section>
+
+                <Section title="📋 1-on-1 отчёт по менеджеру" subtitle="Авто-генерация для еженедельных встреч с менеджером" badge="CRM" accent="fuchsia">
+                    <OneOnOneSection password={password} />
+                </Section>
+
+                <Section title="⏱ Время в статусах + зависшие лиды" subtitle="Где лиды тормозят и сколько часов" badge="CRM" accent="violet">
+                    <TimeInStageSection password={password} />
+                </Section>
+
+                <Section title="⏲ Скорость отклика менеджеров" subtitle="P50 / P90 / Avg времени до первого ответа" badge="CRM" accent="cyan">
+                    <ResponseTimeSection password={password} />
+                </Section>
+
+                <Section title="🌡 Heatmap входящих лидов" subtitle="День недели × час — когда приходят заявки" badge="CRM" accent="amber">
+                    <LeadHeatmapSection password={password} />
+                </Section>
+
+                <Section title="🚪 Анализ отказов (churn)" subtitle="Категории закрытий closed_lost + потерянная выручка" badge="CRM" accent="red">
+                    <ChurnBreakdownSection password={password} />
+                </Section>
+
+                <Section title="🤖 Авто-сценарии (no-code)" subtitle="Триггер → действие. Срабатывают раз в минуту" badge="CRM" accent="violet">
+                    <AutomationsSection password={password} />
+                </Section>
+
+                <Section title="🚪 Причины отказов (CRUD)" subtitle="Категории для closed_lost — менеджер выбирает в карточке" badge="CRM" accent="red">
+                    <ChurnReasonsSection password={password} />
+                </Section>
+
+                <Section title="📖 База знаний" subtitle="Статьи (Markdown) — доступны менеджерам через кнопку 📖 в CRM" badge="CRM" accent="cyan">
+                    <KnowledgeBaseAdminSection password={password} />
+                </Section>
+
+                <Section title="💵 Комиссии и выплаты" subtitle="% от deal_value для менеджеров + расчёт начислений за период" badge="CRM" accent="amber">
+                    <CommissionSection password={password} />
                 </Section>
 
                 <Section title="🕒 Журнал аудита" subtitle="Кто что менял в системе — лиды, файлы, статусы, передачи" badge="CRM" accent="amber">
