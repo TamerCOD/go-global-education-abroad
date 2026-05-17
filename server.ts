@@ -444,6 +444,145 @@ if (DATABASE_URL) {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+
+    // ─────────────────── ANALYTICS v4 ───────────────────
+    // Per-lead touch log (every WhatsApp/call/email click)
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS lead_touches (
+        id BIGSERIAL PRIMARY KEY,
+        lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        manager_id BIGINT REFERENCES managers(id) ON DELETE SET NULL,
+        channel TEXT NOT NULL,
+        note TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_touches_lead ON lead_touches (lead_id, created_at DESC);`);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_touches_manager_time ON lead_touches (manager_id, created_at DESC);`);
+
+    // Time-in-stage tracking (records every status_code / stage_code transition)
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS status_transitions (
+        id BIGSERIAL PRIMARY KEY,
+        lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        from_code TEXT,
+        to_code TEXT,
+        manager_id BIGINT REFERENCES managers(id) ON DELETE SET NULL,
+        entered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_transitions_lead ON status_transitions (lead_id, entered_at DESC);`);
+
+    // Lead first_response_at — when the assigned manager first comments / changes status
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMPTZ;`);
+
+    // Churn reasons — structured categories for closed_lost
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS churn_reasons (
+        id BIGSERIAL PRIMARY KEY,
+        label TEXT UNIQUE NOT NULL,
+        color TEXT,
+        emoji TEXT,
+        sort INTEGER NOT NULL DEFAULT 100,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS churn_reason_id BIGINT REFERENCES churn_reasons(id) ON DELETE SET NULL;`);
+    // Seed defaults
+    const DEFAULT_CHURN = [
+      { label: "Слишком дорого", color: "#ef4444", emoji: "💸", sort: 10 },
+      { label: "Передумал учиться", color: "#f59e0b", emoji: "🤷", sort: 20 },
+      { label: "Выбрал конкурента", color: "#a855f7", emoji: "🥊", sort: 30 },
+      { label: "Сменил страну", color: "#3b82f6", emoji: "🌍", sort: 40 },
+      { label: "Семейные обстоятельства", color: "#64748b", emoji: "👪", sort: 50 },
+      { label: "Не прошёл по баллам/языку", color: "#06b6d4", emoji: "📚", sort: 60 },
+      { label: "Не отвечает (no_response)", color: "#94a3b8", emoji: "🔇", sort: 70 },
+      { label: "Другая причина", color: "#64748b", emoji: "❔", sort: 99 },
+    ];
+    for (const r of DEFAULT_CHURN) {
+      await pool!.query(
+        `INSERT INTO churn_reasons (label, color, emoji, sort)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (label) DO NOTHING`,
+        [r.label, r.color, r.emoji, r.sort]
+      );
+    }
+
+    // Automation rules — no-code triggers (when X → do Y)
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS automations (
+        id BIGSERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        trigger_kind TEXT NOT NULL,
+        trigger_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+        action_kind TEXT NOT NULL,
+        action_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        last_fired_at TIMESTAMPTZ,
+        fire_count INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Tracking which (lead × automation) already fired (so cron doesn't double-fire)
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS automation_fires (
+        automation_id BIGINT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+        lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        fired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (automation_id, lead_id)
+      );
+    `);
+
+    // Knowledge base — markdown articles for managers
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS knowledge_articles (
+        id BIGSERIAL PRIMARY KEY,
+        slug TEXT UNIQUE NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        tags TEXT[],
+        author_id BIGINT REFERENCES managers(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Commission rules + payouts
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS commission_rules (
+        id BIGSERIAL PRIMARY KEY,
+        scope TEXT NOT NULL DEFAULT 'global',
+        manager_id BIGINT REFERENCES managers(id) ON DELETE CASCADE,
+        percent NUMERIC(5,2) NOT NULL DEFAULT 5.00,
+        min_deal_value NUMERIC(12,2) NOT NULL DEFAULT 0,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Seed default rule
+    await pool!.query(`
+      INSERT INTO commission_rules (scope, percent)
+      SELECT 'global', 5.0
+      WHERE NOT EXISTS (SELECT 1 FROM commission_rules WHERE scope = 'global')
+    `);
+
+    // Manager partner role: allow 'partner' value
+    await pool!.query(`ALTER TABLE managers DROP CONSTRAINT IF EXISTS managers_role_check`);
+    await pool!.query(`ALTER TABLE managers ADD CONSTRAINT managers_role_check CHECK (role IN ('manager','teamlead','partner'))`);
+
+    // Session log
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS manager_sessions (
+        id BIGSERIAL PRIMARY KEY,
+        manager_id BIGINT NOT NULL REFERENCES managers(id) ON DELETE CASCADE,
+        ip TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expired_at TIMESTAMPTZ
+      );
+    `);
+
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_appointment BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_semi_closed BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_client_stage BOOLEAN NOT NULL DEFAULT FALSE;`);
@@ -949,6 +1088,34 @@ async function auditLog(opts: {
   }
 }
 
+// Record a status/stage transition for time-in-stage analytics
+async function recordTransition(opts: {
+  lead_id: number;
+  kind: "status" | "stage";
+  from_code: string | null;
+  to_code: string | null;
+  manager_id?: number | null;
+}) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO status_transitions (lead_id, kind, from_code, to_code, manager_id) VALUES ($1,$2,$3,$4,$5)`,
+      [opts.lead_id, opts.kind, opts.from_code, opts.to_code, opts.manager_id ?? null]
+    );
+  } catch (e) { console.error("[recordTransition]", e); }
+}
+
+// Mark first response on a lead (called when manager comments or changes status the first time)
+async function markFirstResponse(leadId: number) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `UPDATE leads SET first_response_at = NOW() WHERE id = $1 AND first_response_at IS NULL`,
+      [leadId]
+    );
+  } catch {}
+}
+
 // Computes a lead score (0-100) based on profile completeness + engagement.
 // Higher score = hotter lead. Stored as integer in leads.score.
 async function recalcLeadScore(leadId: number): Promise<number> {
@@ -1208,19 +1375,172 @@ async function checkTaskReminders() {
   }
 }
 
+// Automation runner — checks rules every minute and fires actions
+async function runAutomations() {
+  if (!pool) return;
+  try {
+    await dbReady!;
+    const { rows: rules } = await pool.query(`SELECT * FROM automations WHERE active = TRUE`);
+    for (const rule of rules) {
+      const tcfg = rule.trigger_config || {};
+      let candidates: any[] = [];
+      // Triggers:
+      //   "time_in_status": { status_code, hours }
+      //   "no_response": { hours }
+      //   "tag_added": { tag_id }  (event-based, handled by hooks not cron — skip in cron)
+      if (rule.trigger_kind === "time_in_status") {
+        const code = String(tcfg.status_code || "");
+        const hours = Number(tcfg.hours || 24);
+        if (!code) continue;
+        const { rows } = await pool.query(`
+          WITH curr AS (
+            SELECT DISTINCT ON (lead_id) lead_id, entered_at, to_code
+            FROM status_transitions WHERE kind = 'status' ORDER BY lead_id, entered_at DESC
+          )
+          SELECT l.id, l.name, l.phone, l.assigned_manager_id
+          FROM leads l JOIN curr c ON c.lead_id = l.id
+          WHERE c.to_code = $1
+            AND EXTRACT(EPOCH FROM (NOW() - c.entered_at))/3600 >= $2
+            AND l.processed_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM automation_fires af WHERE af.automation_id = $3 AND af.lead_id = l.id)
+          LIMIT 50
+        `, [code, hours, rule.id]);
+        candidates = rows;
+      } else if (rule.trigger_kind === "no_response") {
+        const hours = Number(tcfg.hours || 4);
+        const { rows } = await pool.query(`
+          SELECT l.id, l.name, l.phone, l.assigned_manager_id FROM leads l
+          WHERE l.first_response_at IS NULL
+            AND l.processed_at IS NULL
+            AND l.received_at < NOW() - ($1 || ' hours')::interval
+            AND NOT EXISTS (SELECT 1 FROM automation_fires af WHERE af.automation_id = $2 AND af.lead_id = l.id)
+          LIMIT 50
+        `, [String(hours), rule.id]);
+        candidates = rows;
+      } else {
+        continue;
+      }
+
+      // Actions:
+      //   "create_task": { title, due_in_hours }
+      //   "notify_teamlead": { text }
+      //   "tag_lead": { tag_id }
+      //   "change_status": { status_code }
+      const acfg = rule.action_config || {};
+      for (const lead of candidates) {
+        try {
+          if (rule.action_kind === "create_task") {
+            const dueHours = Number(acfg.due_in_hours || 24);
+            await pool.query(
+              `INSERT INTO lead_tasks (lead_id, assigned_to_id, created_by_id, title, due_at)
+               VALUES ($1,$2,NULL,$3, NOW() + ($4 || ' hours')::interval)`,
+              [lead.id, lead.assigned_manager_id, String(acfg.title || rule.name), String(dueHours)]
+            );
+          } else if (rule.action_kind === "notify_teamlead") {
+            const text = String(acfg.text || `🤖 Автоматизация «${rule.name}» сработала по лиду #${lead.id}`);
+            sendTelegram(text + ` (лид #${lead.id})`).catch(() => {});
+          } else if (rule.action_kind === "tag_lead") {
+            const tagId = Number(acfg.tag_id);
+            if (tagId) {
+              await pool.query(
+                `INSERT INTO lead_tag_assignments (lead_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+                [lead.id, tagId]
+              );
+            }
+          } else if (rule.action_kind === "change_status") {
+            const code = String(acfg.status_code || "");
+            if (code) {
+              const cur = await pool.query(`SELECT status_code FROM leads WHERE id = $1`, [lead.id]);
+              await pool.query(`UPDATE leads SET status_code = $1, updated_at = NOW() WHERE id = $2`, [code, lead.id]);
+              await recordTransition({ lead_id: lead.id, kind: "status", from_code: cur.rows[0]?.status_code || null, to_code: code, manager_id: null });
+            }
+          }
+          await pool.query(
+            `INSERT INTO automation_fires (automation_id, lead_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+            [rule.id, lead.id]
+          );
+          await pool.query(
+            `UPDATE automations SET last_fired_at = NOW(), fire_count = fire_count + 1 WHERE id = $1`,
+            [rule.id]
+          );
+          await auditLog({
+            actor_id: null, actor_name: "automation", actor_role: "system",
+            action: `automation.${rule.action_kind}`, entity_type: "lead", entity_id: lead.id,
+            after: { automation_id: rule.id, automation_name: rule.name },
+          });
+        } catch (e) {
+          console.error("[automation fire]", rule.id, lead.id, e);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[automations]", err);
+  }
+}
+
+// Telegram morning digest for teamleads
+async function sendMorningDigest() {
+  if (!pool) return;
+  try {
+    const today = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE received_at >= CURRENT_DATE - INTERVAL '1 day' AND received_at < CURRENT_DATE)::int AS yesterday_total,
+        COUNT(*) FILTER (WHERE received_at >= CURRENT_DATE - INTERVAL '1 day' AND received_at < CURRENT_DATE AND status_code = 'closed_won')::int AS yesterday_won,
+        COUNT(*) FILTER (WHERE received_at >= CURRENT_DATE - INTERVAL '1 day' AND received_at < CURRENT_DATE AND status_code = 'closed_lost')::int AS yesterday_lost,
+        COALESCE(SUM(deal_value) FILTER (WHERE status_code = 'closed_won' AND processed_at >= CURRENT_DATE - INTERVAL '1 day' AND processed_at < CURRENT_DATE), 0)::float AS yesterday_revenue,
+        COUNT(*) FILTER (WHERE processed_at IS NULL AND sla_deadline_at < NOW())::int AS overdue,
+        (SELECT COUNT(*) FROM lead_tasks WHERE completed_at IS NULL AND due_at < NOW())::int AS overdue_tasks
+      FROM leads
+    `);
+    const t = today.rows[0];
+    const offline = await pool.query(`
+      SELECT full_name FROM managers WHERE role = 'manager' AND active = TRUE AND archived_at IS NULL
+        AND (last_online_at IS NULL OR last_online_at < NOW() - INTERVAL '24 hours')
+    `);
+    const lines = [
+      `📊 <b>GoGlobal — утренний дайджест</b>`,
+      `Вчера: <b>${t.yesterday_total}</b> лидов, <b>${t.yesterday_won}</b> won ($${Math.round(t.yesterday_revenue).toLocaleString()}), <b>${t.yesterday_lost}</b> lost`,
+      t.overdue > 0 ? `⚠️ Открытых с нарушением SLA: <b>${t.overdue}</b>` : "",
+      t.overdue_tasks > 0 ? `📋 Просроченных задач: <b>${t.overdue_tasks}</b>` : "",
+      offline.rows.length > 0 ? `⚪ Оффлайн >24ч: ${offline.rows.map((m: any) => escapeHtml(m.full_name)).join(", ")}` : "",
+      `→ <a href="${PUBLIC_BASE_URL}/admin">админка</a> · <a href="${PUBLIC_BASE_URL}/lidy">CRM</a>`,
+    ].filter(Boolean);
+    await sendTelegram(lines.join("\n"));
+  } catch (e) {
+    console.error("[morning-digest]", e);
+  }
+}
+
+// Fire digest once per day around 09:00 in TZ offset
+let lastDigestDate = "";
+async function maybeDigest() {
+  const now = new Date();
+  // Local-time hour using configured offset
+  const local = new Date(now.getTime() + WORKING_HOURS_TZ_OFFSET_MIN * 60_000);
+  const ymd = local.toISOString().slice(0, 10);
+  if (local.getUTCHours() === 9 && ymd !== lastDigestDate) {
+    lastDigestDate = ymd;
+    await sendMorningDigest();
+  }
+}
+
 if (pool) {
   // Initial run after 30s (gives DB time to be ready), then every interval
   setTimeout(() => {
     checkSlaBreaches();
     revertExpiredTransfers();
     checkTaskReminders();
+    runAutomations();
+    maybeDigest();
     setInterval(() => {
       checkSlaBreaches();
       revertExpiredTransfers();
       checkTaskReminders();
+      runAutomations();
+      maybeDigest();
     }, SLA_CRON_INTERVAL_MS);
   }, 30_000);
-  console.log(`[server] Cron (SLA + transfer + tasks) every ${Math.round(SLA_CRON_INTERVAL_MS / 1000)}s`);
+  console.log(`[server] Cron (SLA + transfer + tasks + automations + digest) every ${Math.round(SLA_CRON_INTERVAL_MS / 1000)}s`);
 }
 
 // ---------- Express app ----------
@@ -1345,6 +1665,38 @@ async function startServer() {
 
     if (!name && !phone && !email) {
       throw new Error("Missing name/phone/email");
+    }
+
+    // Smart deduplication — check for existing leads with same phone (normalized) or email
+    const normPhone = (phone || "").replace(/\D/g, "").slice(-10);
+    if (normPhone || email) {
+      const dupQ = await pq().query(
+        `SELECT id, status_code, assigned_manager_id FROM leads
+         WHERE (LENGTH($1) >= 7 AND REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $1)
+            OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+         ORDER BY received_at DESC LIMIT 1`,
+        [normPhone, email]
+      );
+      if (dupQ.rows.length > 0) {
+        const existing = dupQ.rows[0];
+        // Re-open client journey: leave a note on the existing lead instead of creating new
+        await pq().query(
+          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+           VALUES ($1, NULL, $2, 'system', $3)`,
+          [existing.id, "🤖 Дедупликация",
+           `📥 Новое обращение по тем же контактам через ${source}.\n` +
+           (name ? `Имя: ${name}\n` : "") +
+           (comment ? `Комментарий: ${comment}\n` : "") +
+           (country ? `Страна: ${country}\n` : "")]
+        );
+        await auditLog({
+          actor_id: null, actor_name: "system", actor_role: "system",
+          action: "lead.dedup", entity_type: "lead", entity_id: existing.id,
+          after: { source, name, phone, email },
+        });
+        sendTelegram(`🔁 Повторное обращение по лиду #${existing.id} (источник ${source}). Не создан дубль — добавлен комментарий.`).catch(() => {});
+        return { leadId: existing.id, assigned: existing.assigned_manager_id, deduplicated: true };
+      }
     }
 
     // Look up event by slug if provided
@@ -1851,6 +2203,12 @@ async function startServer() {
         action: "status.change", entity_type: "lead", entity_id: leadId,
         before: { status: lead.status_code }, after: { status, rejection_reason, appointment_at },
       });
+      await recordTransition({
+        lead_id: leadId, kind: "status",
+        from_code: lead.status_code || null, to_code: status,
+        manager_id: me.id,
+      });
+      await markFirstResponse(leadId);
 
       res.json({ ok: true, lead: updated.rows[0] });
     } catch (err) {
@@ -1974,6 +2332,11 @@ async function startServer() {
         actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
         action: "stage.change", entity_type: "lead", entity_id: leadId,
         before: { stage: lead.stage_code }, after: { stage },
+      });
+      await recordTransition({
+        lead_id: leadId, kind: "stage",
+        from_code: lead.stage_code || null, to_code: stage,
+        manager_id: me.id,
       });
       res.json({ ok: true, stage });
     } catch (err) {
@@ -2458,6 +2821,381 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  // ─────────────────────── PARTNER PORTAL ───────────────────────
+  // Partners use the same /api/lidy/login flow; they can ONLY create leads + see their own.
+  app.post("/api/lidy/partner/leads", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    const me = await loadManager(session.mid);
+    if (!me) return res.status(401).json({ error: "Not found" });
+    // Allow partner + teamlead + manager to use this
+    try {
+      const result = await ingestLead(req.body || {}, `partner:${me.login}`);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message || "error" });
+    }
+  });
+
+  // ─────────────────────── TOUCH-TRACKER ───────────────────────
+  app.post("/api/lidy/leads/:id/touch", requireManager, async (req, res) => {
+    const session = (req as any).manager as { mid: number };
+    const channel = String(req.body?.channel || "").slice(0, 40);
+    const note = (req.body?.note || "").toString().slice(0, 500);
+    if (!channel) return res.status(400).json({ error: "channel required" });
+    const leadId = Number(req.params.id);
+    await pq().query(
+      `INSERT INTO lead_touches (lead_id, manager_id, channel, note) VALUES ($1,$2,$3,$4)`,
+      [leadId, session.mid, channel, note || null]
+    );
+    await markFirstResponse(leadId);
+    res.json({ ok: true });
+  });
+  app.get("/api/lidy/leads/:id/touches", requireManager, async (req, res) => {
+    const { rows } = await pq().query(
+      `SELECT t.*, m.full_name AS manager_name FROM lead_touches t
+       LEFT JOIN managers m ON m.id = t.manager_id
+       WHERE t.lead_id = $1 ORDER BY t.created_at DESC`,
+      [Number(req.params.id)]
+    );
+    res.json({ touches: rows });
+  });
+
+  // ─────────────────────── TIME-IN-STAGE ───────────────────────
+  app.get("/api/lidy/leads/:id/transitions", requireManager, async (req, res) => {
+    const { rows } = await pq().query(
+      `SELECT t.*, m.full_name AS manager_name FROM status_transitions t
+       LEFT JOIN managers m ON m.id = t.manager_id
+       WHERE t.lead_id = $1 ORDER BY t.entered_at ASC`,
+      [Number(req.params.id)]
+    );
+    res.json({ transitions: rows });
+  });
+
+  app.get("/api/admin/time-in-stage", requireAdmin, async (req, res) => {
+    const days = Math.min(180, Number(req.query.days) || 30);
+    // For each lead transition, time-in-stage = next entered_at OR NOW() if still there
+    const { rows } = await pq().query(`
+      WITH t AS (
+        SELECT t.*,
+               LEAD(entered_at) OVER (PARTITION BY lead_id, kind ORDER BY entered_at ASC) AS exited_at
+        FROM status_transitions t
+        WHERE entered_at >= NOW() - INTERVAL '${days} days'
+      )
+      SELECT t.kind, t.to_code AS code, ls.label, ls.color,
+             COUNT(*)::int AS samples,
+             AVG(EXTRACT(EPOCH FROM (COALESCE(exited_at, NOW()) - entered_at))/3600)::float AS avg_hours,
+             MAX(EXTRACT(EPOCH FROM (COALESCE(exited_at, NOW()) - entered_at))/3600)::float AS max_hours
+      FROM t LEFT JOIN lead_statuses ls ON ls.code = t.to_code
+      WHERE t.to_code IS NOT NULL
+      GROUP BY t.kind, t.to_code, ls.label, ls.color, ls.sort
+      ORDER BY t.kind, ls.sort
+    `);
+    res.json({ days, rows });
+  });
+
+  // Lead "stuck" detail — lead leaving longer than median in its current status
+  app.get("/api/admin/stuck-leads", requireAdmin, async (req, res) => {
+    const { rows } = await pq().query(`
+      WITH curr AS (
+        SELECT DISTINCT ON (lead_id, kind) lead_id, kind, to_code, entered_at, manager_id
+        FROM status_transitions ORDER BY lead_id, kind, entered_at DESC
+      )
+      SELECT c.*, l.name, l.phone, ls.label AS status_label, ls.color AS status_color,
+             m.full_name AS manager_name,
+             EXTRACT(EPOCH FROM (NOW() - c.entered_at))/3600 AS hours_in_stage
+      FROM curr c
+      JOIN leads l ON l.id = c.lead_id
+      LEFT JOIN lead_statuses ls ON ls.code = c.to_code
+      LEFT JOIN managers m ON m.id = c.manager_id
+      WHERE l.processed_at IS NULL
+        AND EXTRACT(EPOCH FROM (NOW() - c.entered_at))/3600 > 72
+      ORDER BY hours_in_stage DESC LIMIT 50
+    `);
+    res.json({ stuck: rows });
+  });
+
+  // ─────────────────────── CHURN REASONS ───────────────────────
+  app.get("/api/lidy/churn-reasons", requireManager, async (_req, res) => {
+    const { rows } = await pq().query(`SELECT * FROM churn_reasons ORDER BY sort ASC, id ASC`);
+    res.json({ reasons: rows });
+  });
+  app.get("/api/admin/churn-reasons", requireAdmin, async (_req, res) => {
+    const { rows } = await pq().query(`SELECT * FROM churn_reasons ORDER BY sort ASC, id ASC`);
+    res.json({ reasons: rows });
+  });
+  app.post("/api/admin/churn-reasons", requireAdmin, async (req, res) => {
+    const { id, label, color, emoji, sort } = req.body || {};
+    if (!label) return res.status(400).json({ error: "label required" });
+    if (id) {
+      await pq().query(
+        `UPDATE churn_reasons SET label=$1, color=$2, emoji=$3, sort=$4 WHERE id=$5`,
+        [label, color || null, emoji || null, Number(sort) || 100, Number(id)]
+      );
+    } else {
+      await pq().query(
+        `INSERT INTO churn_reasons (label, color, emoji, sort) VALUES ($1,$2,$3,$4) ON CONFLICT (label) DO NOTHING`,
+        [label, color || null, emoji || null, Number(sort) || 100]
+      );
+    }
+    res.json({ ok: true });
+  });
+  app.delete("/api/admin/churn-reasons/:id", requireAdmin, async (req, res) => {
+    await pq().query(`DELETE FROM churn_reasons WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+  // Set churn reason on a lead
+  app.post("/api/lidy/leads/:id/churn-reason", requireManager, async (req, res) => {
+    const id = Number(req.params.id);
+    const rid = req.body?.reason_id ? Number(req.body.reason_id) : null;
+    await pq().query(`UPDATE leads SET churn_reason_id = $1 WHERE id = $2`, [rid, id]);
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── ANALYTICS: LEADERBOARD / RESPONSE TIME / HEATMAP / 1-ON-1 ───────────────────────
+  app.get("/api/admin/leaderboard", requireAdmin, async (req, res) => {
+    const days = Math.min(180, Number(req.query.days) || 30);
+    const { rows } = await pq().query(`
+      SELECT m.id, m.full_name, m.login,
+             COUNT(l.id) FILTER (WHERE l.received_at >= NOW() - INTERVAL '${days} days')::int AS handled,
+             COUNT(l.id) FILTER (WHERE l.status_code = 'closed_won' AND l.received_at >= NOW() - INTERVAL '${days} days')::int AS won,
+             COALESCE(SUM(l.deal_value) FILTER (WHERE l.status_code = 'closed_won' AND l.received_at >= NOW() - INTERVAL '${days} days'), 0)::float AS revenue,
+             AVG(l.score) FILTER (WHERE l.processed_at IS NULL)::float AS avg_score,
+             AVG(EXTRACT(EPOCH FROM (l.first_response_at - l.received_at))/60)
+               FILTER (WHERE l.first_response_at IS NOT NULL AND l.received_at >= NOW() - INTERVAL '${days} days')::float AS median_response_min,
+             (SELECT COUNT(*) FROM lead_touches t WHERE t.manager_id = m.id AND t.created_at >= NOW() - INTERVAL '${days} days')::int AS touches
+      FROM managers m
+      LEFT JOIN leads l ON l.assigned_manager_id = m.id
+      WHERE m.role IN ('manager','teamlead') AND m.active = TRUE AND m.archived_at IS NULL
+      GROUP BY m.id, m.full_name, m.login
+      ORDER BY revenue DESC, won DESC
+    `);
+    res.json({ days, rows });
+  });
+
+  app.get("/api/admin/response-time", requireAdmin, async (req, res) => {
+    const days = Math.min(180, Number(req.query.days) || 30);
+    const { rows } = await pq().query(`
+      SELECT m.id, m.full_name,
+             COUNT(l.id) FILTER (WHERE l.first_response_at IS NOT NULL)::int AS n,
+             percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (l.first_response_at - l.received_at))/60)
+               FILTER (WHERE l.first_response_at IS NOT NULL)::float AS p50_min,
+             percentile_cont(0.9) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (l.first_response_at - l.received_at))/60)
+               FILTER (WHERE l.first_response_at IS NOT NULL)::float AS p90_min,
+             AVG(EXTRACT(EPOCH FROM (l.first_response_at - l.received_at))/60)
+               FILTER (WHERE l.first_response_at IS NOT NULL)::float AS avg_min
+      FROM managers m
+      LEFT JOIN leads l ON l.assigned_manager_id = m.id
+        AND l.received_at >= NOW() - INTERVAL '${days} days'
+      WHERE m.role IN ('manager','teamlead') AND m.archived_at IS NULL
+      GROUP BY m.id, m.full_name
+      ORDER BY avg_min ASC NULLS LAST
+    `);
+    res.json({ days, rows });
+  });
+
+  app.get("/api/admin/lead-heatmap", requireAdmin, async (req, res) => {
+    const days = Math.min(180, Number(req.query.days) || 30);
+    const tzOffsetMin = WORKING_HOURS_TZ_OFFSET_MIN;
+    // dow: 0=Sunday in PG but we adjust to Mon=0..Sun=6 for UI
+    const { rows } = await pq().query(`
+      SELECT EXTRACT(DOW FROM received_at + ($1 || ' minutes')::interval)::int AS dow,
+             EXTRACT(HOUR FROM received_at + ($1 || ' minutes')::interval)::int AS hour,
+             COUNT(*)::int AS n
+      FROM leads
+      WHERE received_at >= NOW() - INTERVAL '${days} days'
+      GROUP BY dow, hour
+      ORDER BY dow, hour
+    `, [String(tzOffsetMin)]);
+    res.json({ days, cells: rows });
+  });
+
+  app.get("/api/admin/churn-breakdown", requireAdmin, async (req, res) => {
+    const days = Math.min(180, Number(req.query.days) || 90);
+    const { rows } = await pq().query(`
+      SELECT cr.id, cr.label, cr.color, cr.emoji,
+             COUNT(l.id)::int AS n,
+             COALESCE(SUM(l.deal_value), 0)::float AS lost_value
+      FROM churn_reasons cr
+      LEFT JOIN leads l ON l.churn_reason_id = cr.id
+        AND l.status_code = 'closed_lost'
+        AND l.processed_at >= NOW() - INTERVAL '${days} days'
+      GROUP BY cr.id, cr.label, cr.color, cr.emoji, cr.sort
+      ORDER BY n DESC, cr.sort ASC
+    `);
+    res.json({ days, rows });
+  });
+
+  // 1-on-1 weekly report for a manager
+  app.get("/api/admin/oneonone/:managerId", requireAdmin, async (req, res) => {
+    const mid = Number(req.params.managerId);
+    const mgrRes = await pq().query(`SELECT id, full_name, login FROM managers WHERE id = $1`, [mid]);
+    if (mgrRes.rows.length === 0) return res.status(404).json({ error: "Not found" });
+    const m = mgrRes.rows[0];
+    // KPIs this week and last week
+    const kpi = await pq().query(`
+      SELECT
+        COUNT(*) FILTER (WHERE received_at >= NOW() - INTERVAL '7 days')::int AS leads_this,
+        COUNT(*) FILTER (WHERE received_at >= NOW() - INTERVAL '14 days' AND received_at < NOW() - INTERVAL '7 days')::int AS leads_prev,
+        COUNT(*) FILTER (WHERE status_code = 'closed_won' AND processed_at >= NOW() - INTERVAL '7 days')::int AS won_this,
+        COUNT(*) FILTER (WHERE status_code = 'closed_won' AND processed_at >= NOW() - INTERVAL '14 days' AND processed_at < NOW() - INTERVAL '7 days')::int AS won_prev,
+        COALESCE(SUM(deal_value) FILTER (WHERE status_code = 'closed_won' AND processed_at >= NOW() - INTERVAL '7 days'), 0)::float AS revenue_this,
+        AVG(score) FILTER (WHERE processed_at IS NULL)::float AS avg_score,
+        AVG(EXTRACT(EPOCH FROM (first_response_at - received_at))/60) FILTER (WHERE first_response_at IS NOT NULL AND received_at >= NOW() - INTERVAL '7 days')::float AS resp_min
+      FROM leads WHERE assigned_manager_id = $1
+    `, [mid]);
+    const top = await pq().query(`
+      SELECT id, name, deal_value, status_code, score
+      FROM leads WHERE assigned_manager_id = $1 AND processed_at IS NULL
+      ORDER BY COALESCE(score, 0) DESC, COALESCE(deal_value, 0) DESC NULLS LAST LIMIT 5
+    `, [mid]);
+    const stuck = await pq().query(`
+      WITH curr AS (
+        SELECT DISTINCT ON (lead_id) lead_id, entered_at
+        FROM status_transitions WHERE kind = 'status' ORDER BY lead_id, entered_at DESC
+      )
+      SELECT l.id, l.name, ls.label AS status, EXTRACT(EPOCH FROM (NOW() - c.entered_at))/3600 AS hours
+      FROM leads l JOIN curr c ON c.lead_id = l.id
+      LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+      WHERE l.assigned_manager_id = $1 AND l.processed_at IS NULL
+        AND EXTRACT(EPOCH FROM (NOW() - c.entered_at))/3600 > 48
+      ORDER BY hours DESC LIMIT 5
+    `, [mid]);
+    const touches = await pq().query(`
+      SELECT channel, COUNT(*)::int AS n
+      FROM lead_touches WHERE manager_id = $1 AND created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY channel ORDER BY n DESC
+    `, [mid]);
+    res.json({
+      manager: m,
+      kpi: kpi.rows[0],
+      top_leads: top.rows,
+      stuck_leads: stuck.rows,
+      touches: touches.rows,
+    });
+  });
+
+  // ─────────────────────── AUTOMATIONS ───────────────────────
+  app.get("/api/admin/automations", requireAdmin, async (_req, res) => {
+    const { rows } = await pq().query(`SELECT * FROM automations ORDER BY id ASC`);
+    res.json({ automations: rows });
+  });
+  app.post("/api/admin/automations", requireAdmin, async (req, res) => {
+    const { id, name, trigger_kind, trigger_config, action_kind, action_config, active } = req.body || {};
+    if (!name || !trigger_kind || !action_kind) return res.status(400).json({ error: "name/trigger/action required" });
+    if (id) {
+      await pq().query(
+        `UPDATE automations SET name=$1, trigger_kind=$2, trigger_config=$3, action_kind=$4, action_config=$5, active=$6 WHERE id=$7`,
+        [name, trigger_kind, JSON.stringify(trigger_config || {}), action_kind, JSON.stringify(action_config || {}), active !== false, Number(id)]
+      );
+    } else {
+      await pq().query(
+        `INSERT INTO automations (name, trigger_kind, trigger_config, action_kind, action_config, active)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [name, trigger_kind, JSON.stringify(trigger_config || {}), action_kind, JSON.stringify(action_config || {}), active !== false]
+      );
+    }
+    res.json({ ok: true });
+  });
+  app.delete("/api/admin/automations/:id", requireAdmin, async (req, res) => {
+    await pq().query(`DELETE FROM automations WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── KNOWLEDGE BASE ───────────────────────
+  app.get("/api/lidy/kb", requireManager, async (_req, res) => {
+    const { rows } = await pq().query(`SELECT id, slug, title, tags, updated_at FROM knowledge_articles ORDER BY title ASC`);
+    res.json({ articles: rows });
+  });
+  app.get("/api/lidy/kb/:slug", requireManager, async (req, res) => {
+    const { rows } = await pq().query(`SELECT * FROM knowledge_articles WHERE slug = $1`, [req.params.slug]);
+    if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json({ article: rows[0] });
+  });
+  app.get("/api/admin/kb", requireAdmin, async (_req, res) => {
+    const { rows } = await pq().query(`SELECT * FROM knowledge_articles ORDER BY updated_at DESC`);
+    res.json({ articles: rows });
+  });
+  app.post("/api/admin/kb", requireAdmin, async (req, res) => {
+    const { id, slug, title, body, tags } = req.body || {};
+    if (!slug || !title || !body) return res.status(400).json({ error: "slug/title/body required" });
+    if (id) {
+      await pq().query(
+        `UPDATE knowledge_articles SET slug=$1, title=$2, body=$3, tags=$4, updated_at=NOW() WHERE id=$5`,
+        [slug, title, body, tags || null, Number(id)]
+      );
+    } else {
+      await pq().query(
+        `INSERT INTO knowledge_articles (slug, title, body, tags) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body, tags = EXCLUDED.tags, updated_at = NOW()`,
+        [slug, title, body, tags || null]
+      );
+    }
+    res.json({ ok: true });
+  });
+  app.delete("/api/admin/kb/:id", requireAdmin, async (req, res) => {
+    await pq().query(`DELETE FROM knowledge_articles WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+
+  // ─────────────────────── COMMISSION ───────────────────────
+  app.get("/api/admin/commission/rules", requireAdmin, async (_req, res) => {
+    const { rows } = await pq().query(
+      `SELECT cr.*, m.full_name AS manager_name FROM commission_rules cr
+       LEFT JOIN managers m ON m.id = cr.manager_id ORDER BY cr.scope, cr.id`
+    );
+    res.json({ rules: rows });
+  });
+  app.post("/api/admin/commission/rules", requireAdmin, async (req, res) => {
+    const { id, scope, manager_id, percent, min_deal_value, active } = req.body || {};
+    if (id) {
+      await pq().query(
+        `UPDATE commission_rules SET scope=$1, manager_id=$2, percent=$3, min_deal_value=$4, active=$5 WHERE id=$6`,
+        [scope || "global", manager_id || null, Number(percent) || 0, Number(min_deal_value) || 0, active !== false, Number(id)]
+      );
+    } else {
+      await pq().query(
+        `INSERT INTO commission_rules (scope, manager_id, percent, min_deal_value, active) VALUES ($1,$2,$3,$4,$5)`,
+        [scope || "global", manager_id || null, Number(percent) || 0, Number(min_deal_value) || 0, active !== false]
+      );
+    }
+    res.json({ ok: true });
+  });
+  app.delete("/api/admin/commission/rules/:id", requireAdmin, async (req, res) => {
+    await pq().query(`DELETE FROM commission_rules WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  });
+  app.get("/api/admin/commission/payout", requireAdmin, async (req, res) => {
+    const days = Math.min(365, Number(req.query.days) || 30);
+    // Per-manager: sum of (deal_value * rule.percent / 100) for closed_won in window
+    const { rows } = await pq().query(`
+      WITH won AS (
+        SELECT assigned_manager_id AS mid, deal_value FROM leads
+        WHERE status_code = 'closed_won' AND processed_at >= NOW() - INTERVAL '${days} days'
+          AND deal_value IS NOT NULL
+      ),
+      eff_rule AS (
+        SELECT m.id AS mid,
+               COALESCE(
+                 (SELECT cr.percent FROM commission_rules cr WHERE cr.manager_id = m.id AND cr.active LIMIT 1),
+                 (SELECT cr.percent FROM commission_rules cr WHERE cr.scope = 'global' AND cr.active LIMIT 1),
+                 0
+               )::float AS percent
+        FROM managers m
+      )
+      SELECT m.id, m.full_name, e.percent,
+             COUNT(w.*)::int AS won_count,
+             COALESCE(SUM(w.deal_value), 0)::float AS revenue,
+             COALESCE(SUM(w.deal_value), 0)::float * e.percent / 100.0 AS payout
+      FROM managers m
+      LEFT JOIN won w ON w.mid = m.id
+      LEFT JOIN eff_rule e ON e.mid = m.id
+      WHERE m.role IN ('manager','teamlead') AND m.active = TRUE
+      GROUP BY m.id, m.full_name, e.percent
+      ORDER BY payout DESC
+    `);
+    res.json({ days, rows });
+  });
+
   // ─────────────────────── FORECAST / SALES STATS ───────────────────────
   app.get("/api/lidy/forecast", requireManager, async (req, res) => {
     const session = (req as any).manager as { mid: number };
@@ -2533,6 +3271,7 @@ async function startServer() {
          RETURNING id, manager_id, author_name, author_role, body, created_at`,
         [leadId, me.id, me.full_name, me.role || "manager", body]
       );
+      await markFirstResponse(leadId);
       res.json({ ok: true, comment: rows[0] });
     } catch (err) {
       console.error("[lidy/comments POST]", err);
