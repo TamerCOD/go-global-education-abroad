@@ -1175,6 +1175,99 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
     );
 };
 
+// ─────────────────────────── TAGS MANAGEMENT ───────────────────────────
+const TagsSection: React.FC<{ password: string }> = ({ password }) => {
+    const [tags, setTags] = useState<any[] | null>(null);
+    const [draft, setDraft] = useState({ label: '', color: '#0ea5e9', emoji: '' });
+    const [saving, setSaving] = useState(false);
+
+    const load = async () => {
+        const r = await fetch('/api/admin/tags', { headers: { 'X-Admin-Password': password } });
+        const j = await r.json();
+        setTags(j.tags || []);
+    };
+    useEffect(() => { load(); }, []);
+
+    const upsert = async (t: any) => {
+        setSaving(true);
+        try {
+            await fetch('/api/admin/tags', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Password': password },
+                body: JSON.stringify(t),
+            });
+            await load();
+        } finally { setSaving(false); }
+    };
+
+    const remove = async (id: number, label: string) => {
+        if (!confirm(`Удалить метку «${label}»? Она снимется со всех лидов.`)) return;
+        await fetch(`/api/admin/tags/${id}`, { method: 'DELETE', headers: { 'X-Admin-Password': password } });
+        await load();
+    };
+
+    const PALETTE = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#64748b'];
+
+    return (
+        <div className="space-y-3">
+            <div className="text-xs text-slate-500">Метки — цветные ярлыки для категоризации лидов (горячий, VIP, бюджетник и т.д.). Менеджеры выбирают их во вкладке «Сделка» в карточке лида.</div>
+            {!tags ? <p className="text-slate-500 text-sm">Загрузка…</p> : (
+                <div className="space-y-2">
+                    {tags.length === 0 && <div className="text-sm text-slate-400 italic">Меток пока нет — добавьте первую ниже</div>}
+                    {tags.map(t => (
+                        <div key={t.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-white text-xs font-medium" style={{ backgroundColor: t.color || '#0ea5e9' }}>
+                                {t.emoji && <span>{t.emoji}</span>}
+                                {t.label}
+                            </span>
+                            <span className="text-xs text-slate-500">используется в <span className="font-semibold text-slate-700">{t.usage_count || 0}</span> лидах</span>
+                            <button onClick={() => remove(t.id, t.label)} className="ml-auto text-xs text-rose-600 hover:underline">Удалить</button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className="border-t border-slate-200 pt-3 mt-3">
+                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">+ Новая метка</div>
+                <div className="flex flex-wrap gap-2 items-end">
+                    <label className="text-xs">
+                        <span className="block text-slate-500 mb-0.5">Название</span>
+                        <input className="border border-slate-300 px-2 py-1.5 rounded text-sm w-48"
+                            placeholder="например, VIP"
+                            value={draft.label} onChange={e => setDraft({ ...draft, label: e.target.value })} />
+                    </label>
+                    <label className="text-xs">
+                        <span className="block text-slate-500 mb-0.5">Эмодзи</span>
+                        <input className="border border-slate-300 px-2 py-1.5 rounded text-sm w-16 text-center"
+                            placeholder="⭐"
+                            value={draft.emoji} onChange={e => setDraft({ ...draft, emoji: e.target.value })} />
+                    </label>
+                    <label className="text-xs">
+                        <span className="block text-slate-500 mb-0.5">Цвет</span>
+                        <input type="color" className="w-12 h-9 border border-slate-300 rounded cursor-pointer"
+                            value={draft.color} onChange={e => setDraft({ ...draft, color: e.target.value })} />
+                    </label>
+                    <div className="flex flex-wrap gap-1">
+                        {PALETTE.map(c => (
+                            <button key={c} type="button"
+                                onClick={() => setDraft({ ...draft, color: c })}
+                                className="w-6 h-6 rounded-full border-2 hover:scale-110 transition"
+                                style={{ backgroundColor: c, borderColor: draft.color === c ? '#0f172a' : 'transparent' }} />
+                        ))}
+                    </div>
+                    <button disabled={saving || !draft.label.trim()}
+                        onClick={() => {
+                            upsert(draft);
+                            setDraft({ label: '', color: '#0ea5e9', emoji: '' });
+                        }}
+                        className="text-xs bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 rounded font-medium">
+                        + Добавить
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // SVG donut chart for category breakdowns
 const DonutChart: React.FC<{ data: { label: string; value: number; color?: string }[]; size?: number; thickness?: number }> = ({ data, size = 180, thickness = 28 }) => {
     const total = data.reduce((s, d) => s + d.value, 0);
@@ -1266,6 +1359,8 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
 
     const t = data.totals;
     const maxDaily = Math.max(1, ...data.daily.map((d: any) => d.received));
+    const f = data.forecast || { pipeline: 0, weighted: 0, won_this_month: 0, deals_open: 0, avg_score: 0 };
+    const fmt$ = (n: number) => '$' + Math.round(n || 0).toLocaleString();
 
     return (
         <div className="space-y-4">
@@ -1300,6 +1395,134 @@ const CRMDashboard: React.FC<{ password: string }> = ({ password }) => {
                     <div className="text-xs text-slate-500 mt-1">просрочено сейчас: {t.slaBreachedOpen}</div>
                 </div>
             </div>
+
+            {/* 💰 Sales forecast */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 text-white rounded-2xl p-5 shadow-xl">
+                <div className="flex items-baseline justify-between mb-4">
+                    <div>
+                        <div className="text-xs uppercase tracking-widest text-sky-300 font-bold">💰 Sales Forecast</div>
+                        <div className="text-xs text-white/60 mt-0.5">Прогноз продаж и pipeline по всем менеджерам</div>
+                    </div>
+                    <div className="text-xs text-white/50">средний скоринг: <span className="text-white font-bold">{Math.round(f.avg_score || 0)}/100</span></div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-white/5 border border-white/10 backdrop-blur rounded-xl p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-sky-300 font-semibold">Pipeline</div>
+                        <div className="text-2xl font-extrabold mt-1">{fmt$(f.pipeline)}</div>
+                        <div className="text-xs text-white/60 mt-1">{f.deals_open || 0} сделок в работе</div>
+                    </div>
+                    <div className="bg-sky-500/15 border border-sky-300/30 backdrop-blur rounded-xl p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-sky-200 font-semibold">Взвешенный прогноз</div>
+                        <div className="text-2xl font-extrabold mt-1">{fmt$(f.weighted)}</div>
+                        <div className="text-xs text-white/60 mt-1">× вероятность</div>
+                    </div>
+                    <div className="bg-emerald-500/15 border border-emerald-300/30 backdrop-blur rounded-xl p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-emerald-200 font-semibold">Закрыто (won) MTD</div>
+                        <div className="text-2xl font-extrabold mt-1">{fmt$(f.won_this_month)}</div>
+                        <div className="text-xs text-white/60 mt-1">с начала месяца</div>
+                    </div>
+                    <div className="bg-amber-500/15 border border-amber-300/30 backdrop-blur rounded-xl p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-amber-200 font-semibold">Конверсия</div>
+                        <div className="text-2xl font-extrabold mt-1">{t.conversionPct}%</div>
+                        <div className="text-xs text-white/60 mt-1">won / closed</div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 🪜 Conversion funnel SVG */}
+            {data.funnel && data.funnel.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🪜 Воронка обработки лидов</div>
+                    {(() => {
+                        const funnel = data.funnel.filter((s: any) => s.n > 0);
+                        if (funnel.length === 0) return <div className="text-sm text-slate-400 italic">нет данных</div>;
+                        const maxN = Math.max(1, ...funnel.map((s: any) => s.n));
+                        const stepHeight = 38;
+                        const fullW = 600;
+                        return (
+                            <svg viewBox={`0 0 ${fullW} ${funnel.length * (stepHeight + 8)}`} className="w-full">
+                                {funnel.map((s: any, i: number) => {
+                                    const w = (s.n / maxN) * fullW;
+                                    const x = (fullW - w) / 2;
+                                    const y = i * (stepHeight + 8);
+                                    return (
+                                        <g key={s.code}>
+                                            <rect x={x} y={y} width={w} height={stepHeight} rx={6}
+                                                fill={s.color || '#0ea5e9'} opacity={0.85} />
+                                            <text x={fullW / 2} y={y + stepHeight / 2 + 5} textAnchor="middle"
+                                                fill="white" fontSize={13} fontWeight={700}>
+                                                {s.label}: {s.n}
+                                            </text>
+                                        </g>
+                                    );
+                                })}
+                            </svg>
+                        );
+                    })()}
+                </div>
+            )}
+
+            {/* Client stages mini-bar */}
+            {data.stages && data.stages.some((s: any) => s.n > 0) && (
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">🎓 Этапы клиентов (post-win)</div>
+                    <div className="flex flex-wrap gap-2">
+                        {data.stages.map((s: any) => (
+                            <div key={s.code} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                                <span className="w-2 h-2 rounded-full" style={{ background: s.color || '#0ea5e9' }} />
+                                <span className="text-xs font-medium text-slate-700">{s.label}</span>
+                                <span className="text-sm font-bold text-slate-900">{s.n}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* 👥 Workload per manager — horizontal bars */}
+            {data.byManager && data.byManager.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-3">👥 Нагрузка менеджеров</div>
+                    {(() => {
+                        const top = data.byManager.filter((m: any) => m.total > 0).slice(0, 12);
+                        if (top.length === 0) return <div className="text-sm text-slate-400 italic">нет данных</div>;
+                        const maxTotal = Math.max(1, ...top.map((m: any) => m.total));
+                        return (
+                            <div className="space-y-2">
+                                {top.map((m: any) => {
+                                    const pctOpen = (m.open / maxTotal) * 100;
+                                    const pctWon = (m.won / maxTotal) * 100;
+                                    const pctLost = ((m.closed - m.won) / maxTotal) * 100;
+                                    return (
+                                        <div key={m.id}>
+                                            <div className="flex items-baseline justify-between text-xs mb-1">
+                                                <span className="text-slate-700 font-medium">
+                                                    {m.full_name} <span className="text-slate-400">{m.login}</span>
+                                                    {!m.active && <span className="ml-1 text-rose-500">·неактивен</span>}
+                                                </span>
+                                                <span className="text-slate-500">
+                                                    <span className="font-mono font-bold text-slate-900">{m.total}</span>
+                                                    {m.pipeline > 0 && <span className="ml-2 text-emerald-700">{fmt$(m.pipeline)}</span>}
+                                                    {m.sla_breached > 0 && <span className="ml-2 text-rose-600">⚠{m.sla_breached}</span>}
+                                                </span>
+                                            </div>
+                                            <div className="flex w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                                                <div className="h-full bg-amber-500" style={{ width: `${pctOpen}%` }} title={`Открыто: ${m.open}`} />
+                                                <div className="h-full bg-emerald-500" style={{ width: `${pctWon}%` }} title={`Won: ${m.won}`} />
+                                                <div className="h-full bg-rose-400" style={{ width: `${pctLost}%` }} title={`Lost: ${m.closed - m.won}`} />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                <div className="flex gap-4 text-xs text-slate-500 pt-2 mt-2 border-t border-slate-100">
+                                    <span className="flex items-center gap-1"><span className="w-2 h-2 bg-amber-500 rounded" />Открытых</span>
+                                    <span className="flex items-center gap-1"><span className="w-2 h-2 bg-emerald-500 rounded" />Won</span>
+                                    <span className="flex items-center gap-1"><span className="w-2 h-2 bg-rose-400 rounded" />Lost</span>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                </div>
+            )}
 
             <div>
                 <div className="text-xs uppercase text-slate-500 mb-2">Лиды по дням</div>
@@ -1880,6 +2103,10 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🎯 Статусы лидов" subtitle="Что менеджер выбирает в карточке лида" badge="CRM" accent="violet">
                     <StatusesSection password={password} />
+                </Section>
+
+                <Section title="🏷 Метки клиентов" subtitle="Цветные ярлыки для категоризации (горячий, VIP, грант и т.д.)" badge="CRM" accent="red">
+                    <TagsSection password={password} />
                 </Section>
 
                 <Section title="📋 Все лиды (обзор)" subtitle="Полный список лидов и статистика по менеджерам" badge="CRM" accent="amber">

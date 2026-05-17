@@ -62,6 +62,48 @@ interface Lead {
     stage_code?: string | null;
     stage_label?: string | null;
     stage_color?: string | null;
+    // Deal / sales
+    deal_value?: number | string | null;
+    deal_currency?: string | null;
+    deal_probability?: number | null;
+    score?: number | null;
+    // Extended client fields
+    dob_date?: string | null;
+    passport_number?: string | null;
+    city?: string | null;
+    parent_name?: string | null;
+    parent_contact?: string | null;
+    parent_profession?: string | null;
+    preferred_channel?: string | null;
+    preferred_time?: string | null;
+    language_cert_test?: string | null;
+    language_cert_score?: string | null;
+    language_cert_expires?: string | null;
+    // Tags + tasks summary
+    tags?: TagRec[];
+    open_tasks?: number;
+    overdue_tasks?: number;
+}
+interface TagRec {
+    id: number;
+    label: string;
+    color?: string;
+    emoji?: string;
+}
+interface TaskRec {
+    id: number;
+    lead_id: number;
+    assigned_to_id?: number;
+    title: string;
+    description?: string;
+    due_at: string;
+    completed_at?: string | null;
+    assignee_name?: string;
+    lead_name?: string;
+    lead_phone?: string;
+    lead_status?: string;
+    lead_status_label?: string;
+    lead_status_color?: string;
 }
 interface StatusOption {
     code: string;
@@ -99,6 +141,28 @@ const formatFull = (iso: string) =>
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit',
     });
+
+function formatMoney(value: number | string | null | undefined, currency = 'USD'): string {
+    if (value === null || value === undefined || value === '') return '';
+    const n = typeof value === 'string' ? parseFloat(value) : value;
+    if (!isFinite(n)) return '';
+    if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k ${currency === 'USD' ? '$' : currency}`;
+    return `${Math.round(n)} ${currency === 'USD' ? '$' : currency}`;
+}
+
+function scoreColor(score: number | null | undefined): string {
+    if (!score || score < 30) return 'bg-slate-100 text-slate-600 border-slate-200';
+    if (score < 60) return 'bg-amber-100 text-amber-700 border-amber-300';
+    if (score < 85) return 'bg-orange-100 text-orange-700 border-orange-300';
+    return 'bg-rose-100 text-rose-700 border-rose-300';
+}
+
+function scoreEmoji(score: number | null | undefined): string {
+    if (!score || score < 30) return '❄';
+    if (score < 60) return '🌡';
+    if (score < 85) return '🔥';
+    return '🚀';
+}
 
 function whatsappLink(phone: string, msg?: string): string | null {
     const digits = (phone || '').replace(/\D/g, '');
@@ -409,12 +473,37 @@ const LeadCard: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ l
                     {sm.icon} {sm.label}
                 </span>
                 <Pill cls={sla.cls}>{sla.text}</Pill>
+                {lead.deal_value && (
+                    <Pill cls="bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+                        💰 {formatMoney(lead.deal_value, lead.deal_currency || 'USD')}
+                    </Pill>
+                )}
+                {lead.score !== undefined && lead.score !== null && lead.score > 0 && (
+                    <Pill cls={`border ${scoreColor(lead.score)}`}>
+                        {scoreEmoji(lead.score)} {lead.score}
+                    </Pill>
+                )}
+                {(lead.open_tasks || 0) > 0 && (
+                    <Pill cls={`border ${(lead.overdue_tasks || 0) > 0 ? 'bg-rose-50 text-rose-700 border-rose-300' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                        ✓ {lead.open_tasks} задач{(lead.overdue_tasks || 0) > 0 ? ` (${lead.overdue_tasks} просрочено)` : ''}
+                    </Pill>
+                )}
                 {lead.manager_name && (
                     <Pill cls="bg-slate-50 text-slate-600 border border-slate-200">
                         👤 {lead.manager_name}{lead.manager_archived_at && ' (уволен)'}
                     </Pill>
                 )}
             </div>
+            {lead.tags && lead.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                    {lead.tags.map(t => (
+                        <span key={t.id} className="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full border"
+                            style={{ backgroundColor: (t.color || '#94a3b8') + '20', borderColor: (t.color || '#94a3b8') + '60', color: t.color || '#475569' }}>
+                            {t.emoji} {t.label}
+                        </span>
+                    ))}
+                </div>
+            )}
             {wa && (
                 <div className="flex gap-2 mt-3" onClick={e => e.stopPropagation()}>
                     <a href={wa} target="_blank" rel="noopener noreferrer"
@@ -763,7 +852,18 @@ const LeadDetailDrawer: React.FC<{
     onClose: () => void;
     onRefresh: () => void;
 }> = ({ lead, me, statuses, roster, sourceOptions, mode, onToggleMode, onClose, onRefresh }) => {
-    const [tab, setTab] = useState<'overview' | 'activity' | 'related'>('overview');
+    const [tab, setTab] = useState<'overview' | 'deal' | 'tasks' | 'activity' | 'related'>('overview');
+    const [tasks, setTasks] = useState<TaskRec[] | null>(null);
+    const [allTags, setAllTags] = useState<TagRec[]>([]);
+    const [leadTags, setLeadTags] = useState<TagRec[]>([]);
+    const [newTaskTitle, setNewTaskTitle] = useState('');
+    const [newTaskDue, setNewTaskDue] = useState('');
+    const [dealDraft, setDealDraft] = useState({
+        value: (lead.deal_value !== null && lead.deal_value !== undefined) ? String(lead.deal_value) : '',
+        currency: lead.deal_currency || 'USD',
+        probability: lead.deal_probability ?? 30,
+    });
+    const [savingDeal, setSavingDeal] = useState(false);
     const [comments, setComments] = useState<CommentRec[] | null>(null);
     const [related, setRelated] = useState<any[] | null>(null);
     const [newComment, setNewComment] = useState('');
@@ -779,7 +879,20 @@ const LeadDetailDrawer: React.FC<{
         budget: lead.budget || '', english_level: lead.english_level || '',
         birth_year: lead.birth_year ? String(lead.birth_year) : '',
         current_education: lead.current_education || '', comment: lead.comment || '',
+        // Extended client fields
+        dob_date: lead.dob_date ? lead.dob_date.substring(0, 10) : '',
+        passport_number: lead.passport_number || '',
+        city: lead.city || '',
+        parent_name: lead.parent_name || '',
+        parent_contact: lead.parent_contact || '',
+        parent_profession: lead.parent_profession || '',
+        preferred_channel: lead.preferred_channel || '',
+        preferred_time: lead.preferred_time || '',
+        language_cert_test: lead.language_cert_test || '',
+        language_cert_score: lead.language_cert_score || '',
+        language_cert_expires: lead.language_cert_expires ? lead.language_cert_expires.substring(0, 10) : '',
     });
+    const [showExtended, setShowExtended] = useState(false);
     const [editSource, setEditSource] = useState(false);
     const [transferTo, setTransferTo] = useState('');
     const [reassignTo, setReassignTo] = useState('');
@@ -800,6 +913,10 @@ const LeadDetailDrawer: React.FC<{
     useEffect(() => {
         fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' })
             .then(r => r.json()).then(j => setComments(j.comments || [])).catch(() => setComments([]));
+        fetch(`/api/lidy/leads/${lead.id}/tags`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setLeadTags(j.tags || [])).catch(() => setLeadTags([]));
+        fetch(`/api/lidy/tags`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setAllTags(j.tags || [])).catch(() => setAllTags([]));
     }, [lead.id]);
 
     useEffect(() => {
@@ -807,6 +924,71 @@ const LeadDetailDrawer: React.FC<{
         fetch(`/api/lidy/leads/${lead.id}/related`, { credentials: 'include' })
             .then(r => r.json()).then(j => setRelated(j.related || [])).catch(() => setRelated([]));
     }, [tab, lead.id, related]);
+
+    useEffect(() => {
+        if (tab !== 'tasks' || tasks !== null) return;
+        fetch(`/api/lidy/leads/${lead.id}/tasks`, { credentials: 'include' })
+            .then(r => r.json()).then(j => setTasks(j.tasks || [])).catch(() => setTasks([]));
+    }, [tab, lead.id, tasks]);
+
+    const refetchTasks = () => fetch(`/api/lidy/leads/${lead.id}/tasks`, { credentials: 'include' })
+        .then(r => r.json()).then(j => setTasks(j.tasks || []));
+
+    const createTask = async () => {
+        if (!newTaskTitle.trim() || !newTaskDue) return;
+        await fetch(`/api/lidy/leads/${lead.id}/tasks`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ title: newTaskTitle.trim(), due_at: new Date(newTaskDue).toISOString() }),
+        });
+        setNewTaskTitle(''); setNewTaskDue('');
+        await refetchTasks(); onRefresh();
+    };
+    const toggleTask = async (t: TaskRec) => {
+        await fetch(`/api/lidy/tasks/${t.id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ completed: !t.completed_at }),
+        });
+        await refetchTasks(); onRefresh();
+    };
+    const deleteTask = async (t: TaskRec) => {
+        if (!confirm(`Удалить задачу «${t.title}»?`)) return;
+        await fetch(`/api/lidy/tasks/${t.id}`, { method: 'DELETE', credentials: 'include' });
+        await refetchTasks(); onRefresh();
+    };
+
+    const toggleTag = async (tag: TagRec) => {
+        const isOn = leadTags.some(t => t.id === tag.id);
+        if (isOn) {
+            await fetch(`/api/lidy/leads/${lead.id}/tags/${tag.id}`, { method: 'DELETE', credentials: 'include' });
+            setLeadTags(prev => prev.filter(t => t.id !== tag.id));
+        } else {
+            await fetch(`/api/lidy/leads/${lead.id}/tags`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ tag_id: tag.id }),
+            });
+            setLeadTags(prev => [...prev, tag]);
+        }
+        onRefresh();
+    };
+
+    const saveDeal = async () => {
+        setSavingDeal(true);
+        try {
+            await fetch(`/api/lidy/leads/${lead.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    deal_value: dealDraft.value ? parseFloat(dealDraft.value) : null,
+                    deal_currency: dealDraft.currency,
+                    deal_probability: Number(dealDraft.probability) || 0,
+                }),
+            });
+            onRefresh();
+        } finally { setSavingDeal(false); }
+    };
 
     const submitComment = async () => {
         const body = newComment.trim(); if (!body) return;
@@ -879,6 +1061,8 @@ const LeadDetailDrawer: React.FC<{
         try {
             const payload: any = { ...draft };
             payload.birth_year = draft.birth_year ? Number(draft.birth_year) : null;
+            payload.dob_date = draft.dob_date || null;
+            payload.language_cert_expires = draft.language_cert_expires || null;
             const r = await fetch(`/api/lidy/leads/${lead.id}`, {
                 method: 'PATCH', headers: { 'Content-Type': 'application/json' },
                 credentials: 'include', body: JSON.stringify(payload),
@@ -987,15 +1171,20 @@ const LeadDetailDrawer: React.FC<{
                     </div>
 
                     {/* Tabs */}
-                    <div className="flex gap-1 mt-4 border-b border-slate-200 -mb-4">
+                    <div className="flex gap-1 mt-4 border-b border-slate-200 -mb-4 overflow-x-auto">
                         {[
                             { v: 'overview', l: 'Обзор' },
+                            { v: 'deal', l: '💰 Сделка' },
+                            { v: 'tasks', l: '📋 Задачи', badge: (lead.open_tasks || 0) > 0 ? lead.open_tasks : undefined },
                             { v: 'activity', l: 'История' },
                             { v: 'related', l: 'Связанные' },
                         ].map(t => (
                             <button key={t.v} onClick={() => setTab(t.v as any)}
-                                className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === t.v ? 'border-sky-600 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                                className={`px-3 py-2 text-sm font-medium border-b-2 transition whitespace-nowrap flex items-center gap-1 ${tab === t.v ? 'border-sky-600 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
                                 {t.l}
+                                {t.badge !== undefined && (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${(lead.overdue_tasks || 0) > 0 ? 'bg-rose-500 text-white' : 'bg-sky-500 text-white'}`}>{t.badge}</span>
+                                )}
                             </button>
                         ))}
                     </div>
@@ -1156,6 +1345,90 @@ const LeadDetailDrawer: React.FC<{
                                             <textarea rows={2} className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
                                                 value={draft.comment} onChange={e => setDraft(prev => ({ ...prev, comment: e.target.value }))} />
                                         </label>
+
+                                        <button type="button" onClick={() => setShowExtended(!showExtended)}
+                                            className="md:col-span-2 text-xs font-semibold text-sky-700 hover:underline text-left">
+                                            {showExtended ? '▼ Скрыть' : '▶ Развернуть'} полную анкету клиента
+                                        </button>
+                                        {showExtended && (
+                                            <>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">🎂 Дата рождения</span>
+                                                    <input type="date" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.dob_date} onChange={e => setDraft(p => ({ ...p, dob_date: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">🛂 Номер паспорта</span>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.passport_number} onChange={e => setDraft(p => ({ ...p, passport_number: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">🏙 Город</span>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.city} onChange={e => setDraft(p => ({ ...p, city: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">📲 Удобный канал связи</span>
+                                                    <select className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.preferred_channel} onChange={e => setDraft(p => ({ ...p, preferred_channel: e.target.value }))}>
+                                                        <option value="">—</option>
+                                                        <option value="WhatsApp">WhatsApp</option>
+                                                        <option value="Telegram">Telegram</option>
+                                                        <option value="Звонок">Звонок</option>
+                                                        <option value="Email">Email</option>
+                                                        <option value="Личная встреча">Личная встреча</option>
+                                                    </select>
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">🕐 Удобное время</span>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        placeholder="например, 18:00–20:00"
+                                                        value={draft.preferred_time} onChange={e => setDraft(p => ({ ...p, preferred_time: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">👪 Родитель / опекун</span>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.parent_name} onChange={e => setDraft(p => ({ ...p, parent_name: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">📞 Контакт родителя</span>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.parent_contact} onChange={e => setDraft(p => ({ ...p, parent_contact: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">💼 Профессия родителя</span>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.parent_profession} onChange={e => setDraft(p => ({ ...p, parent_profession: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">📝 Языковой тест</span>
+                                                    <select className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.language_cert_test} onChange={e => setDraft(p => ({ ...p, language_cert_test: e.target.value }))}>
+                                                        <option value="">—</option>
+                                                        <option value="IELTS">IELTS</option>
+                                                        <option value="TOEFL">TOEFL</option>
+                                                        <option value="Duolingo">Duolingo English Test</option>
+                                                        <option value="SAT">SAT</option>
+                                                        <option value="GRE">GRE</option>
+                                                        <option value="GMAT">GMAT</option>
+                                                        <option value="HSK">HSK</option>
+                                                        <option value="TestDaF">TestDaF</option>
+                                                    </select>
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">🎯 Балл</span>
+                                                    <input className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        placeholder="например, 6.5"
+                                                        value={draft.language_cert_score} onChange={e => setDraft(p => ({ ...p, language_cert_score: e.target.value }))} />
+                                                </label>
+                                                <label>
+                                                    <span className="block text-xs text-slate-500 mb-1">📅 Сертификат действует до</span>
+                                                    <input type="date" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 bg-white"
+                                                        value={draft.language_cert_expires} onChange={e => setDraft(p => ({ ...p, language_cert_expires: e.target.value }))} />
+                                                </label>
+                                            </>
+                                        )}
+
                                         <Btn variant="primary" onClick={saveFields} disabled={savingFields} className="md:col-span-2">
                                             {savingFields ? 'Сохранение…' : '💾 Сохранить'}
                                         </Btn>
@@ -1178,6 +1451,44 @@ const LeadDetailDrawer: React.FC<{
                                         {lead.event_name && <Field label="🎟 Событие" value={lead.event_name} />}
                                     </dl>
                                 )}
+
+                                {/* Extended client info */}
+                                {!editingFields && (lead.dob_date || lead.passport_number || lead.city || lead.parent_name || lead.parent_contact || lead.parent_profession || lead.preferred_channel || lead.preferred_time || lead.language_cert_test || lead.language_cert_score || lead.language_cert_expires) && (
+                                    <details className="mt-3 pt-3 border-t border-slate-100">
+                                        <summary className="text-xs uppercase tracking-wider font-semibold text-slate-500 cursor-pointer hover:text-slate-700">
+                                            👤 Полная анкета клиента
+                                        </summary>
+                                        <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm mt-3">
+                                            {lead.dob_date && <Field label="🎂 Дата рождения" value={new Date(lead.dob_date).toLocaleDateString('ru-RU')} />}
+                                            {lead.passport_number && <Field label="🛂 Паспорт" value={lead.passport_number} />}
+                                            {lead.city && <Field label="🏙 Город" value={lead.city} />}
+                                            {lead.preferred_channel && <Field label="📲 Канал связи" value={lead.preferred_channel} />}
+                                            {lead.preferred_time && <Field label="🕐 Удобное время" value={lead.preferred_time} />}
+                                            {lead.parent_name && <Field label="👪 Родитель" value={lead.parent_name} />}
+                                            {lead.parent_contact && <Field label="📞 Контакт родителя" value={lead.parent_contact} />}
+                                            {lead.parent_profession && <Field label="💼 Профессия родителя" value={lead.parent_profession} />}
+                                            {lead.language_cert_test && <Field label="📝 Языковой тест" value={lead.language_cert_test} />}
+                                            {lead.language_cert_score && <Field label="🎯 Балл" value={lead.language_cert_score} />}
+                                            {lead.language_cert_expires && <Field label="📅 Действует до" value={new Date(lead.language_cert_expires).toLocaleDateString('ru-RU')} />}
+                                        </dl>
+                                    </details>
+                                )}
+
+                                {/* Quick tags strip */}
+                                {leadTags.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-slate-100">
+                                        <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">🏷 Метки</div>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {leadTags.map(tag => (
+                                                <span key={tag.id} className="text-xs px-2.5 py-1 rounded-full text-white font-medium"
+                                                    style={{ backgroundColor: tag.color || '#0ea5e9' }}>
+                                                    {tag.emoji && <span className="mr-1">{tag.emoji}</span>}{tag.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {lead.comment && (
                                     <div className="mt-3 pt-3 border-t border-slate-100">
                                         <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-1">💬 Комментарий клиента</div>
@@ -1232,6 +1543,163 @@ const LeadDetailDrawer: React.FC<{
                                 <Btn variant="danger" onClick={deleteLead}>🗑 Удалить лид</Btn>
                             )}
                         </>
+                    )}
+
+                    {tab === 'deal' && (
+                        <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">💰 Сделка</div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-600">Сумма сделки</label>
+                                    <input type="number" min="0" step="100"
+                                        disabled={!canEdit}
+                                        value={dealDraft.value}
+                                        onChange={e => setDealDraft(d => ({ ...d, value: e.target.value }))}
+                                        placeholder="например, 12000"
+                                        className="mt-1 w-full text-base font-bold text-slate-900 border border-slate-300 rounded-lg p-2 bg-slate-50 focus:bg-white" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-600">Валюта</label>
+                                    <select disabled={!canEdit}
+                                        value={dealDraft.currency}
+                                        onChange={e => setDealDraft(d => ({ ...d, currency: e.target.value }))}
+                                        className="mt-1 w-full text-sm border border-slate-300 rounded-lg p-2 bg-slate-50 focus:bg-white">
+                                        <option value="USD">$ USD</option>
+                                        <option value="EUR">€ EUR</option>
+                                        <option value="KGS">⃀ KGS</option>
+                                        <option value="RUB">₽ RUB</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-semibold text-slate-600">Вероятность {dealDraft.probability}%</label>
+                                    <input type="range" min="0" max="100" step="5"
+                                        disabled={!canEdit}
+                                        value={dealDraft.probability}
+                                        onChange={e => setDealDraft(d => ({ ...d, probability: Number(e.target.value) }))}
+                                        className="mt-2 w-full accent-sky-600" />
+                                </div>
+                            </div>
+
+                            {/* Forecast preview */}
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                                    <div className="text-[10px] uppercase text-slate-500 font-semibold">Pipeline</div>
+                                    <div className="text-lg font-bold text-slate-900">
+                                        {dealDraft.value ? `${dealDraft.currency === 'USD' ? '$' : ''}${Number(dealDraft.value).toLocaleString()}` : '—'}
+                                    </div>
+                                </div>
+                                <div className="bg-sky-50 border border-sky-200 rounded-lg p-3">
+                                    <div className="text-[10px] uppercase text-sky-700 font-semibold">Взвешенно</div>
+                                    <div className="text-lg font-bold text-sky-900">
+                                        {dealDraft.value
+                                            ? `${dealDraft.currency === 'USD' ? '$' : ''}${Math.round(Number(dealDraft.value) * dealDraft.probability / 100).toLocaleString()}`
+                                            : '—'}
+                                    </div>
+                                </div>
+                                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                                    <div className="text-[10px] uppercase text-emerald-700 font-semibold">Скоринг</div>
+                                    <div className="text-lg font-bold text-emerald-900">
+                                        {lead.score ?? 0}/100
+                                    </div>
+                                </div>
+                            </div>
+
+                            {canEdit && (
+                                <div className="flex justify-end pt-2 border-t border-slate-100">
+                                    <Btn variant="primary" onClick={saveDeal} disabled={savingDeal}>
+                                        {savingDeal ? 'Сохранение…' : '💾 Сохранить сделку'}
+                                    </Btn>
+                                </div>
+                            )}
+
+                            {/* Tag picker */}
+                            <div className="pt-3 border-t border-slate-100">
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-2">🏷 Метки</div>
+                                {allTags.length === 0 ? (
+                                    <div className="text-sm text-slate-400 italic">Меток пока нет — настройте в админке</div>
+                                ) : (
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {allTags.map(tag => {
+                                            const on = leadTags.some(t => t.id === tag.id);
+                                            return (
+                                                <button key={tag.id} disabled={!canEdit}
+                                                    onClick={() => toggleTag(tag)}
+                                                    className={`text-xs px-2.5 py-1 rounded-full border transition disabled:opacity-50 ${on ? 'text-white shadow-sm' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                                                    style={on ? { backgroundColor: tag.color || '#0ea5e9', borderColor: tag.color || '#0ea5e9' } : undefined}>
+                                                    {tag.emoji && <span className="mr-1">{tag.emoji}</span>}
+                                                    {tag.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+                    )}
+
+                    {tab === 'tasks' && (
+                        <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">📋 Задачи</div>
+
+                            {canEdit && (
+                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                                    <input type="text"
+                                        placeholder="Что нужно сделать? (например, «Перезвонить в среду»)"
+                                        value={newTaskTitle}
+                                        onChange={e => setNewTaskTitle(e.target.value)}
+                                        className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white" />
+                                    <div className="flex gap-2 items-end">
+                                        <div className="flex-grow">
+                                            <label className="text-[10px] text-slate-500 uppercase font-semibold">Срок</label>
+                                            <input type="datetime-local"
+                                                value={newTaskDue}
+                                                onChange={e => setNewTaskDue(e.target.value)}
+                                                className="w-full text-sm border border-slate-300 rounded-lg p-2 bg-white" />
+                                        </div>
+                                        <Btn variant="primary" onClick={createTask} disabled={!newTaskTitle.trim() || !newTaskDue}>
+                                            ＋ Добавить
+                                        </Btn>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                {tasks === null ? (
+                                    <div className="text-sm text-slate-400">Загрузка…</div>
+                                ) : tasks.length === 0 ? (
+                                    <div className="text-sm text-slate-400 italic text-center py-4">Задач пока нет</div>
+                                ) : (
+                                    tasks.map(t => {
+                                        const done = !!t.completed_at;
+                                        const due = new Date(t.due_at);
+                                        const overdue = !done && due.getTime() < Date.now();
+                                        return (
+                                            <div key={t.id} className={`flex items-start gap-3 border rounded-lg p-3 ${done ? 'bg-slate-50 border-slate-200 opacity-60' : overdue ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
+                                                <button onClick={() => toggleTask(t)}
+                                                    className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${done ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-300 hover:border-emerald-500'}`}>
+                                                    {done && '✓'}
+                                                </button>
+                                                <div className="flex-grow min-w-0">
+                                                    <div className={`text-sm font-medium ${done ? 'line-through text-slate-500' : 'text-slate-900'}`}>{t.title}</div>
+                                                    <div className="flex items-center gap-2 mt-0.5 text-xs">
+                                                        <span className={overdue && !done ? 'text-rose-700 font-semibold' : 'text-slate-500'}>
+                                                            ⏰ {formatFull(t.due_at)} {overdue && !done && '— просрочено'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                {canEdit && (
+                                                    <button onClick={() => deleteTask(t)}
+                                                        className="text-slate-400 hover:text-rose-600 text-sm flex-shrink-0" title="Удалить">
+                                                        🗑
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </section>
                     )}
 
                     {tab === 'activity' && (
@@ -1589,6 +2057,37 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
     const STUDY_LEVELS = ['Бакалавриат', 'Магистратура', 'PhD / докторантура', 'Foundation / подготовка', 'Языковые курсы', 'Среднее образование'];
 
+    // "Мой день" — computed from current leads
+    const myDay = useMemo(() => {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const todayEnd = todayStart + 86_400_000;
+        let appointmentsToday = 0;
+        let hot = 0;
+        let openTasksTotal = 0;
+        let overdueTasksTotal = 0;
+        let pipelineSum = 0;
+        let weightedSum = 0;
+        let topLead: Lead | null = null;
+        for (const l of leads) {
+            if (l.assigned_manager_id !== manager.id) continue;
+            if (l.appointment_at) {
+                const ts = new Date(l.appointment_at).getTime();
+                if (ts >= todayStart && ts < todayEnd) appointmentsToday++;
+            }
+            if ((l.score ?? 0) >= 60) hot++;
+            openTasksTotal += l.open_tasks || 0;
+            overdueTasksTotal += l.overdue_tasks || 0;
+            if (l.deal_value) {
+                const v = Number(l.deal_value);
+                pipelineSum += v;
+                weightedSum += v * (Number(l.deal_probability ?? 30) / 100);
+            }
+            if (!topLead || (l.score ?? 0) > (topLead.score ?? 0)) topLead = l;
+        }
+        return { appointmentsToday, hot, openTasksTotal, overdueTasksTotal, pipelineSum, weightedSum, topLead };
+    }, [leads, manager.id]);
+
     const activeFiltersCount = [filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
         filterManagerId, filterFrom, filterTo].filter(Boolean).length + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0);
 
@@ -1795,6 +2294,59 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             <div className="text-2xl font-bold text-fuchsia-900 mt-0.5">{counters.incoming}</div>
                         </div>
                     </div>
+
+                    {/* "Мой день" — personal dashboard */}
+                    <section className="bg-gradient-to-br from-sky-600 via-sky-700 to-indigo-800 rounded-2xl shadow-xl overflow-hidden text-white">
+                        <div className="px-5 py-4 flex items-center justify-between flex-wrap gap-3">
+                            <div>
+                                <div className="text-xs uppercase tracking-widest text-sky-200 font-bold">
+                                    {new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
+                                </div>
+                                <div className="text-xl md:text-2xl font-extrabold mt-0.5">
+                                    Доброго дня, {manager.full_name.split(' ')[0]}! 👋
+                                </div>
+                            </div>
+                            <div className="flex gap-2 text-xs">
+                                {myDay.overdueTasksTotal > 0 && (
+                                    <div className="bg-rose-500/20 border border-rose-300/30 backdrop-blur rounded-lg px-3 py-1.5 font-semibold">
+                                        🔥 {myDay.overdueTasksTotal} просрочено
+                                    </div>
+                                )}
+                                {myDay.appointmentsToday > 0 && (
+                                    <div className="bg-white/15 border border-white/20 backdrop-blur rounded-lg px-3 py-1.5 font-semibold">
+                                        📅 {myDay.appointmentsToday} встреч сегодня
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-white/10">
+                            <div className="bg-sky-700/40 backdrop-blur px-4 py-3">
+                                <div className="text-[10px] uppercase tracking-wider text-sky-200 font-semibold">📅 Встречи сегодня</div>
+                                <div className="text-2xl font-bold mt-1">{myDay.appointmentsToday}</div>
+                            </div>
+                            <div className="bg-sky-700/40 backdrop-blur px-4 py-3">
+                                <div className="text-[10px] uppercase tracking-wider text-sky-200 font-semibold">🔥 Горячих лидов</div>
+                                <div className="text-2xl font-bold mt-1">{myDay.hot}</div>
+                            </div>
+                            <div className="bg-sky-700/40 backdrop-blur px-4 py-3">
+                                <div className="text-[10px] uppercase tracking-wider text-sky-200 font-semibold">📋 Открытых задач</div>
+                                <div className="text-2xl font-bold mt-1">
+                                    {myDay.openTasksTotal}
+                                    {myDay.overdueTasksTotal > 0 && (
+                                        <span className="text-sm text-rose-200 font-semibold ml-2">({myDay.overdueTasksTotal} ⚠)</span>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="bg-sky-700/40 backdrop-blur px-4 py-3">
+                                <div className="text-[10px] uppercase tracking-wider text-sky-200 font-semibold">💰 В работе</div>
+                                <div className="text-2xl font-bold mt-1">${Math.round(myDay.pipelineSum).toLocaleString()}</div>
+                            </div>
+                            <div className="bg-emerald-700/40 backdrop-blur px-4 py-3">
+                                <div className="text-[10px] uppercase tracking-wider text-emerald-200 font-semibold">🎯 Прогноз</div>
+                                <div className="text-2xl font-bold mt-1">${Math.round(myDay.weightedSum).toLocaleString()}</div>
+                            </div>
+                        </div>
+                    </section>
 
                     {/* Roster (teamlead) */}
                     {isTeamlead && roster.length > 0 && <RosterPanel roster={roster} />}
