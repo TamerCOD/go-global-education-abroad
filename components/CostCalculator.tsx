@@ -17,8 +17,34 @@ export const CostCalculator: React.FC = () => {
   const grantLabel = cfg.grantToggleLabel || 'Рассматриваю гранты / Бюджет';
   const grantHint = cfg.grantToggleHint || 'Учитывать возможность бесплатного обучения (только проживание)';
 
-  const [selectedCountry, setSelectedCountry] = useState(COUNTRIES[0]?.id || '');
-  const [isScholarship, setIsScholarship] = useState(false);
+  // Read shareable query params: ?country=japan&scholarship=1 (works under hash router too)
+  const readShareParams = () => {
+    if (typeof window === 'undefined') return { country: '', isScholarship: false };
+    const hash = window.location.hash || '';
+    const hashQuery = hash.includes('?') ? hash.split('?')[1] : '';
+    const params = new URLSearchParams(hashQuery || window.location.search);
+    return {
+      country: params.get('country') || '',
+      isScholarship: params.get('scholarship') === '1' || params.get('scholarship') === 'true',
+    };
+  };
+  const _initShare = readShareParams();
+  const [selectedCountry, setSelectedCountry] = useState(() => {
+    if (_initShare.country && COUNTRIES.some(c => c.id === _initShare.country)) return _initShare.country;
+    return COUNTRIES[0]?.id || '';
+  });
+  const [isScholarship, setIsScholarship] = useState(_initShare.isScholarship);
+
+  // Listen to hashchange for late-arriving share links
+  React.useEffect(() => {
+    const onHash = () => {
+      const s = readShareParams();
+      if (s.country && COUNTRIES.some(c => c.id === s.country)) setSelectedCountry(s.country);
+      setIsScholarship(s.isScholarship);
+    };
+    if (typeof window !== 'undefined') window.addEventListener('hashchange', onHash);
+    return () => { if (typeof window !== 'undefined') window.removeEventListener('hashchange', onHash); };
+  }, [COUNTRIES]);
 
   const countryData = COUNTRIES.find(c => c.id === selectedCountry);
 

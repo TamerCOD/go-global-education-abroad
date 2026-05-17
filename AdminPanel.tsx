@@ -1206,11 +1206,11 @@ const SalesHealthWidget: React.FC<{ password: string }> = ({ password }) => {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                 <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
                     <div className="text-slate-500 uppercase tracking-wider">SLA</div>
-                    <div className={`text-lg font-bold ${data.sla_pct >= 80 ? 'text-emerald-300' : data.sla_pct >= 60 ? 'text-amber-300' : 'text-rose-300'}`}>{data.sla_pct}%</div>
+                    <div className={`text-lg font-bold ${data.sla_pct == null ? 'text-slate-500' : data.sla_pct >= 80 ? 'text-emerald-300' : data.sla_pct >= 60 ? 'text-amber-300' : 'text-rose-300'}`}>{data.sla_pct == null ? '—' : `${data.sla_pct}%`}</div>
                 </div>
                 <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
                     <div className="text-slate-500 uppercase tracking-wider">Конверсия</div>
-                    <div className={`text-lg font-bold ${data.conversion_pct >= 15 ? 'text-emerald-300' : 'text-amber-300'}`}>{data.conversion_pct}%</div>
+                    <div className={`text-lg font-bold ${data.conversion_pct == null ? 'text-slate-500' : data.conversion_pct >= 15 ? 'text-emerald-300' : 'text-amber-300'}`}>{data.conversion_pct == null ? '—' : `${data.conversion_pct}%`}</div>
                 </div>
                 <div className="bg-slate-800/40 border border-slate-800 rounded-lg p-3">
                     <div className="text-slate-500 uppercase tracking-wider">Просрочено</div>

@@ -630,6 +630,35 @@ const PipelineView: React.FC<{
         // No-op if column matches current
         if (mode === 'status' && lead.status_code === columnCode) return;
         if (mode === 'stage' && (lead.stage_code || '') === (columnCode === '__none__' ? '' : columnCode)) return;
+
+        // Pre-check: status may require appointment or rejection reason — can't just POST blindly.
+        // Open the lead drawer instead so the manager fills the required field.
+        if (mode === 'status') {
+            const target = statuses.find(s => s.code === columnCode);
+            if (target?.requires_appointment) {
+                alert(`Этап «${target.label}» требует выбора даты встречи. Откройте лид и выберите статус из карточки.`);
+                onOpen(lead);
+                return;
+            }
+            if (target?.requires_reason) {
+                const reason = window.prompt(`Этап «${target.label}» требует причину. Укажите её:`);
+                if (!reason || !reason.trim()) return;
+                setMovingId(leadId);
+                try {
+                    const r = await fetch(`/api/lidy/leads/${leadId}/status`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ status: columnCode, rejection_reason: reason.trim() }),
+                    });
+                    if (!r.ok) {
+                        const j = await r.json().catch(() => ({}));
+                        alert('Не удалось переместить: ' + (j.error || r.status));
+                    } else onRefresh && onRefresh();
+                } finally { setMovingId(null); }
+                return;
+            }
+        }
+
         setMovingId(leadId);
         try {
             const endpoint = mode === 'status'
@@ -2265,6 +2294,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [leads, setLeads] = useState<Lead[]>([]);
     const [statuses, setStatuses] = useState<StatusOption[]>([]);
     const [roster, setRoster] = useState<RosterManager[]>([]);
+    const [allTags, setAllTags] = useState<TagRec[]>([]);
+    useEffect(() => { fetch('/api/lidy/tags', { credentials: 'include' }).then(r => r.json()).then(j => setAllTags(j.tags || [])).catch(() => {}); }, []);
     const isTeamlead = manager.role === 'teamlead';
 
     // Persisted UI helpers (localStorage)
@@ -2302,6 +2333,41 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     useEffect(() => lsSet('drawerMode', drawerMode), [drawerMode]);
     useEffect(() => lsSet('scope', scope), [scope]);
     useEffect(() => lsSet('sidebarOpen', sidebarOpen), [sidebarOpen]);
+
+    // Saved filter presets
+    const [presets, setPresets] = useState<any[]>([]);
+    const loadPresets = () => fetch('/api/lidy/filter-presets', { credentials: 'include' })
+        .then(r => r.json()).then(j => setPresets(j.presets || [])).catch(() => {});
+    useEffect(() => { loadPresets(); }, []);
+    const savePreset = async () => {
+        const name = window.prompt('Название набора фильтров:');
+        if (!name?.trim()) return;
+        const filters = {
+            status: filterStatus, source: filterSource, country: filterCountry,
+            university: filterUniversity, level: filterLevel, manager_id: filterManagerId,
+            from: filterFrom, to: filterTo, overdue: overdueOnly, closed: includeClosed,
+            inbox_zero: inboxZero, scope,
+        };
+        await fetch('/api/lidy/filter-presets', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name: name.trim(), filters }),
+        });
+        loadPresets();
+    };
+    const applyPreset = (p: any) => {
+        const f = p.filters || {};
+        setFilterStatus(f.status || ''); setFilterSource(f.source || ''); setFilterCountry(f.country || '');
+        setFilterUniversity(f.university || ''); setFilterLevel(f.level || '');
+        setFilterManagerId(f.manager_id || ''); setFilterFrom(f.from || ''); setFilterTo(f.to || '');
+        setOverdueOnly(!!f.overdue); setIncludeClosed(!!f.closed); setInboxZero(!!f.inbox_zero);
+        if (f.scope) setScope(f.scope);
+    };
+    const deletePreset = async (id: number, name: string) => {
+        if (!confirm(`Удалить «${name}»?`)) return;
+        await fetch(`/api/lidy/filter-presets/${id}`, { method: 'DELETE', credentials: 'include' });
+        loadPresets();
+    };
 
     // UI state
     const [openLead, setOpenLead] = useState<Lead | null>(null);
@@ -2565,6 +2631,29 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         )}
 
                         {/* Quick filters */}
+                        {/* Saved filter presets */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">💾 Мои фильтры</div>
+                                <button onClick={savePreset} title="Сохранить текущий набор"
+                                    className="text-xs text-sky-300 hover:text-sky-200">+ Сохранить</button>
+                            </div>
+                            {presets.length === 0 ? (
+                                <div className="text-xs text-slate-500 italic">Сохраните набор, чтобы применять в 1 клик</div>
+                            ) : (
+                                <div className="space-y-1">
+                                    {presets.map(p => (
+                                        <div key={p.id} className="flex items-center gap-1 bg-slate-800/40 hover:bg-slate-800/70 rounded-lg pr-2">
+                                            <button onClick={() => applyPreset(p)} className="flex-grow text-left text-sm px-3 py-1.5 text-slate-200 truncate">
+                                                🔖 {p.name}
+                                            </button>
+                                            <button onClick={() => deletePreset(p.id, p.name)} className="text-xs text-slate-500 hover:text-rose-300">×</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         <div>
                             <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Быстрые фильтры</div>
                             <div className="space-y-1.5">
@@ -2866,6 +2955,41 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             <option value="">→ Сменить статус…</option>
                             {statuses.filter(s => !s.is_client_stage).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                         </select>
+                        <select onChange={async e => {
+                            const code = e.target.value; if (!code) return;
+                            await fetch('/api/lidy/leads/bulk', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ ids: [...selectedIds], action: 'set_stage', payload: { stage: code === '__none__' ? '' : code } }),
+                            });
+                            setSelectedIds(new Set()); load();
+                            e.target.value = '';
+                        }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
+                            <option value="">→ Этап клиента…</option>
+                            <option value="__none__">— Снять этап —</option>
+                            {statuses.filter(s => s.is_client_stage).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                        </select>
+                        {allTags.length > 0 && (
+                            <select onChange={async e => {
+                                const tagId = e.target.value; if (!tagId) return;
+                                const [action, id] = tagId.split(':');
+                                await fetch('/api/lidy/leads/bulk', {
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify({ ids: [...selectedIds], action, payload: { tag_id: Number(id) } }),
+                                });
+                                setSelectedIds(new Set()); load();
+                                e.target.value = '';
+                            }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
+                                <option value="">→ Метка…</option>
+                                <optgroup label="Добавить">
+                                    {allTags.map(t => <option key={'a' + t.id} value={`add_tag:${t.id}`}>+ {t.emoji || ''} {t.label}</option>)}
+                                </optgroup>
+                                <optgroup label="Снять">
+                                    {allTags.map(t => <option key={'r' + t.id} value={`remove_tag:${t.id}`}>− {t.emoji || ''} {t.label}</option>)}
+                                </optgroup>
+                            </select>
+                        )}
                         {isTeamlead && (
                             <select onChange={async e => {
                                 const mgrId = e.target.value; if (!mgrId) return;

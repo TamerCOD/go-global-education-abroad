@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import ExcelJS from "exceljs";
+import webpush from "web-push";
 
 const { Pool } = pg;
 
@@ -23,6 +24,15 @@ const VISITOR_SECRET = process.env.VISITOR_SECRET || ADMIN_PASSWORD;
 const JWT_SECRET = process.env.JWT_SECRET || ADMIN_PASSWORD + "_jwt";
 const LEAD_INTAKE_SECRET = process.env.LEAD_INTAKE_SECRET || "";
 const LEAD_SLA_HOURS = Number(process.env.LEAD_SLA_HOURS || 3);
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "";
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "";
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@goglobal.kg";
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  try { webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY); }
+  catch (e) { console.warn("[web-push] VAPID setup failed:", e); }
+} else {
+  console.warn("[web-push] VAPID keys not configured — push notifications disabled. Set VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY env vars. Generate with: npx web-push generate-vapid-keys");
+}
 const WORKING_HOURS_TZ_OFFSET_MIN = Number(process.env.WORKING_HOURS_TZ_OFFSET_MIN || 360); // Default Asia/Bishkek = UTC+6
 const SLA_CRON_INTERVAL_MS = Number(process.env.SLA_CRON_INTERVAL_MS || 60_000);
 const PUBLIC_BASE_URL =
@@ -746,12 +756,66 @@ export function computeSlaDeadlineForSchedule(
   return new Date(cursor.getTime() + remaining * 60_000);
 }
 
-async function pickNextManager(): Promise<{
+// Try to find a manager via configured routing_rules.
+// Lead must match all non-null filters of the rule. Rules ordered by priority ASC.
+// Returns manager only if assigned_to is online & active & non-archived.
+async function pickRoutedManager(lead: {
+  country?: string | null;
+  source?: string | null;
+  study_level?: string | null;
+  english_level?: string | null;
+}): Promise<{ id: number; full_name: string; telegram_tag: string | null; login: string; working_hours: WorkingSchedule | null } | null> {
+  if (!pool) return null;
+  // Order by priority ascending (lower priority value = higher importance)
+  const { rows: rules } = await pool.query(
+    `SELECT * FROM routing_rules WHERE active = TRUE ORDER BY priority ASC, id ASC`
+  );
+  const matches = (rule: any) => {
+    if (rule.match_country && (lead.country || "").toLowerCase() !== rule.match_country.toLowerCase()) return false;
+    if (rule.match_source && (lead.source || "").toLowerCase() !== rule.match_source.toLowerCase()) return false;
+    if (rule.match_study_level && (lead.study_level || "").toLowerCase() !== rule.match_study_level.toLowerCase()) return false;
+    if (rule.match_min_english) {
+      // Compare on CEFR ranking (A1<A2<B1<B2<C1<C2). Default if unknown = lowest.
+      const order = ["A1", "A2", "B1", "B2", "C1", "C2"];
+      const leadIdx = order.indexOf((lead.english_level || "").toUpperCase().split(/[^A-Z0-9]/)[0]);
+      const reqIdx = order.indexOf(rule.match_min_english.toUpperCase());
+      if (reqIdx >= 0 && (leadIdx < 0 || leadIdx < reqIdx)) return false;
+    }
+    return true;
+  };
+  for (const r of rules) {
+    if (!r.assign_to_manager_id) continue;
+    if (!matches(r)) continue;
+    const { rows: mrows } = await pool.query(
+      `SELECT id, full_name, telegram_tag, login, working_hours
+       FROM managers
+       WHERE id = $1 AND active = TRUE AND is_online = TRUE AND archived_at IS NULL`,
+      [r.assign_to_manager_id]
+    );
+    if (mrows.length > 0) {
+      await pool.query(`UPDATE managers SET last_assigned_at = NOW() WHERE id = $1`, [mrows[0].id]);
+      return mrows[0];
+    }
+  }
+  return null;
+}
+
+async function pickNextManager(leadCtx?: {
+  country?: string | null;
+  source?: string | null;
+  study_level?: string | null;
+  english_level?: string | null;
+}): Promise<{
   id: number; full_name: string; telegram_tag: string | null;
   login: string; working_hours: WorkingSchedule | null;
 } | null> {
   if (!pool) return null;
-  // Only active + online + non-archived managers (teamleads skipped — they coordinate)
+  // 1) Try routing rules first
+  if (leadCtx) {
+    const routed = await pickRoutedManager(leadCtx);
+    if (routed) return routed;
+  }
+  // 2) Fall back to round-robin among online managers
   const { rows } = await pool.query(
     `SELECT id, full_name, telegram_tag, login, working_hours
      FROM managers
@@ -779,8 +843,13 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
      LIMIT 100`
   );
   const details: any[] = [];
+  // Pull extra context columns once per lead for routing rules
   for (const lead of pending) {
-    const mgr = await pickNextManager();
+    const ctxRes = await pool.query(
+      `SELECT country, source, study_level, english_level FROM leads WHERE id = $1`,
+      [lead.id]
+    );
+    const mgr = await pickNextManager(ctxRes.rows[0] || {});
     if (!mgr) break;
     const sla = computeSlaDeadline(new Date(), mgr.working_hours ?? DEFAULT_SCHEDULE);
     await pool.query(
@@ -802,6 +871,50 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
     sendTelegram(lines.join("\n")).catch(() => {});
   }
   return { assigned: details.length, details };
+}
+
+// Web-push helper — fans out a notification to every subscription of one manager
+// (or all online managers if managerId == null). Silently no-ops if VAPID is not configured.
+async function sendPush(opts: {
+  managerId?: number | null;
+  title: string;
+  body: string;
+  url?: string;
+  tag?: string;
+  requireInteraction?: boolean;
+}) {
+  if (!pool || !VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+  try {
+    const where = opts.managerId
+      ? `WHERE ps.manager_id = $1`
+      : `WHERE ps.manager_id IN (SELECT id FROM managers WHERE active = TRUE AND is_online = TRUE AND archived_at IS NULL)`;
+    const params: any[] = opts.managerId ? [opts.managerId] : [];
+    const { rows } = await pool.query(
+      `SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth FROM push_subscriptions ps ${where}`,
+      params
+    );
+    const payload = JSON.stringify({
+      title: opts.title, body: opts.body, url: opts.url || "/lidy",
+      tag: opts.tag || "crm", requireInteraction: !!opts.requireInteraction,
+    });
+    for (const s of rows) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+          payload
+        );
+      } catch (e: any) {
+        // 410 Gone / 404 Not Found → subscription is stale, remove it
+        if (e?.statusCode === 410 || e?.statusCode === 404) {
+          await pool.query(`DELETE FROM push_subscriptions WHERE id = $1`, [s.id]).catch(() => {});
+        } else {
+          console.warn("[push send]", e?.statusCode, e?.body || e?.message);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[sendPush]", e);
+  }
 }
 
 // Audit log helper — writes a single entry, safe to fail silently.
@@ -921,7 +1034,19 @@ if (!existsSync(UPLOADS_DIR)) {
 
 // ---------- Multer ----------
 const ALLOWED_MIME = new Set([
-  "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml",
+  // Images
+  "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml", "image/heic", "image/heif",
+  // Documents (passport scans, diplomas, contracts)
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain", "text/csv",
+  // Archives
+  "application/zip", "application/x-zip-compressed", "application/x-rar-compressed",
 ]);
 const upload = multer({
   storage: multer.diskStorage({
@@ -933,10 +1058,10 @@ const upload = multer({
       cb(null, `${Date.now()}-${hash}${safeExt}`);
     },
   }),
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME.has(file.mimetype)) cb(null, true);
-    else cb(new Error("Only image files (jpg, png, webp, gif, svg) are allowed"));
+    else cb(new Error(`Unsupported file type: ${file.mimetype}. Allowed: images, PDF, Office docs, archives.`));
   },
 });
 
@@ -1028,6 +1153,16 @@ async function checkSlaBreaches() {
       const sent = await sendTelegram(lines.join("\n"));
       if (sent) {
         await pool.query(`UPDATE leads SET sla_warned = TRUE WHERE id = $1`, [lead.id]);
+      }
+      if (lead.manager_id) {
+        sendPush({
+          managerId: lead.manager_id,
+          title: `⏰ SLA нарушен — лид #${lead.id}`,
+          body: `Просрочен на ${Math.floor(overdueMin / 60)}ч ${overdueMin % 60}м. Срочно обработайте.`,
+          url: `/lidy`,
+          tag: `sla-${lead.id}`,
+          requireInteraction: true,
+        }).catch(() => {});
       }
     }
   } catch (err) {
@@ -1165,7 +1300,7 @@ async function startServer() {
     upload.single("file")(req, res, (err: any) => {
       if (err) {
         const msg = err instanceof Error ? err.message : "Upload failed";
-        return res.status(msg.startsWith("Only image") ? 400 : 500).json({ error: msg });
+        return res.status(msg.startsWith("Unsupported") || msg.startsWith("Only image") ? 400 : 500).json({ error: msg });
       }
       next();
     });
@@ -1226,7 +1361,10 @@ async function startServer() {
       }
     }
 
-    const manager = await pickNextManager();
+    // Consult routing_rules first (then round-robin)
+    const manager = await pickNextManager({
+      country, source, study_level, english_level,
+    });
     // If no manager online: store unassigned, sla_deadline_at NULL (will be set when assigned)
     const slaDeadline = manager
       ? computeSlaDeadline(new Date(), (manager.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE)
@@ -1267,6 +1405,17 @@ async function startServer() {
       `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
     ].filter(Boolean);
     sendTelegram(lines.join("\n")).catch(() => {});
+
+    // Browser push to assigned manager (if subscribed)
+    if (manager) {
+      sendPush({
+        managerId: manager.id,
+        title: `🆕 Новый лид #${leadId}`,
+        body: `${name || phone || email || "—"}${country ? " · " + country : ""}${sourceLabel ? " · " + sourceLabel : ""}`,
+        url: `/lidy`,
+        tag: `lead-${leadId}`,
+      }).catch(() => {});
+    }
 
     return { leadId, assigned: manager?.id ?? null };
   }
@@ -1697,6 +1846,12 @@ async function startServer() {
         );
       }
 
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "status.change", entity_type: "lead", entity_id: leadId,
+        before: { status: lead.status_code }, after: { status, rejection_reason, appointment_at },
+      });
+
       res.json({ ok: true, lead: updated.rows[0] });
     } catch (err) {
       console.error("[lidy/status]", err);
@@ -1815,6 +1970,11 @@ async function startServer() {
         [leadId, me.id, me.full_name, me.role || "manager",
           `🎓 Этап клиента: «${lead.stage_code || "—"}» → «${stRow.rows[0].label}»${note ? `\nЗаметка: ${note}` : ""}`]
       );
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "stage.change", entity_type: "lead", entity_id: leadId,
+        before: { stage: lead.stage_code }, after: { stage },
+      });
       res.json({ ok: true, stage });
     } catch (err) {
       console.error("[lidy/stage]", err);
@@ -2202,25 +2362,33 @@ async function startServer() {
       WHERE processed_at IS NULL
         AND received_at < NOW() - INTERVAL '14 days'
     `);
-    const s = slaQ.rows[0];
-    const slaPct = s.closed > 0 ? Math.round((s.sla_met / s.closed) * 100) : 100;
-    const conv = s.terminated > 0 ? Math.round((s.won / s.terminated) * 100) : 0;
+    const s = slaQ.rows[0] || {};
+    const closed = Number(s.closed || 0);
+    const terminated = Number(s.terminated || 0);
+    const slaPct = closed > 0 ? Math.round((Number(s.sla_met || 0) / closed) * 100) : null;
+    const conv = terminated > 0 ? Math.round((Number(s.won || 0) / terminated) * 100) : null;
     let level: "green" | "yellow" | "red" = "green";
     const reasons: string[] = [];
-    if (slaPct < 60) { level = "red"; reasons.push(`SLA ${slaPct}% (норма ≥80%)`); }
-    else if (slaPct < 80) { level = level === "red" ? "red" : "yellow"; reasons.push(`SLA ${slaPct}%`); }
-    if (conv < 10) { level = "red"; reasons.push(`Конверсия ${conv}% (норма ≥15%)`); }
-    else if (conv < 15) { level = level === "red" ? "red" : "yellow"; reasons.push(`Конверсия ${conv}%`); }
-    if (s.overdue_open > 5) { level = "red"; reasons.push(`${s.overdue_open} просроченных открытых`); }
+    if (slaPct != null) {
+      if (slaPct < 60) { level = "red"; reasons.push(`SLA ${slaPct}% (норма ≥80%)`); }
+      else if (slaPct < 80) { level = level === "red" ? "red" : "yellow"; reasons.push(`SLA ${slaPct}%`); }
+    }
+    if (conv != null) {
+      if (conv < 10) { level = "red"; reasons.push(`Конверсия ${conv}% (норма ≥15%)`); }
+      else if (conv < 15) { level = level === "red" ? "red" : "yellow"; reasons.push(`Конверсия ${conv}%`); }
+    }
+    const overdueOpen = Number(s.overdue_open || 0);
+    if (overdueOpen > 5) { level = "red"; reasons.push(`${overdueOpen} просроченных открытых`); }
     if (offlineQ.rows.length > 0) reasons.push(`${offlineQ.rows.length} менеджеров оффлайн >2ч`);
-    if (stuckQ.rows[0].stuck > 0) reasons.push(`${stuckQ.rows[0].stuck} лидов застряли >14 дней`);
+    const stuck = Number(stuckQ.rows[0]?.stuck || 0);
+    if (stuck > 0) reasons.push(`${stuck} лидов застряли >14 дней`);
     res.json({
       level, reasons,
       sla_pct: slaPct,
       conversion_pct: conv,
-      overdue_open: s.overdue_open,
+      overdue_open: overdueOpen,
       offline_managers: offlineQ.rows,
-      stuck_leads: stuckQ.rows[0].stuck,
+      stuck_leads: stuck,
     });
   });
 
@@ -2627,9 +2795,14 @@ async function startServer() {
       if (!me) return res.status(401).json({ error: "Not found" });
       if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
       const leadId = Number(req.params.id);
+      const snap = await pq().query(`SELECT id, name, phone, email, status_code FROM leads WHERE id = $1`, [leadId]);
       const r = await pq().query(`DELETE FROM leads WHERE id = $1 RETURNING id`, [leadId]);
       if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
       sendTelegram(`🗑 Лид #${leadId} удалён тимлидом ${escapeHtml(me.full_name)}`).catch(() => {});
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "lead.delete", entity_type: "lead", entity_id: leadId, before: snap.rows[0],
+      });
       res.json({ ok: true });
     } catch (err) {
       console.error("[lidy/lead DELETE]", err);
@@ -2763,6 +2936,21 @@ async function startServer() {
           `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
         ].join("\n")
       ).catch(() => {});
+
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "transfer.create", entity_type: "transfer", entity_id: leadId,
+        after: { from: me.id, to: target.id, target_name: target.full_name },
+      });
+
+      sendPush({
+        managerId: target.id,
+        title: `🤝 Передан лид #${leadId}`,
+        body: `${me.full_name} передал вам лид. Принять/отклонить в течение ${TRANSFER_TIMEOUT_MIN} мин.`,
+        url: `/lidy`,
+        tag: `transfer-${leadId}`,
+        requireInteraction: true,
+      }).catch(() => {});
 
       res.json({ ok: true, target: { id: target.id, full_name: target.full_name }, expiresInMinutes: TRANSFER_TIMEOUT_MIN });
     } catch (err) {
@@ -2916,6 +3104,12 @@ async function startServer() {
         `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
       ].filter(Boolean);
       sendTelegram(lines.join("\n")).catch(() => {});
+
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "reassign", entity_type: "lead", entity_id: leadId,
+        before: { from: oldMgr?.id || null }, after: { to: target.id, to_name: target.full_name },
+      });
 
       res.json({ ok: true, leadId, newManager: { id: target.id, full_name: target.full_name } });
     } catch (err) {
