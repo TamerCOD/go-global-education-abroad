@@ -124,7 +124,7 @@ class Mock(Flowable):
         sb_w = 30*mm; sb_y = y0; sb_h = h - hd_h - 2*mm
         self.rr(x0, sb_y, sb_w, sb_h, fill=SURF, line=EDGE, r=1.5*mm)
         self.txt(x0 + 2.5*mm, sb_y + sb_h - 5*mm, "БЫСТРЫЕ ФИЛЬТРЫ", 5.5, INK3, bold=True)
-        items = [("Inbox 0 (требует действий)", ACC), ("Просроченные", BAD), ("Показать закрытые", OK), ("Массовые действия", VIO)]
+        items = [("Inbox 0 (требует действий)", ACC), ("Просроченные", BAD), ("Горячие (скоринг 60+)", WARN), ("Перезвонить", VIO), ("Дубли", VIO), ("Закрытые", OK)]
         for i, (l, col) in enumerate(items):
             yy = sb_y + sb_h - 11*mm - i*6.5*mm
             self.rr(x0 + 2*mm, yy, sb_w - 4*mm, 5.5*mm, fill=_mix(col, 0.10) if i == 0 else SURF2, line=_mix(col, 0.35) if i == 0 else EDGE, r=1.6*mm, lw=0.6)
@@ -135,7 +135,7 @@ class Mock(Flowable):
         # KPI tiles
         cx0 = x0 + sb_w + 2*mm; cw = w - sb_w - 2*mm
         tile_w = (cw - 8*mm)/5
-        kpis = [("ВСЕГО", "11", INK), ("ОТКРЫТЫХ", "2", WARNL), ("ПРОСРОЧЕНО", "0", INK), ("В ОЧЕРЕДИ", "0", colors.HexColor("#fdba74")), ("ПЕРЕДАЧИ МНЕ", "0", INK)]
+        kpis = [("АКТИВНЫЕ", "11", INK), ("БЕЗ ОТВЕТА", "2", WARNL), ("ПРОСРОЧЕНО", "0", INK), ("В ОЧЕРЕДИ", "0", colors.HexColor("#fdba74")), ("ПЕРЕДАЧИ МНЕ", "0", INK)]
         for i, (l, v, col) in enumerate(kpis):
             tx = cx0 + i*(tile_w + 2*mm)
             ty = y0 + h - hd_h - 14*mm

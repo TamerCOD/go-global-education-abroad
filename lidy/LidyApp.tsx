@@ -2505,7 +2505,26 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [filterTo, setFilterTo] = useState('');
     const [overdueOnly, setOverdueOnly] = useState(false);
     const [includeClosed, setIncludeClosed] = useState(false);
+    const [closedOnly, setClosedOnly] = useState(false);
+    const [hotOnly, setHotOnly] = useState(false);
     const [inboxZero, setInboxZero] = useState(false);
+    const [summary, setSummary] = useState<any>(null);
+
+    // Quick filters behave like a radio group — one active at a time (re-click turns it off)
+    const QUICK_STATUS_CODES = ['new', 'callback', 'no_answer', 'office_visit', 'duplicate'];
+    const activeQuick = inboxZero ? 'inbox' : overdueOnly ? 'overdue' : hotOnly ? 'hot' : closedOnly ? 'closed'
+        : (QUICK_STATUS_CODES.includes(filterStatus) ? filterStatus : '');
+    const setQuick = (k: string) => {
+        const wasActive = activeQuick === k;
+        setInboxZero(false); setOverdueOnly(false); setHotOnly(false); setClosedOnly(false);
+        if (QUICK_STATUS_CODES.includes(filterStatus)) setFilterStatus('');
+        if (wasActive) return;
+        if (k === 'inbox') setInboxZero(true);
+        else if (k === 'overdue') setOverdueOnly(true);
+        else if (k === 'hot') setHotOnly(true);
+        else if (k === 'closed') setClosedOnly(true);
+        else if (k) setFilterStatus(k);
+    };
     const [sidebarOpen, setSidebarOpen] = useState(() => lsGet('sidebarOpen', true));
     const [bulkMode, setBulkMode] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -2528,6 +2547,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             status: filterStatus, source: filterSource, country: filterCountry,
             university: filterUniversity, level: filterLevel, manager_id: filterManagerId,
             from: filterFrom, to: filterTo, overdue: overdueOnly, closed: includeClosed,
+            closed_only: closedOnly, hot: hotOnly,
             inbox_zero: inboxZero, scope,
         };
         await fetch('/api/lidy/filter-presets', {
@@ -2543,6 +2563,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         setFilterUniversity(f.university || ''); setFilterLevel(f.level || '');
         setFilterManagerId(f.manager_id || ''); setFilterFrom(f.from || ''); setFilterTo(f.to || '');
         setOverdueOnly(!!f.overdue); setIncludeClosed(!!f.closed); setInboxZero(!!f.inbox_zero);
+        setClosedOnly(!!f.closed_only); setHotOnly(!!f.hot);
         if (f.scope) setScope(f.scope);
     };
     const deletePreset = async (id: number, name: string) => {
@@ -2578,21 +2599,27 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             if (filterTo) p.set('to', filterTo);
             if (overdueOnly) p.set('overdue', '1');
             if (includeClosed) p.set('include_closed', '1');
+            if (closedOnly) p.set('closed_only', '1');
+            if (hotOnly) p.set('hot', '1');
             if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
-            const [lR, sR, rR] = await Promise.all([
+            const sumP = scope === 'all' ? '?scope=all' : '';
+            const [lR, sR, rR, sumR] = await Promise.all([
                 fetch(`/api/lidy/leads?${p.toString()}`, { credentials: 'include' }),
                 fetch('/api/lidy/statuses', { credentials: 'include' }),
                 fetch('/api/lidy/managers', { credentials: 'include' }),
+                fetch(`/api/lidy/summary${sumP}`, { credentials: 'include' }),
             ]);
             if (!lR.ok) throw new Error(`HTTP ${lR.status}`);
             const lj = await lR.json(); const sj = await sR.json(); const rj = await rR.json();
+            const sumJ = sumR.ok ? await sumR.json() : null;
             setLeads(lj.leads || []); setStatuses(sj.statuses || []); setRoster(rj.managers || []);
+            if (sumJ?.summary) setSummary(sumJ.summary);
             setLastRefresh(Date.now());
         } catch (e: any) {
             setError(e?.message || String(e));
         } finally { setLoading(false); }
     }, [scope, filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
-        filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, debouncedSearch]);
+        filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, closedOnly, hotOnly, debouncedSearch]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -2678,14 +2705,26 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         } finally { setTogglingOnline(false); }
     };
 
+    // Header tiles show REAL global numbers from /summary (independent of list
+    // filters); the client-side calc is only a fallback while summary loads.
     const counters = useMemo(() => {
+        if (summary) {
+            return {
+                total: Number(summary.total) || 0,
+                open: Number(summary.open) || 0,
+                overdue: Number(summary.overdue) || 0,
+                queued: Number(summary.queued) || 0,
+                incoming: Number(summary.incoming) || 0,
+                closed: Number(summary.closed) || 0,
+            };
+        }
         const total = leads.length;
         const open = leads.filter(l => !l.processed_at && !l.status_is_terminal).length;
         const overdue = leads.filter(l => !l.processed_at && !l.first_response_at && !l.status_is_terminal && l.sla_deadline_at && new Date(l.sla_deadline_at).getTime() < Date.now()).length;
         const queued = leads.filter(l => !l.assigned_manager_id).length;
         const incoming = leads.filter(l => l.pending_transfer_to_id === manager.id).length;
-        return { total, open, overdue, queued, incoming };
-    }, [leads, manager.id]);
+        return { total, open, overdue, queued, incoming, closed: 0 };
+    }, [summary, leads, manager.id]);
 
     // Available countries from current leads
     const uniqueCountries = useMemo(() => {
@@ -2729,12 +2768,14 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     }, [leads, manager.id]);
 
     const activeFiltersCount = [filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
-        filterManagerId, filterFrom, filterTo].filter(Boolean).length + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0);
+        filterManagerId, filterFrom, filterTo].filter(Boolean).length
+        + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0) + (closedOnly ? 1 : 0) + (hotOnly ? 1 : 0) + (inboxZero ? 1 : 0);
 
     const resetFilters = () => {
         setFilterStatus(''); setFilterSource(''); setFilterCountry(''); setFilterUniversity('');
         setFilterLevel(''); setFilterManagerId(''); setFilterFrom(''); setFilterTo('');
-        setOverdueOnly(false); setIncludeClosed(false); setSearch('');
+        setOverdueOnly(false); setIncludeClosed(false); setClosedOnly(false); setHotOnly(false);
+        setInboxZero(false); setSearch('');
     };
 
     return (
@@ -2845,42 +2886,58 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         </div>
 
                         <div>
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Быстрые фильтры</div>
-                            <div className="space-y-1.5">
-                                <button onClick={() => setInboxZero(!inboxZero)}
-                                    title="Показать только лидов, которые ждут вашего действия: новые, просроченные, с просроченными задачами. Закрыли всё — список пуст, день удался"
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${inboxZero ? 'bg-sky-500/15 text-sky-200 border border-sky-500/40' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
-                                    <span>📥 Inbox 0 (требует действий)</span>
-                                    {inboxZero && <span>✓</span>}
-                                </button>
-                                <button onClick={() => setOverdueOnly(!overdueOnly)}
-                                    title="Лиды без ответа дольше SLA — обрабатываются в первую очередь"
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${overdueOnly ? 'bg-rose-500/10 text-rose-300 border border-rose-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
-                                    <span>⏰ Просроченные</span>
-                                    {overdueOnly && <span>✓</span>}
-                                </button>
-                                <button onClick={() => setIncludeClosed(!includeClosed)}
-                                    title="По умолчанию закрытые (выигранные и отказы) скрыты — этот фильтр возвращает их в список"
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${includeClosed ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
-                                    <span>📂 Показать закрытые</span>
-                                    {includeClosed && <span>✓</span>}
-                                </button>
-                                <button onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()); }}
-                                    title="Выделяйте несколько лидов галочками и меняйте статус/этап/менеджера всем сразу"
-                                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition flex items-center justify-between ${bulkMode ? 'bg-violet-500/10 text-violet-300 border border-violet-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
-                                    <span>☑️ Массовые действия</span>
-                                    {bulkMode && <span>✓</span>}
-                                </button>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                                Быстрые фильтры
+                                <Hint wide text="Один активный фильтр за раз: повторный клик выключает. «Закрытые» показывает только выигранные и отказы — остальные фильтры работают по открытым лидам." />
+                            </div>
+                            <div className="space-y-1">
+                                {[
+                                    { k: 'inbox', l: '📥 Inbox 0 (требует действий)', cls: 'sky', t: 'Только лиды, ждущие вашего действия: новые, просроченные, с просроченными задачами. Закрыли всё — список пуст' },
+                                    { k: 'overdue', l: '⏰ Просроченные', cls: 'rose', t: 'Без ответа дольше SLA — обрабатывать в первую очередь' },
+                                    { k: 'hot', l: '🔥 Горячие (скоринг 60+)', cls: 'amber', t: 'Самые перспективные открытые лиды по скорингу' },
+                                    { k: 'new', l: '🆕 Новые', cls: 'sky', t: 'Статус «Новый» — ещё не тронуты' },
+                                    { k: 'callback', l: '📞 Перезвонить', cls: 'violet', t: 'Клиент просил связаться позже — не забудьте' },
+                                    { k: 'no_answer', l: '🔇 Не ответил', cls: 'slate', t: 'Не берут трубку — попробуйте другой канал или время' },
+                                    { k: 'office_visit', l: '🏢 Визиты в офис', cls: 'cyan', t: 'Назначенные встречи (статус «Подойдёт в офис»)' },
+                                    { k: 'duplicate', l: '🔁 Дубли', cls: 'violet', t: 'Повторные обращения клиентов — история в оригинальном лиде' },
+                                    { k: 'closed', l: '📂 Закрытые', cls: 'emerald', t: 'Только завершённые: выигранные и отказы' },
+                                ].map(f => {
+                                    const on = activeQuick === f.k;
+                                    const colorCls: Record<string, string> = {
+                                        sky: 'bg-sky-500/15 text-sky-200 border border-sky-500/40',
+                                        rose: 'bg-rose-500/10 text-rose-300 border border-rose-500/30',
+                                        amber: 'bg-amber-500/10 text-amber-300 border border-amber-500/30',
+                                        violet: 'bg-violet-500/10 text-violet-300 border border-violet-500/30',
+                                        cyan: 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30',
+                                        emerald: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30',
+                                        slate: 'bg-slate-700/40 text-slate-200 border border-slate-600/50',
+                                    };
+                                    return (
+                                        <button key={f.k} onClick={() => setQuick(f.k)} title={f.t}
+                                            className={`w-full text-left text-sm px-3 py-1.5 rounded-lg transition flex items-center justify-between ${on ? colorCls[f.cls] : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
+                                            <span>{f.l}</span>
+                                            {on && <span>✓</span>}
+                                        </button>
+                                    );
+                                })}
+                                <div className="pt-1.5 mt-1.5 border-t border-slate-800">
+                                    <button onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()); }}
+                                        title="Выделяйте несколько лидов галочками и меняйте статус/этап/менеджера всем сразу"
+                                        className={`w-full text-left text-sm px-3 py-1.5 rounded-lg transition flex items-center justify-between ${bulkMode ? 'bg-violet-500/10 text-violet-300 border border-violet-500/30' : 'bg-slate-800/40 hover:bg-slate-800/70 text-slate-200'}`}>
+                                        <span>☑️ Массовые действия</span>
+                                        {bulkMode && <span>✓</span>}
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                         {/* Status filter */}
                         <div>
                             <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Статус</div>
-                            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                            <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setClosedOnly(false); setHotOnly(false); }}
                                 className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900">
-                                <option value="">Все статусы</option>
-                                {statuses.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                                <option value="">Все статусы (открытые)</option>
+                                {statuses.filter(s => !s.is_client_stage).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                             </select>
                         </div>
 
@@ -2960,12 +3017,14 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     {/* KPI tiles — neutral cards, colour only in the value */}
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
-                            <div className="text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">Всего <Hint text="Сколько лидов сейчас в списке с учётом фильтров. Закрытые по умолчанию скрыты — включаются фильтром «Показать закрытые»." /></div>
+                            <div className="text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">Активные <Hint text="Все ваши открытые лиды — реальная цифра, не зависит от фильтров списка. Закрытые считаются отдельно (строка ниже) и открываются фильтром «Закрытые»." /></div>
                             <div className="text-2xl font-bold text-slate-50 mt-0.5">{counters.total}</div>
-                            {lastRefresh && <div className="text-[10px] text-slate-500 mt-1">обн: {new Date(lastRefresh).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>}
+                            <div className="text-[10px] text-slate-500 mt-1">
+                                закрытых: {counters.closed ?? 0}{lastRefresh ? ` · обн: ${new Date(lastRefresh).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                            </div>
                         </div>
                         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
-                            <div className="text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">Открытых <Hint text="Лиды, которым ещё не дан первый ответ. Цель — обнулять этот счётчик в течение рабочего дня." /></div>
+                            <div className="text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">Без ответа <Hint text="Открытые лиды, которым ещё не дан первый ответ. Цель — обнулять этот счётчик в течение рабочего дня. Реальная цифра, не зависит от фильтров." /></div>
                             <div className="text-2xl font-bold text-amber-300 mt-0.5">{counters.open}</div>
                         </div>
                         <div className={`rounded-xl p-3 border ${counters.overdue > 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-slate-900 border-slate-800'}`}>

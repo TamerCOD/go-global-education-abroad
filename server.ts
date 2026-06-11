@@ -608,6 +608,12 @@ if (DATABASE_URL) {
         [s.code, s.label, s.color, s.sort]
       );
     }
+    // Ensure the «Дубль» status exists (repeat enquiries become separate leads)
+    await pool!.query(
+      `INSERT INTO lead_statuses (code, label, color, is_terminal, sort)
+       VALUES ('duplicate', 'Дубль', '#a78bfa', FALSE, 25)
+       ON CONFLICT (code) DO NOTHING`
+    );
     // Seed default password ONLY for managers with empty/missing password_hash.
     // Preserves any manually-changed passwords across restarts.
     try {
@@ -1714,23 +1720,63 @@ async function startServer() {
       );
       if (dupQ.rows.length > 0) {
         const existing = dupQ.rows[0];
-        // Re-open client journey: leave a note on the existing lead instead of creating new
+        // Repeat enquiry → create a SEPARATE lead with the «Дубль» status so the
+        // team sees the returning client explicitly. Assigned to the original's
+        // manager (история у него), otherwise goes to the queue.
+        const dupManager = existing.assigned_manager_id ? await loadManager(existing.assigned_manager_id) : null;
+        const dupAssignee = dupManager && dupManager.active && !dupManager.archived_at ? dupManager : null;
+        const dupSla = dupAssignee
+          ? computeSlaDeadline(new Date(), (dupAssignee.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE)
+          : null;
+        const dupIns = await pq().query(
+          `INSERT INTO leads (name, phone, email, country, comment, source, raw,
+                              assigned_manager_id, status_code, sla_deadline_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'duplicate',$9)
+           RETURNING id`,
+          [name, phone, email, country, comment, source,
+           JSON.stringify({ ...b, _duplicate_of: existing.id }),
+           dupAssignee?.id ?? null, dupSla]
+        );
+        const dupId = dupIns.rows[0].id;
         await pq().query(
-          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
-           VALUES ($1, NULL, $2, 'system', $3)`,
+          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1, NULL, $2, 'system', $3)`,
+          [dupId, "🤖 Дедупликация", `🔁 Повторное обращение клиента. Оригинал — лид #${existing.id}. История и документы — там.`]
+        );
+        await pq().query(
+          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1, NULL, $2, 'system', $3)`,
           [existing.id, "🤖 Дедупликация",
-           `📥 Новое обращение по тем же контактам через ${source}.\n` +
+           `📥 Клиент обратился повторно через ${source} — создан дубль #${dupId}.\n` +
            (name ? `Имя: ${name}\n` : "") +
            (comment ? `Комментарий: ${comment}\n` : "") +
            (country ? `Страна: ${country}\n` : "")]
         );
         await auditLog({
           actor_id: null, actor_name: "system", actor_role: "system",
-          action: "lead.dedup", entity_type: "lead", entity_id: existing.id,
-          after: { source, name, phone, email },
+          action: "lead.duplicate", entity_type: "lead", entity_id: dupId,
+          after: { duplicate_of: existing.id, source, name, phone, email },
         });
-        sendTelegram(`🔁 Повторное обращение по лиду #${existing.id} (источник ${source}). Не создан дубль — добавлен комментарий.`).catch(() => {});
-        return { leadId: existing.id, assigned: existing.assigned_manager_id, deduplicated: true };
+        const dupTag = dupAssignee?.telegram_tag
+          ? (dupAssignee.telegram_tag.startsWith("@") ? dupAssignee.telegram_tag : `@${dupAssignee.telegram_tag}`)
+          : "";
+        sendTelegram([
+          `🔁 <b>Повторное обращение — дубль <a href="${PUBLIC_BASE_URL}/lidy">#${dupId}</a></b> ${sourceBadge(source)}`,
+          `Оригинал: лид #${existing.id}`,
+          name ? `👤 ${escapeHtml(name)}` : "",
+          dupAssignee
+            ? `👨‍💼 Назначен: <b>${escapeHtml(dupAssignee.full_name)}</b> ${dupTag}`.trim()
+            : `⚠️ Менеджер оригинала недоступен — дубль в очереди.`,
+          `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+        ].filter(Boolean).join("\n")).catch(() => {});
+        if (dupAssignee) {
+          sendPush({
+            managerId: dupAssignee.id,
+            title: `🔁 Повторное обращение — дубль #${dupId}`,
+            body: `${name || phone || email || "—"} · оригинал #${existing.id}`,
+            url: `/lidy`,
+            tag: `lead-${dupId}`,
+          }).catch(() => {});
+        }
+        return { leadId: dupId, assigned: dupAssignee?.id ?? null, deduplicated: true, duplicateOf: existing.id };
       }
     }
 
@@ -1980,6 +2026,8 @@ async function startServer() {
       const onlyMine = me.role === "teamlead" ? scope === "mine" : true;
       const showOverdueOnly = req.query.overdue === "1";
       const includeClosed = req.query.include_closed === "1";
+      const closedOnly = req.query.closed_only === "1";
+      const hotOnly = req.query.hot === "1";
       const filterStatus = (req.query.status as string | undefined) || null;
       const filterManagerId = req.query.manager_id ? Number(req.query.manager_id) : null;
       const filterSource = (req.query.source as string | undefined) || null;
@@ -2009,10 +2057,17 @@ async function startServer() {
       if (showOverdueOnly) {
         where.push(`l.processed_at IS NULL AND l.first_response_at IS NULL AND l.sla_deadline_at < NOW()`);
       }
-      // By default hide processed/closed AND semi-closed leads. Manager toggles them on.
-      if (!includeClosed && !filterStatus) {
-        where.push(`l.processed_at IS NULL`);
-        where.push(`(l.status_code IS NULL OR l.status_code NOT IN (SELECT code FROM lead_statuses WHERE is_semi_closed))`);
+      if (closedOnly) {
+        // Quick filter «Закрытые»: only terminal statuses (won/lost)
+        where.push(`l.status_code IN (SELECT code FROM lead_statuses WHERE is_terminal)`);
+      } else if (!includeClosed && !filterStatus) {
+        // Default: every lead in an OPEN status is visible (regardless of first
+        // response) — hidden are only closed (terminal) and semi-closed ones.
+        where.push(`(l.status_code IS NULL OR l.status_code NOT IN (SELECT code FROM lead_statuses WHERE is_terminal OR is_semi_closed))`);
+      }
+      if (hotOnly) {
+        where.push(`COALESCE(l.score, 0) >= 60`);
+        where.push(`(l.status_code IS NULL OR l.status_code NOT IN (SELECT code FROM lead_statuses WHERE is_terminal))`);
       }
       if (filterSource) {
         where.push(`LOWER(l.source) = LOWER($${params.length + 1})`);
@@ -2078,6 +2133,39 @@ async function startServer() {
       res.json({ leads: rows, role: me.role });
     } catch (err) {
       console.error("[lidy/leads]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Global counters for the header tiles — REAL numbers, independent of list filters.
+  // Scoped the same way as the list: manager sees own, teamlead sees all (or ?scope=mine).
+  app.get("/api/lidy/summary", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      const requestedScope = req.query.scope as string | undefined;
+      const scope = requestedScope || (me.role === "teamlead" ? "all" : "mine");
+      const onlyMine = me.role === "teamlead" ? scope === "mine" : true;
+      const mineSql = onlyMine
+        ? `(l.assigned_manager_id = $1 OR l.pending_transfer_to_id = $1)`
+        : `TRUE`;
+      const { rows } = await pq().query(
+        `SELECT
+           COUNT(*) FILTER (WHERE ls.is_terminal IS NOT TRUE AND COALESCE(ls.is_semi_closed, FALSE) = FALSE AND ${mineSql})::int AS total,
+           COUNT(*) FILTER (WHERE ls.is_terminal IS NOT TRUE AND l.processed_at IS NULL AND l.first_response_at IS NULL AND ${mineSql})::int AS open,
+           COUNT(*) FILTER (WHERE ls.is_terminal IS NOT TRUE AND l.processed_at IS NULL AND l.first_response_at IS NULL
+                             AND l.sla_deadline_at IS NOT NULL AND l.sla_deadline_at < NOW() AND ${mineSql})::int AS overdue,
+           COUNT(*) FILTER (WHERE l.assigned_manager_id IS NULL AND ls.is_terminal IS NOT TRUE)::int AS queued,
+           COUNT(*) FILTER (WHERE l.pending_transfer_to_id = $1)::int AS incoming,
+           COUNT(*) FILTER (WHERE ls.is_terminal IS TRUE AND ${mineSql})::int AS closed
+         FROM leads l
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code`,
+        [session.mid]
+      );
+      res.json({ summary: rows[0] });
+    } catch (err) {
+      console.error("[lidy/summary]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
