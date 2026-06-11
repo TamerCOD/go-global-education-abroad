@@ -623,6 +623,20 @@ if (DATABASE_URL) {
     } catch (err) {
       console.error("[db] Failed to seed default passwords:", err);
     }
+    // Repair: leads closed via paths that historically skipped processed_at
+    // (bulk set_status before the fix). A terminal lead is by definition processed.
+    try {
+      const r = await pool!.query(
+        `UPDATE leads SET processed_at = COALESCE(processed_at, updated_at, NOW())
+         WHERE processed_at IS NULL
+           AND status_code IN (SELECT code FROM lead_statuses WHERE is_terminal)`
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        console.log(`[db] Repaired processed_at for ${r.rowCount} closed lead(s)`);
+      }
+    } catch (err) {
+      console.error("[db] Failed to repair processed_at:", err);
+    }
     // Named comments (each manager/teamlead leaves a comment with their name)
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS lead_comments (
@@ -679,6 +693,20 @@ if (DATABASE_URL) {
         changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    // Repair: backfill first_response_at from the earliest status transition
+    // for leads handled before first-response tracking existed.
+    try {
+      const r = await pool!.query(
+        `UPDATE leads l SET first_response_at = h.first_at
+         FROM (SELECT lead_id, MIN(changed_at) AS first_at FROM lead_status_history GROUP BY lead_id) h
+         WHERE h.lead_id = l.id AND l.first_response_at IS NULL`
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        console.log(`[db] Backfilled first_response_at for ${r.rowCount} lead(s)`);
+      }
+    } catch (err) {
+      console.error("[db] Failed to backfill first_response_at:", err);
+    }
 
     // Seed lead_statuses if empty
     const { rows: lsRows } = await pool!.query("SELECT 1 FROM lead_statuses LIMIT 1");
@@ -1303,6 +1331,7 @@ async function checkSlaBreaches() {
        FROM leads l
        LEFT JOIN managers m ON m.id = l.assigned_manager_id
        WHERE l.processed_at IS NULL
+         AND l.first_response_at IS NULL
          AND l.sla_warned = FALSE
          AND l.sla_deadline_at < NOW()
        LIMIT 50`
@@ -1494,7 +1523,7 @@ async function sendMorningDigest() {
         COUNT(*) FILTER (WHERE received_at >= CURRENT_DATE - INTERVAL '1 day' AND received_at < CURRENT_DATE AND status_code = 'closed_won')::int AS yesterday_won,
         COUNT(*) FILTER (WHERE received_at >= CURRENT_DATE - INTERVAL '1 day' AND received_at < CURRENT_DATE AND status_code = 'closed_lost')::int AS yesterday_lost,
         COALESCE(SUM(deal_value) FILTER (WHERE status_code = 'closed_won' AND processed_at >= CURRENT_DATE - INTERVAL '1 day' AND processed_at < CURRENT_DATE), 0)::float AS yesterday_revenue,
-        COUNT(*) FILTER (WHERE processed_at IS NULL AND sla_deadline_at < NOW())::int AS overdue,
+        COUNT(*) FILTER (WHERE processed_at IS NULL AND first_response_at IS NULL AND sla_deadline_at < NOW())::int AS overdue,
         (SELECT COUNT(*) FROM lead_tasks WHERE completed_at IS NULL AND due_at < NOW())::int AS overdue_tasks
       FROM leads
     `);
@@ -1978,7 +2007,7 @@ async function startServer() {
         params.push(filterStatus);
       }
       if (showOverdueOnly) {
-        where.push(`l.processed_at IS NULL AND l.sla_deadline_at < NOW()`);
+        where.push(`l.processed_at IS NULL AND l.first_response_at IS NULL AND l.sla_deadline_at < NOW()`);
       }
       // By default hide processed/closed AND semi-closed leads. Manager toggles them on.
       if (!includeClosed && !filterStatus) {
@@ -2110,7 +2139,7 @@ async function startServer() {
                 COUNT(l.*) FILTER (WHERE l.received_at >= NOW() - INTERVAL '30 days')::int AS total30,
                 COUNT(*) FILTER (WHERE l.processed_at IS NULL)::int AS open,
                 COUNT(*) FILTER (WHERE ls.is_terminal AND l.received_at >= NOW() - INTERVAL '30 days')::int AS closed30,
-                COUNT(*) FILTER (WHERE l.processed_at IS NULL AND l.sla_deadline_at < NOW())::int AS overdue
+                COUNT(*) FILTER (WHERE l.processed_at IS NULL AND l.first_response_at IS NULL AND l.sla_deadline_at < NOW())::int AS overdue
          FROM managers m
          LEFT JOIN leads l ON l.assigned_manager_id = m.id
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
@@ -2153,7 +2182,7 @@ async function startServer() {
         return res.status(403).json({ error: "Lead is assigned to another manager" });
       }
 
-      const newProcessedAt = statusRow.rows[0].is_terminal ? "NOW()" : "processed_at";
+      const newProcessedAt = statusRow.rows[0].is_terminal ? "COALESCE(processed_at, NOW())" : "processed_at";
       const updated = await pq().query(
         `UPDATE leads
          SET status_code = $1,
@@ -2573,11 +2602,28 @@ async function startServer() {
       if (action === "set_status") {
         const code = String(payload?.status || "");
         if (!code) return res.status(400).json({ error: "status required" });
+        const st = await pq().query(`SELECT code, is_terminal FROM lead_statuses WHERE code = $1`, [code]);
+        if (st.rows.length === 0) return res.status(400).json({ error: "Unknown status" });
+        // Snapshot current statuses for history, then update.
+        const before = await pq().query(
+          `SELECT id, status_code FROM leads WHERE id = ANY($1::bigint[]) ${ownClause}`,
+          [leadIds]
+        );
         const r = await pq().query(
-          `UPDATE leads SET status_code = $1 WHERE id = ANY($2::bigint[]) ${ownClause}`,
-          [code, leadIds]
+          `UPDATE leads SET status_code = $1, updated_at = NOW(),
+                  processed_at = CASE WHEN $2::boolean THEN COALESCE(processed_at, NOW()) ELSE processed_at END
+           WHERE id = ANY($3::bigint[]) ${ownClause}`,
+          [code, !!st.rows[0].is_terminal, leadIds]
         );
         updated = r.rowCount || 0;
+        for (const row of before.rows) {
+          if (row.status_code === code) continue;
+          await pq().query(
+            `INSERT INTO lead_status_history (lead_id, from_status, to_status, manager_id, note)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [row.id, row.status_code, code, session.mid, "массовое действие"]
+          );
+        }
       } else if (action === "set_stage") {
         const code = String(payload?.stage || "");
         const r = await pq().query(
@@ -2712,9 +2758,9 @@ async function startServer() {
   app.get("/api/admin/health", requireAdmin, async (_req, res) => {
     const slaQ = await pq().query(`
       SELECT
-        COUNT(*) FILTER (WHERE processed_at IS NOT NULL AND processed_at <= sla_deadline_at)::int AS sla_met,
-        COUNT(*) FILTER (WHERE processed_at IS NOT NULL)::int AS closed,
-        COUNT(*) FILTER (WHERE processed_at IS NULL AND sla_deadline_at < NOW())::int AS overdue_open,
+        COUNT(*) FILTER (WHERE COALESCE(first_response_at, processed_at) IS NOT NULL AND COALESCE(first_response_at, processed_at) <= sla_deadline_at)::int AS sla_met,
+        COUNT(*) FILTER (WHERE COALESCE(first_response_at, processed_at) IS NOT NULL)::int AS closed,
+        COUNT(*) FILTER (WHERE processed_at IS NULL AND first_response_at IS NULL AND sla_deadline_at < NOW())::int AS overdue_open,
         COUNT(*) FILTER (WHERE status_code = 'closed_won')::int AS won,
         COUNT(*) FILTER (WHERE status_code IN ('closed_won','closed_lost'))::int AS terminated
       FROM leads WHERE received_at >= NOW() - INTERVAL '30 days'
@@ -4077,7 +4123,7 @@ async function startServer() {
           COUNT(*) FILTER (WHERE l.status_code IN (SELECT code FROM lead_statuses WHERE is_terminal))::int AS closed,
           COUNT(*) FILTER (WHERE l.status_code = 'closed_won')::int AS won,
           COUNT(*) FILTER (WHERE l.status_code = 'closed_lost')::int AS lost,
-          COUNT(*) FILTER (WHERE processed_at IS NULL AND sla_deadline_at < NOW())::int AS sla_open_breached,
+          COUNT(*) FILTER (WHERE processed_at IS NULL AND first_response_at IS NULL AND sla_deadline_at < NOW())::int AS sla_open_breached,
           AVG(EXTRACT(EPOCH FROM (processed_at - received_at))/60) FILTER (WHERE processed_at IS NOT NULL)::float AS avg_close_min
         FROM leads l
         WHERE received_at >= ${since}

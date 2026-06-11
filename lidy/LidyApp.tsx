@@ -239,8 +239,10 @@ function sourceMeta(source: string): { label: string; icon: string; bg: string; 
 }
 
 // SLA chip
-function slaChip(deadlineIso: string | null, processedIso?: string | null): { text: string; cls: string } {
+function slaChip(deadlineIso: string | null, processedIso?: string | null, terminal?: boolean): { text: string; cls: string } {
     if (processedIso) return { text: '✓ обработан', cls: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30' };
+    // Closed leads are out of SLA scope — never show them as overdue
+    if (terminal) return { text: '— закрыт', cls: 'bg-slate-800/70 text-slate-400 border border-slate-800' };
     if (!deadlineIso) return { text: 'в очереди', cls: 'bg-amber-500/10 text-amber-300 border border-amber-500/30' };
     const ms = new Date(deadlineIso).getTime() - Date.now();
     if (ms < 0) {
@@ -442,7 +444,7 @@ const AppointmentForm: React.FC<{
 //  LEAD ROW (table view)
 // ═════════════════════════════════════════════════════════════════════
 const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ lead, me, onOpen }) => {
-    const sla = slaChip(lead.sla_deadline_at, lead.processed_at);
+    const sla = slaChip(lead.sla_deadline_at, lead.first_response_at ?? lead.processed_at, lead.status_is_terminal);
     const sm = sourceMeta(lead.source || '');
     const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
@@ -496,7 +498,7 @@ const LeadCard: React.FC<{
     selected?: boolean;
     onToggleSelect?: () => void;
 }> = ({ lead, me, onOpen, selectable, selected, onToggleSelect }) => {
-    const sla = slaChip(lead.sla_deadline_at, lead.processed_at);
+    const sla = slaChip(lead.sla_deadline_at, lead.first_response_at ?? lead.processed_at, lead.status_is_terminal);
     const sm = sourceMeta(lead.source || '');
     const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
@@ -710,7 +712,7 @@ const PipelineView: React.FC<{
                 {list.length === 0 ? (
                     <div className="text-xs text-slate-500 italic py-6 text-center border-2 border-dashed border-slate-800 rounded-lg">{hoverColumn === key ? '↓ отпустите здесь' : 'пусто'}</div>
                 ) : list.map(l => {
-                    const sla = slaChip(l.sla_deadline_at, l.processed_at);
+                    const sla = slaChip(l.sla_deadline_at, l.first_response_at ?? l.processed_at, l.status_is_terminal);
                     const canDrag = me.role === 'teamlead' || l.assigned_manager_id === me.id;
                     return (
                         <div key={l.id}
@@ -1111,7 +1113,7 @@ const LeadDetailDrawer: React.FC<{
         ? new Date(new Date(lead.pending_transfer_at).getTime() + 10 * 60_000).toISOString()
         : null;
     const transferCountdown = useCountdown(transferDeadlineIso);
-    const sla = slaChip(lead.sla_deadline_at, lead.processed_at);
+    const sla = slaChip(lead.sla_deadline_at, lead.first_response_at ?? lead.processed_at, lead.status_is_terminal);
     const sm = sourceMeta(lead.source || '');
     const wa = lead.phone ? whatsappLink(lead.phone, 'Здравствуйте! Это GoGlobal по вашей заявке.') : null;
 
@@ -2571,8 +2573,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
     const counters = useMemo(() => {
         const total = leads.length;
-        const open = leads.filter(l => !l.processed_at).length;
-        const overdue = leads.filter(l => !l.processed_at && l.sla_deadline_at && new Date(l.sla_deadline_at).getTime() < Date.now()).length;
+        const open = leads.filter(l => !l.processed_at && !l.status_is_terminal).length;
+        const overdue = leads.filter(l => !l.processed_at && !l.first_response_at && !l.status_is_terminal && l.sla_deadline_at && new Date(l.sla_deadline_at).getTime() < Date.now()).length;
         const queued = leads.filter(l => !l.assigned_manager_id).length;
         const incoming = leads.filter(l => l.pending_transfer_to_id === manager.id).length;
         return { total, open, overdue, queued, incoming };
@@ -2605,9 +2607,10 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                 const ts = new Date(l.appointment_at).getTime();
                 if (ts >= todayStart && ts < todayEnd) appointmentsToday++;
             }
-            if ((l.score ?? 0) >= 60) hot++;
             openTasksTotal += l.open_tasks || 0;
             overdueTasksTotal += l.overdue_tasks || 0;
+            if (l.status_is_terminal) continue; // closed leads: not hot, not pipeline
+            if ((l.score ?? 0) >= 60) hot++;
             if (l.deal_value) {
                 const v = Number(l.deal_value);
                 pipelineSum += v;
