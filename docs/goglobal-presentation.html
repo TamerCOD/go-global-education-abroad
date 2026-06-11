@@ -6,11 +6,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{
-  --bg:#0b1220; --bg2:#0f172a; --bg3:#111c2f;
-  --ink:#e2e8f0; --ink2:#94a3b8; --ink3:#64748b;
-  --line:#1e293b; --line2:#334155;
-  --accent:#0ea5e9; --accent2:#06b6d4;
-  --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --info:#6366f1;
+  --bg:#0b0c0f; --bg2:#121419; --bg3:#1a1d24;
+  --ink:#e7e9ee; --ink2:#9aa1ae; --ink3:#6e7582;
+  --line:#23262e; --line2:#363b45;
+  --accent:#6366f1; --accent2:#818cf8;
+  --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --info:#2dd4bf;
 }
 *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
@@ -319,7 +319,7 @@ td.num{font-family:ui-monospace,monospace;text-align:right}
       <div class="frame">
         <div class="bar"><i></i><i></i><i></i><span class="url">/admin</span></div>
         <div class="body" style="min-height:190px">
-          <div style="font-size:11px;font-weight:600;color:#e2e8f0;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #1e293b;padding-bottom:8px;margin-bottom:10px">Admin <span style="float:right;background:#0284c7;color:#fff;padding:2px 10px;border-radius:6px;font-size:10px">Сохранить</span></div>
+          <div style="font-size:11px;font-weight:600;color:#e7e9ee;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #23262e;padding-bottom:8px;margin-bottom:10px">Admin <span style="float:right;background:#4f46e5;color:#fff;padding:2px 10px;border-radius:6px;font-size:10px">Сохранить</span></div>
           <div style="background:#111c2f;border:1px solid #1e293b;border-radius:8px;padding:9px 12px;margin-bottom:7px;font-size:12px;color:#e2e8f0">🚦 Здоровье продаж <span style="float:right;color:#475569">▾</span></div>
           <div style="background:#111c2f;border:1px solid #1e293b;border-radius:8px;padding:9px 12px;margin-bottom:7px;font-size:12px;color:#e2e8f0">📈 Дашборд CRM <span style="float:right;color:#475569">▾</span></div>
           <div style="background:#111c2f;border:1px solid #1e293b;border-radius:8px;padding:9px 12px;margin-bottom:7px;font-size:12px;color:#e2e8f0">🏆 Leaderboard <span style="float:right;color:#475569">▾</span></div>
@@ -332,10 +332,10 @@ td.num{font-family:ui-monospace,monospace;text-align:right}
       <div class="frame">
         <div class="bar"><i></i><i></i><i></i><span class="url">/lidy</span></div>
         <div class="body" style="min-height:190px">
-          <div style="background:linear-gradient(135deg,#0c4a6e,#0e7490);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-            <div style="font-size:9px;color:#7dd3fc;font-weight:700;text-transform:uppercase">Мой день</div>
+          <div style="background:#1a1d24;border:1px solid #23262e;border-left:3px solid #6366f1;border-radius:8px;padding:10px 12px;margin-bottom:10px">
+            <div style="font-size:9px;color:#a5b4fc;font-weight:700;text-transform:uppercase">Мой день</div>
             <div style="font-size:13px;color:#fff;font-weight:700">Доброго дня, Анна 👋</div>
-            <div style="display:flex;gap:10px;margin-top:6px;font-size:10px;color:#bae6fd">
+            <div style="display:flex;gap:10px;margin-top:6px;font-size:10px;color:#9aa1ae">
               <span>📅 3 встречи</span><span>🔥 5 горячих</span><span>📋 11 задач</span>
             </div>
           </div>
@@ -350,6 +350,12 @@ td.num{font-family:ui-monospace,monospace;text-align:right}
         </div>
       </div>
       <p class="small muted" style="margin-top:8px;text-align:center">CRM — рабочий стол продавца</p>
+    </div>
+  </div>
+  <div class="row">
+    <div class="card" style="border-left:3px solid var(--accent)">
+      <h4>Дизайн-система рабочих экранов (v5)</h4>
+      <div class="body">Нейтральный графитовый фон, один спокойный акцент <b style="color:#818cf8">индиго</b>, вторичный <b style="color:#2dd4bf">теал</b>. Красный — только тревога, зелёный — только успех. Без неона и свечений. Статусы меняются через выпадающий список с подсказкой у каждого пункта, этапы — наглядный степпер 1→9. У ключевых цифр и переключателей — значок ⓘ с пояснением.</div>
     </div>
   </div>
   <div class="footer"><span>GoGlobal · база знаний</span><span>II · Как выглядят</span></div>
@@ -787,7 +793,7 @@ td.num{font-family:ui-monospace,monospace;text-align:right}
     <div class="card">
       <table>
         <tr><th>Вкладка</th><th>Что внутри</th><th>Главное действие</th></tr>
-        <tr><td><b>Обзор</b></td><td>Статусы, контакты, заметки, метки, передача</td><td>Сменить статус лида</td></tr>
+        <tr><td><b>Обзор</b></td><td>Выпадающий список статуса (с подсказками), степпер этапов 1→9, контакты, метки, передача</td><td>Сменить статус лида</td></tr>
         <tr><td><b>💰 Сделка</b></td><td>Сумма, валюта, вероятность 0–100%</td><td>Зафиксировать бюджет клиента</td></tr>
         <tr><td><b>📋 Задачи</b></td><td>Напоминания с дедлайнами</td><td>«Перезвонить в среду 14:00»</td></tr>
         <tr><td><b>📎 Файлы</b></td><td>Паспорт, диплом, IELTS, контракт (до 25 МБ)</td><td>Загрузить документ</td></tr>
@@ -857,8 +863,8 @@ td.num{font-family:ui-monospace,monospace;text-align:right}
   </div>
   <div class="row">
     <div class="card" style="background:linear-gradient(135deg,rgba(99,102,241,.08),transparent)">
-      <h4>Зачем две воронки</h4>
-      <div class="body">Продажа и сопровождение — разные процессы. Первая воронка отвечает на вопрос «купит или нет?», вторая — «всё ли готово к отъезду?». РОП видит обе картины раздельно и не путает «горящие продажи» с «горящими визами».</div>
+      <h4>Как связаны воронки</h4>
+      <div class="body">Этапы — продолжение воронки после победы. Пока сделка не выиграна, этапы <b>заблокированы</b> (в карточке — замок с подсказкой). Статус «Закрыт ✅» автоматически открывает этап «Контракт подписан»; если статус откатить — этап снимается. Так невозможно «вести к отъезду» клиента, который ещё не купил, а РОП не путает «горящие продажи» с «горящими визами».</div>
     </div>
   </div>
   <div class="footer"><span>GoGlobal · база знаний</span><span>VI · Статусы</span></div>

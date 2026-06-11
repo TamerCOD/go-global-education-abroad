@@ -8,15 +8,15 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml.ns import qn
 import copy
 
-# ---------- palette (matches HTML deck) ----------
-BG      = RGBColor(0x0B, 0x12, 0x20)
-BG2     = RGBColor(0x11, 0x1C, 0x2F)
-INK     = RGBColor(0xE2, 0xE8, 0xF0)
-INK2    = RGBColor(0x94, 0xA3, 0xB8)
-INK3    = RGBColor(0x64, 0x74, 0x8B)
-LINE    = RGBColor(0x1E, 0x29, 0x3B)
-ACCENT  = RGBColor(0x0E, 0xA5, 0xE9)
-ACCENT2 = RGBColor(0x06, 0xB6, 0xD4)
+# ---------- palette (matches HTML deck & CRM v5 design system) ----------
+BG      = RGBColor(0x0B, 0x0C, 0x0F)
+BG2     = RGBColor(0x12, 0x14, 0x19)
+INK     = RGBColor(0xE7, 0xE9, 0xEE)
+INK2    = RGBColor(0x9A, 0xA1, 0xAE)
+INK3    = RGBColor(0x6E, 0x75, 0x82)
+LINE    = RGBColor(0x23, 0x26, 0x2E)
+ACCENT  = RGBColor(0x63, 0x66, 0xF1)
+ACCENT2 = RGBColor(0x81, 0x8C, 0xF8)
 OK      = RGBColor(0x10, 0xB9, 0x81)
 OKL     = RGBColor(0x86, 0xEF, 0xAC)
 WARN    = RGBColor(0xF5, 0x9E, 0x0B)
@@ -24,7 +24,7 @@ WARNL   = RGBColor(0xFD, 0xE6, 0x8A)
 BAD     = RGBColor(0xEF, 0x44, 0x44)
 BADL    = RGBColor(0xFD, 0xA4, 0xAF)
 WHITE   = RGBColor(0xFF, 0xFF, 0xFF)
-SKYL    = RGBColor(0x7D, 0xD3, 0xFC)
+SKYL    = RGBColor(0xA5, 0xB4, 0xFC)
 
 FONT = "Arial"
 
@@ -305,9 +305,9 @@ for i, (name, desc, color) in enumerate(looks):
         [(name, 17, INK, True), (desc, 11.5, INK2, False)])
 card(s, Inches(0.7), Inches(4.5), Inches(11.9), Inches(1.7))
 txt(s, Inches(0.95), Inches(4.7), Inches(11.4), Inches(1.4),
-    [("ЕДИНЫЙ ПРИНЦИП ДИЗАЙНА РАБОЧИХ ЭКРАНОВ", 10, ACCENT, True),
-     ("Минимализм с функциональным разделением: один спокойный акцентный цвет (небесно-синий), красный — только для тревог,", 12, INK2, False),
-     ("зелёный — только для успеха. Разделы свёрнуты и грузят данные только при открытии — система быстрая даже на слабых ноутбуках.", 12, INK2, False)])
+    [("ДИЗАЙН-СИСТЕМА РАБОЧИХ ЭКРАНОВ (V5)", 10, ACCENT, True),
+     ("Нейтральный графитовый фон + один спокойный акцент (индиго) + вторичный теал. Красный — только тревога, зелёный — успех.", 12, INK2, False),
+     ("Статусы — выпадающий список с подсказками, этапы — степпер 1→9, у ключевых цифр значок ⓘ с пояснением. Без неона и свечений.", 12, INK2, False)])
 footer(s, "II · Как выглядят")
 
 # ============================================================
@@ -596,7 +596,7 @@ s = add_slide()
 kicker(s, "VI · CRM продавца")
 title(s, "Карточка клиента — 7 вкладок")
 rows = [["Вкладка", "Что внутри", "Главное действие"],
-        [("Обзор", INK, True), "Статусы, контакты, заметки, метки, передача", "Сменить статус лида"],
+        [("Обзор", INK, True), "Выпадашка статуса с подсказками, степпер этапов, контакты, метки, передача", "Сменить статус лида"],
         [("💰 Сделка", INK, True), "Сумма, валюта, вероятность 0–100%", "Зафиксировать бюджет"],
         [("📋 Задачи", INK, True), "Напоминания с дедлайнами", "«Перезвонить в среду 14:00»"],
         [("📎 Файлы", INK, True), "Паспорт, диплом, IELTS, контракт (до 25 МБ)", "Загрузить документ"],
@@ -644,8 +644,8 @@ txt(s, Inches(6.8), Inches(1.5), Inches(5.8), Inches(0.6),
 make_table(s, Inches(6.8), Inches(2.15), Inches(5.8), rows2, [0.9, 1.3], size=10.5, row_h=Pt(21))
 card(s, Inches(0.7), Inches(6.05), Inches(5.8), Inches(0.95))
 txt(s, Inches(0.95), Inches(6.18), Inches(5.4), Inches(0.75),
-    [("ЗАЧЕМ ДВЕ ВОРОНКИ", 9, ACCENT, True),
-     ("Первая: «купит или нет?». Вторая: «всё ли готово к отъезду?»", 10.5, INK2, False)])
+    [("КАК СВЯЗАНЫ ВОРОНКИ", 9, ACCENT, True),
+     ("Этапы заблокированы до победы. «Закрыт ✅» автоматически открывает «Контракт подписан»; откат статуса снимает этап.", 10.5, INK2, False)])
 footer(s, "VI · Статусы")
 
 # ============================================================
@@ -1165,5 +1165,11 @@ for i, (name, items) in enumerate(cols):
 txt(s, Inches(0.8), SLIDE_H - Inches(0.55), Inches(11.7), Inches(0.35),
     [("GoGlobal · база знаний · Спасибо!", 10, INK2, False)])
 
-prs.save(r"C:\Users\ishem\Downloads\go-global---education-abroad\docs\goglobal-presentation.pptx")
-print(f"OK: {_n[0]} slides")
+_target = r"C:\Users\ishem\Downloads\go-global---education-abroad\docs\goglobal-presentation.pptx"
+try:
+    prs.save(_target)
+except PermissionError:
+    # file is open in PowerPoint — save next to it
+    _target = _target.replace(".pptx", "-v5.pptx")
+    prs.save(_target)
+print(f"OK: {_n[0]} slides -> {_target}")

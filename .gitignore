@@ -39,3 +39,5 @@ migrated_prompt_history/
 
 # Local uploads (in production this is a Railway volume)
 uploads/
+~$*.pptx
+_pg*.png
