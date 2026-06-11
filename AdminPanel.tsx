@@ -7,22 +7,17 @@ import { DEFAULT_VISIBILITY, DEFAULT_REGIONS } from './types';
 // =====================================================================
 
 // Material + light neumorphism tokens (was brutalist)
-const A_SHADOW = 'shadow-[0_8px_32px_-12px_rgba(0,0,0,0.6),0_2px_6px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.04)]';
-const A_SHADOW_HOVER = 'hover:shadow-[0_16px_48px_-12px_rgba(56,189,248,0.25),0_4px_12px_rgba(0,0,0,0.5)] hover:-translate-y-[1px]';
-const A_BORDER = 'border border-slate-700/60';
-const A_BTN = `${A_BORDER} bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-xl ${A_SHADOW} ${A_SHADOW_HOVER} active:translate-y-[1px] active:shadow-sm transition-all font-bold uppercase tracking-wider text-sm px-4 py-2`;
-const A_CARD = `bg-slate-900/60 backdrop-blur-sm ${A_BORDER} rounded-2xl ${A_SHADOW}`;
-const SECTION_BG: Record<string, string> = {
-    'CRM': 'bg-sky-500/20',
-    'аналитика': 'bg-cyan-500/20',
-    'видимость': 'bg-emerald-500/20',
-    'контент': 'bg-amber-500/20',
-};
+const A_SHADOW = '';
+const A_SHADOW_HOVER = '';
+const A_BORDER = 'border border-slate-800';
+const A_BTN = `${A_BORDER} bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg active:translate-y-[1px] transition-colors font-semibold text-sm px-4 py-2`;
+const A_CARD = `bg-slate-900/40 ${A_BORDER} rounded-lg`;
+const SECTION_BG: Record<string, string> = {};
 
 const ATooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
     <span className="relative inline-flex group">
         {children}
-        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs font-mono bg-black text-lime-300 px-2 py-1 rounded-md border border-slate-800">
+        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-50 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-xs bg-slate-800 text-slate-200 px-2 py-1 rounded border border-slate-700">
             {text}
         </span>
     </span>
@@ -37,32 +32,26 @@ const Section: React.FC<{
     accent?: 'lime' | 'cyan' | 'fuchsia' | 'amber' | 'violet' | 'red';
 }> = ({ title, subtitle, defaultOpen = false, children, badge, accent }) => {
     const [open, setOpen] = useState(defaultOpen);
-    const accentBg: Record<string, string> = {
-        lime: 'bg-gradient-to-r from-emerald-500/30 via-emerald-500/20 to-transparent',
-        cyan: 'bg-gradient-to-r from-cyan-500/30 via-cyan-500/20 to-transparent',
-        fuchsia: 'bg-gradient-to-r from-fuchsia-500/30 via-fuchsia-500/20 to-transparent',
-        amber: 'bg-gradient-to-r from-amber-500/30 via-amber-500/20 to-transparent',
-        violet: 'bg-gradient-to-r from-violet-500/30 via-violet-500/20 to-transparent',
-        red: 'bg-gradient-to-r from-rose-500/30 via-rose-500/20 to-transparent',
-    };
-    const headerBg = accent ? accentBg[accent] : 'bg-gradient-to-r from-sky-500/30 via-sky-500/20 to-transparent';
+    // Single calm accent — no more rainbow.
+    const headerBg = 'bg-slate-800/50';
+    const isAlert = accent === 'red';
     return (
-        <div className={`${A_CARD} mb-4 overflow-hidden`}>
+        <div className={`${A_CARD} mb-3 overflow-hidden border border-slate-800 bg-slate-900/40`}>
             <button
                 type="button"
                 onClick={() => setOpen(!open)}
-                className={`w-full flex items-center justify-between px-5 py-3 text-left ${headerBg} hover:brightness-95 transition-all border-b border-slate-800`}
+                className={`w-full flex items-center justify-between px-5 py-3 text-left ${headerBg} hover:bg-slate-800/70 transition-colors border-b border-slate-800`}
             >
                 <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <h2 className="text-lg font-black uppercase tracking-tight">{title}</h2>
-                        {badge && <span className={`text-[10px] bg-black text-lime-300 px-2 py-0.5 font-mono uppercase tracking-widest`}>{badge}</span>}
+                        <h2 className={`text-base font-semibold tracking-tight ${isAlert ? 'text-rose-300' : 'text-slate-100'}`}>{title}</h2>
+                        {badge && <span className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700 px-1.5 py-0.5 rounded font-medium uppercase tracking-wider">{badge}</span>}
                     </div>
-                    {subtitle && <p className="text-sm text-slate-200 mt-0.5 font-mono">{subtitle}</p>}
+                    {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
                 </div>
-                <span className={`text-2xl transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
+                <span className={`text-base text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
             </button>
-            {open && <div className="p-5 bg-slate-900/60 backdrop-blur-sm">{children}</div>}
+            {open && <div className="p-5 bg-slate-950/40">{children}</div>}
         </div>
     );
 };
@@ -3202,24 +3191,21 @@ const AdminPanel: React.FC = () => {
             )}
             {/* Subtle grid background overlay (only when no custom image) */}
             {!((sc as any).adminBgUrl) && (
-                <div className="fixed inset-0 pointer-events-none opacity-[0.08] z-0" style={{
-                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 32px, rgba(56,189,248,0.4) 32px, rgba(56,189,248,0.4) 33px), repeating-linear-gradient(90deg, transparent, transparent 32px, rgba(56,189,248,0.4) 32px, rgba(56,189,248,0.4) 33px)',
+                <div className="fixed inset-0 pointer-events-none opacity-[0.04] z-0" style={{
+                    backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(148,163,184,0.3) 40px, rgba(148,163,184,0.3) 41px), repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(148,163,184,0.3) 40px, rgba(148,163,184,0.3) 41px)',
                 }} />
             )}
-            {/* Glow orbs */}
-            <div className="fixed top-[10%] -left-[10%] w-[500px] h-[500px] rounded-full opacity-15 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.8) 0%, transparent 70%)' }} />
-            <div className="fixed bottom-[10%] -right-[10%] w-[500px] h-[500px] rounded-full opacity-10 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.8) 0%, transparent 70%)' }} />
 
-            {/* Sticky header */}
-            <div className="sticky top-0 z-40 bg-slate-950/85 backdrop-blur-xl text-sky-300 border-b border-sky-500/20 shadow-[0_4px_24px_-8px_rgba(56,189,248,0.3)]">
+            {/* Sticky header — calm slate, single accent */}
+            <div className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur-md text-slate-200 border-b border-slate-800">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-                    <h1 className="text-xl font-black uppercase tracking-tight bg-gradient-to-r from-sky-400 via-cyan-300 to-sky-400 bg-clip-text text-transparent">⚙️ ADMIN_PANEL</h1>
+                    <h1 className="text-base font-semibold uppercase tracking-wider text-slate-100">Admin</h1>
                     <div className="flex items-center gap-3">
-                        {savedAt && <span className="text-sm font-mono text-emerald-400 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />SAVED</span>}
+                        {savedAt && <span className="text-xs font-mono text-emerald-400">✓ сохранено</span>}
                         <ATooltip text="Сохранить все изменения сайта в БД">
                             <button onClick={handleSave} disabled={saving}
-                                className={`bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white border border-sky-400/50 rounded-xl shadow-[0_0_24px_-4px_rgba(56,189,248,0.5)] active:translate-y-[1px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-2 disabled:opacity-50`}>
-                                {saving ? '💾 ...' : '💾 СОХРАНИТЬ'}
+                                className="bg-sky-600 hover:bg-sky-500 text-white border border-sky-500/40 rounded-lg active:translate-y-[1px] transition-colors font-semibold tracking-wide text-sm px-4 py-2 disabled:opacity-50">
+                                {saving ? 'Сохранение…' : 'Сохранить'}
                             </button>
                         </ATooltip>
                     </div>
@@ -3228,7 +3214,7 @@ const AdminPanel: React.FC = () => {
 
             <div className="relative z-10 max-w-7xl mx-auto p-4">
 
-                <Section title="🚦 Здоровье продаж" subtitle="Светофор: SLA, конверсия, оффлайн-менеджеры, застрявшие лиды" badge="CRM" defaultOpen accent="fuchsia">
+                <Section title="🚦 Здоровье продаж" subtitle="Светофор: SLA, конверсия, оффлайн-менеджеры, застрявшие лиды" badge="CRM" accent="fuchsia">
                     <SalesHealthWidget password={password} />
                 </Section>
 
@@ -3236,7 +3222,7 @@ const AdminPanel: React.FC = () => {
                     <AnalyticsWidget password={password} />
                 </Section>
 
-                <Section title="📈 Дашборд CRM" subtitle="Метрики, конверсия, SLA, экспорт, Sales Forecast" badge="CRM" defaultOpen accent="fuchsia">
+                <Section title="📈 Дашборд CRM" subtitle="Метрики, конверсия, SLA, экспорт, Sales Forecast" badge="CRM" accent="fuchsia">
                     <CRMDashboard password={password} />
                 </Section>
 
@@ -3268,7 +3254,7 @@ const AdminPanel: React.FC = () => {
                     <QuickRepliesSection password={password} />
                 </Section>
 
-                <Section title="🏆 Leaderboard менеджеров" subtitle="Рейтинг по выручке + ключевые KPI" badge="CRM" defaultOpen accent="amber">
+                <Section title="🏆 Leaderboard менеджеров" subtitle="Рейтинг по выручке + ключевые KPI" badge="CRM" accent="amber">
                     <LeaderboardSection password={password} />
                 </Section>
 

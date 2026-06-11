@@ -2623,18 +2623,15 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     };
 
     return (
-        <div className="min-h-screen flex flex-col relative text-slate-100" style={{ background: 'radial-gradient(ellipse at top, #0f172a 0%, #020617 60%, #000 100%)' }}>
-            <div className="fixed inset-0 pointer-events-none opacity-[0.07] z-0" style={{
-                backgroundImage: `linear-gradient(rgba(56,189,248,0.4) 1px, transparent 1px),
-                                  linear-gradient(90deg, rgba(56,189,248,0.4) 1px, transparent 1px)`,
-                backgroundSize: '32px 32px',
+        <div className="min-h-screen flex flex-col relative text-slate-100" style={{ background: '#0b1220' }}>
+            <div className="fixed inset-0 pointer-events-none opacity-[0.04] z-0" style={{
+                backgroundImage: `linear-gradient(rgba(148,163,184,0.3) 1px, transparent 1px),
+                                  linear-gradient(90deg, rgba(148,163,184,0.3) 1px, transparent 1px)`,
+                backgroundSize: '40px 40px',
             }} />
-            {/* Glow orbs */}
-            <div className="fixed top-[10%] -left-[5%] w-[400px] h-[400px] rounded-full opacity-15 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.6) 0%, transparent 70%)' }} />
-            <div className="fixed bottom-[15%] -right-[5%] w-[400px] h-[400px] rounded-full opacity-10 pointer-events-none z-0" style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.6) 0%, transparent 70%)' }} />
 
-            {/* Top bar */}
-            <header className="sticky top-0 z-30 bg-slate-950/85 backdrop-blur-xl border-b border-sky-500/20 shadow-[0_4px_24px_-8px_rgba(56,189,248,0.25)]">
+            {/* Top bar — calm, no glow */}
+            <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800">
                 <div className="max-w-[1600px] mx-auto px-4 py-2.5 flex items-center gap-3">
                     <button onClick={() => setSidebarOpen(!sidebarOpen)}
                         className="p-2 hover:bg-slate-800/60 rounded-lg transition" title={sidebarOpen ? 'Свернуть фильтры' : 'Развернуть фильтры'}>

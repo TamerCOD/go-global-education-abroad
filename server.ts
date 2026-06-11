@@ -608,14 +608,20 @@ if (DATABASE_URL) {
         [s.code, s.label, s.color, s.sort]
       );
     }
-    // Normalize all manager passwords to a known default (qwe123!@#) on every boot.
-    // The user explicitly asked for this — all manager + teamlead logins use the same password.
+    // Seed default password ONLY for managers with empty/missing password_hash.
+    // Preserves any manually-changed passwords across restarts.
     try {
       const STD_PWD_HASH = await bcrypt.hash("qwe123!@#", 10);
-      await pool!.query(`UPDATE managers SET password_hash = $1`, [STD_PWD_HASH]);
-      console.log("[db] Manager passwords normalized to default (qwe123!@#)");
+      const r = await pool!.query(
+        `UPDATE managers SET password_hash = $1
+         WHERE password_hash IS NULL OR password_hash = ''`,
+        [STD_PWD_HASH]
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        console.log(`[db] Seeded default password for ${r.rowCount} manager(s) without one`);
+      }
     } catch (err) {
-      console.error("[db] Failed to normalize passwords:", err);
+      console.error("[db] Failed to seed default passwords:", err);
     }
     // Named comments (each manager/teamlead leaves a comment with their name)
     await pool!.query(`
