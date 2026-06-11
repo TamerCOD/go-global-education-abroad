@@ -2174,7 +2174,7 @@ async function startServer() {
         return res.status(400).json({ error: "Этот статус требует указать дату/время визита" });
       }
 
-      const leadRow = await pq().query(`SELECT id, status_code, assigned_manager_id FROM leads WHERE id = $1`, [leadId]);
+      const leadRow = await pq().query(`SELECT id, status_code, stage_code, assigned_manager_id FROM leads WHERE id = $1`, [leadId]);
       if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
       const lead = leadRow.rows[0];
 
@@ -2210,6 +2210,30 @@ async function startServer() {
          VALUES ($1, $2, $3, $4, $5)`,
         [leadId, lead.status_code, status, session.mid, note ?? null]
       );
+
+      // ── Status ↔ stage coupling ──
+      // Won opens the client-stage pipeline: auto-set the first stage.
+      // Leaving won closes it: the stage is cleared.
+      const wasWon = lead.status_code === "closed_won";
+      const isWon = status === "closed_won";
+      if (isWon && !wasWon) {
+        const st = await pq().query(
+          `UPDATE leads SET stage_code = 'stage_contract' WHERE id = $1 AND stage_code IS NULL RETURNING id`,
+          [leadId]
+        );
+        if (st.rowCount) {
+          await recordTransition({ lead_id: leadId, kind: "stage", from_code: null, to_code: "stage_contract", manager_id: session.mid });
+          await pq().query(
+            `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
+             VALUES ($1,$2,$3,$4,$5)`,
+            [leadId, me.id, me.full_name, me.role || "manager", "🎉 Сделка закрыта — автоматически открыт этап «📜 Контракт подписан»"]
+          );
+        }
+      } else if (wasWon && !isWon && lead.stage_code) {
+        await pq().query(`UPDATE leads SET stage_code = NULL WHERE id = $1`, [leadId]);
+        await recordTransition({ lead_id: leadId, kind: "stage", from_code: lead.stage_code, to_code: null, manager_id: session.mid });
+      }
+
       // Auto-add a comment when rejection reason given
       if (rejection_reason && String(rejection_reason).trim()) {
         await pq().query(
@@ -2321,7 +2345,8 @@ async function startServer() {
     }
   });
 
-  // Change client pipeline stage — independent from status
+  // Change client pipeline stage — the post-win continuation of the funnel.
+  // Stages can only be SET on won leads (closed_won); clearing is always allowed.
   app.post("/api/lidy/leads/:id/stage", requireManager, async (req, res) => {
     try {
       const session = (req as any).manager as { mid: number; login: string };
@@ -2331,11 +2356,14 @@ async function startServer() {
       const stage = (req.body?.stage || "").toString();
       const note = req.body?.note;
 
-      const leadRow = await pq().query(`SELECT id, assigned_manager_id, stage_code FROM leads WHERE id = $1`, [leadId]);
+      const leadRow = await pq().query(`SELECT id, assigned_manager_id, stage_code, status_code FROM leads WHERE id = $1`, [leadId]);
       if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
       const lead = leadRow.rows[0];
       if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== me.id) {
         return res.status(403).json({ error: "Lead is assigned to another manager" });
+      }
+      if (stage !== "" && lead.status_code !== "closed_won") {
+        return res.status(400).json({ error: "Этапы доступны только после закрытия сделки (статус «Закрыт ✅»)" });
       }
 
       if (stage === "") {
@@ -2606,7 +2634,7 @@ async function startServer() {
         if (st.rows.length === 0) return res.status(400).json({ error: "Unknown status" });
         // Snapshot current statuses for history, then update.
         const before = await pq().query(
-          `SELECT id, status_code FROM leads WHERE id = ANY($1::bigint[]) ${ownClause}`,
+          `SELECT id, status_code, stage_code FROM leads WHERE id = ANY($1::bigint[]) ${ownClause}`,
           [leadIds]
         );
         const r = await pq().query(
@@ -2623,6 +2651,28 @@ async function startServer() {
              VALUES ($1, $2, $3, $4, $5)`,
             [row.id, row.status_code, code, session.mid, "массовое действие"]
           );
+        }
+        // ── Status ↔ stage coupling (bulk) ──
+        if (code === "closed_won") {
+          const st = await pq().query(
+            `UPDATE leads SET stage_code = 'stage_contract'
+             WHERE id = ANY($1::bigint[]) ${ownClause} AND stage_code IS NULL RETURNING id`,
+            [leadIds]
+          );
+          for (const row of st.rows) {
+            await recordTransition({ lead_id: row.id, kind: "stage", from_code: null, to_code: "stage_contract", manager_id: session.mid });
+          }
+        } else {
+          const leftWon = before.rows.filter((r2: any) => r2.status_code === "closed_won" && r2.stage_code);
+          if (leftWon.length) {
+            await pq().query(
+              `UPDATE leads SET stage_code = NULL WHERE id = ANY($1::bigint[])`,
+              [leftWon.map((r2: any) => r2.id)]
+            );
+            for (const row of leftWon) {
+              await recordTransition({ lead_id: row.id, kind: "stage", from_code: row.stage_code, to_code: null, manager_id: session.mid });
+            }
+          }
         }
       } else if (action === "set_stage") {
         const code = String(payload?.stage || "");
