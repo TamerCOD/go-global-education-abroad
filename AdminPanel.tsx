@@ -3081,19 +3081,30 @@ const AdminPanel: React.FC = () => {
     const { data, refresh } = useData();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [password, setPassword] = useState('');
+    const [loginError, setLoginError] = useState<string | null>(null);
+    const [loggingIn, setLoggingIn] = useState(false);
+    const pwdInputRef = useRef<HTMLInputElement>(null);
     const [localData, setLocalData] = useState<any>(null);
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
+        setLoginError(null);
+        setLoggingIn(true);
+        // Chrome autofill fills the DOM without firing React onChange —
+        // read the live input value as the source of truth at submit time.
+        const pwd = pwdInputRef.current?.value ?? password;
+        if (pwd !== password) setPassword(pwd);
         try {
             const res = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: 'admin', password })
+                body: JSON.stringify({ username: 'admin', password: pwd })
             });
             if (res.ok) {
+                if (pwd !== password) setPassword(pwd); // keep for X-Admin-Password headers
                 setIsAuthenticated(true);
                 // Initialize localData with merged defaults
                 setLocalData({
@@ -3105,9 +3116,14 @@ const AdminPanel: React.FC = () => {
                     },
                 });
             } else {
-                alert('Неверный пароль');
+                setLoginError('Неверный пароль. Проверьте раскладку и попробуйте ещё раз.');
             }
-        } catch (e) { console.error(e); }
+        } catch (err) {
+            console.error(err);
+            setLoginError('Сервер недоступен. Попробуйте через минуту.');
+        } finally {
+            setLoggingIn(false);
+        }
     };
 
     const handleSave = async () => {
@@ -3120,12 +3136,18 @@ const AdminPanel: React.FC = () => {
             });
             if (res.ok) {
                 setSavedAt(Date.now());
+                setSaveError(null);
                 refresh();
                 setTimeout(() => setSavedAt(null), 3000);
             } else {
-                alert('Не удалось сохранить');
+                setSaveError('Не удалось сохранить. Проверьте соединение и попробуйте ещё раз.');
+                setTimeout(() => setSaveError(null), 6000);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+            setSaveError('Сервер недоступен.');
+            setTimeout(() => setSaveError(null), 6000);
+        }
         finally { setSaving(false); }
     };
 
@@ -3155,13 +3177,22 @@ const AdminPanel: React.FC = () => {
                     </div>
                     <label className="block text-xs uppercase tracking-widest font-bold mb-1 text-slate-300">Пароль</label>
                     <input
+                        ref={pwdInputRef}
                         type="password" autoFocus
                         placeholder="••••••••"
-                        className={`w-full ${A_BORDER} bg-slate-800/50 text-slate-100 placeholder-slate-500 px-3 py-3 mb-4 font-mono text-base focus:outline-none focus:bg-slate-800 focus:border-sky-500 rounded-lg`}
+                        className={`w-full ${A_BORDER} bg-slate-800/50 text-slate-100 placeholder-slate-500 px-3 py-3 mb-3 font-mono text-base focus:outline-none focus:bg-slate-800 focus:border-sky-500 rounded-lg`}
                         value={password}
-                        onChange={e => setPassword(e.target.value)}
+                        onChange={e => { setPassword(e.target.value); setLoginError(null); }}
                     />
-                    <button type="submit" className={`w-full bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white border border-sky-400/50 rounded-xl shadow-[0_0_24px_-4px_rgba(56,189,248,0.5)] active:translate-y-[1px] transition-all font-bold uppercase tracking-wider text-sm px-4 py-3`}>→ ВОЙТИ</button>
+                    {loginError && (
+                        <div className="mb-3 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm">
+                            {loginError}
+                        </div>
+                    )}
+                    <button type="submit" disabled={loggingIn}
+                        className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white border border-sky-500/40 rounded-lg active:translate-y-[1px] transition-colors font-semibold tracking-wide text-sm px-4 py-3">
+                        {loggingIn ? 'Проверка…' : 'Войти'}
+                    </button>
                 </form>
             </div>
         );
@@ -3202,6 +3233,7 @@ const AdminPanel: React.FC = () => {
                     <h1 className="text-base font-semibold uppercase tracking-wider text-slate-100">Admin</h1>
                     <div className="flex items-center gap-3">
                         {savedAt && <span className="text-xs font-mono text-emerald-400">✓ сохранено</span>}
+                        {saveError && <span className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded px-2 py-1">{saveError}</span>}
                         <ATooltip text="Сохранить все изменения сайта в БД">
                             <button onClick={handleSave} disabled={saving}
                                 className="bg-sky-600 hover:bg-sky-500 text-white border border-sky-500/40 rounded-lg active:translate-y-[1px] transition-colors font-semibold tracking-wide text-sm px-4 py-2 disabled:opacity-50">

@@ -333,12 +333,17 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const loginRef = useRef<HTMLInputElement>(null);
+    const pwdRef = useRef<HTMLInputElement>(null);
     const submit = async (e: React.FormEvent) => {
         e.preventDefault(); setError(null); setLoading(true);
+        // Chrome autofill doesn't fire React onChange — read live DOM values at submit.
+        const lg = loginRef.current?.value ?? login;
+        const pwd = pwdRef.current?.value ?? password;
         try {
             const r = await fetch('/api/lidy/login', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                credentials: 'include', body: JSON.stringify({ login, password }),
+                credentials: 'include', body: JSON.stringify({ login: lg, password: pwd }),
             });
             const j = await r.json().catch(() => ({}));
             if (!r.ok) setError(j.error || `Ошибка ${r.status}`);
@@ -367,11 +372,11 @@ const LoginScreen: React.FC<{ onAuthed: (m: Manager) => void }> = ({ onAuthed })
                     </div>
                 </div>
                 <label className="block text-sm font-medium text-slate-200 mb-1.5">Логин</label>
-                <input type="text" autoFocus autoComplete="username"
+                <input ref={loginRef} type="text" autoFocus autoComplete="username"
                     className="w-full bg-slate-800/50 border border-slate-700 text-slate-100 placeholder-slate-500 px-4 py-2.5 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 focus:bg-slate-800 transition"
                     value={login} onChange={e => setLogin(e.target.value)} />
                 <label className="block text-sm font-medium text-slate-200 mb-1.5">Пароль</label>
-                <input type="password" autoComplete="current-password"
+                <input ref={pwdRef} type="password" autoComplete="current-password"
                     className="w-full bg-slate-800/50 border border-slate-700 text-slate-100 placeholder-slate-500 px-4 py-2.5 rounded-lg mb-5 focus:outline-none focus:ring-2 focus:ring-sky-500/40 focus:border-sky-500 focus:bg-slate-800 transition"
                     value={password} onChange={e => setPassword(e.target.value)} />
                 {error && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm rounded-lg px-3 py-2 mb-4">⚠ {error}</div>}
