@@ -1942,7 +1942,8 @@ async function startServer() {
       if (!login || !password) return res.status(400).json({ error: "Missing credentials" });
 
       const { rows } = await pool.query(
-        `SELECT id, login, password_hash, full_name, active, archived_at FROM managers WHERE login = $1`,
+        `SELECT id, login, password_hash, full_name, active, archived_at, role, is_online, telegram_tag
+         FROM managers WHERE login = $1`,
         [String(login).trim().toLowerCase()]
       );
       if (rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
@@ -1961,7 +1962,10 @@ async function startServer() {
         maxAge: 12 * 60 * 60 * 1000,
         path: "/",
       });
-      res.json({ ok: true, manager: { id: m.id, login: m.login, full_name: m.full_name } });
+      res.json({ ok: true, manager: {
+        id: m.id, login: m.login, full_name: m.full_name,
+        role: m.role, is_online: m.is_online, telegram_tag: m.telegram_tag,
+      } });
     } catch (err) {
       console.error("[lidy/login]", err);
       res.status(500).json({ error: "Server error" });
