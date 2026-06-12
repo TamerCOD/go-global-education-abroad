@@ -699,6 +699,19 @@ if (DATABASE_URL) {
         changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    // Repair: stages are the post-win pipeline — clear them on leads that are
+    // not won (set before the status↔stage coupling existed).
+    try {
+      const r = await pool!.query(
+        `UPDATE leads SET stage_code = NULL
+         WHERE stage_code IS NOT NULL AND status_code IS DISTINCT FROM 'closed_won'`
+      );
+      if (r.rowCount && r.rowCount > 0) {
+        console.log(`[db] Cleared stage_code on ${r.rowCount} non-won lead(s)`);
+      }
+    } catch (err) {
+      console.error("[db] Failed to clear stages on non-won leads:", err);
+    }
     // Repair: backfill first_response_at from the earliest status transition
     // for leads handled before first-response tracking existed.
     try {
