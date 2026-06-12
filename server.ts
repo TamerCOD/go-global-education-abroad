@@ -2062,8 +2062,9 @@ async function startServer() {
         where.push(`l.status_code IN (SELECT code FROM lead_statuses WHERE is_terminal)`);
       } else if (!includeClosed && !filterStatus) {
         // Default: every lead in an OPEN status is visible (regardless of first
-        // response) — hidden are only closed (terminal) and semi-closed ones.
-        where.push(`(l.status_code IS NULL OR l.status_code NOT IN (SELECT code FROM lead_statuses WHERE is_terminal OR is_semi_closed))`);
+        // response) — hidden are only closed (terminal) ones. Semi-closed
+        // statuses (e.g. «Подойдёт в офис») are active work and stay visible.
+        where.push(`(l.status_code IS NULL OR l.status_code NOT IN (SELECT code FROM lead_statuses WHERE is_terminal))`);
       }
       if (hotOnly) {
         where.push(`COALESCE(l.score, 0) >= 60`);
@@ -2152,7 +2153,7 @@ async function startServer() {
         : `TRUE`;
       const { rows } = await pq().query(
         `SELECT
-           COUNT(*) FILTER (WHERE ls.is_terminal IS NOT TRUE AND COALESCE(ls.is_semi_closed, FALSE) = FALSE AND ${mineSql})::int AS total,
+           COUNT(*) FILTER (WHERE ls.is_terminal IS NOT TRUE AND ${mineSql})::int AS total,
            COUNT(*) FILTER (WHERE ls.is_terminal IS NOT TRUE AND l.processed_at IS NULL AND l.first_response_at IS NULL AND ${mineSql})::int AS open,
            COUNT(*) FILTER (WHERE ls.is_terminal IS NOT TRUE AND l.processed_at IS NULL AND l.first_response_at IS NULL
                              AND l.sla_deadline_at IS NOT NULL AND l.sla_deadline_at < NOW() AND ${mineSql})::int AS overdue,
