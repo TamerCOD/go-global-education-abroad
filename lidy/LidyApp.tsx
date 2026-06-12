@@ -2588,7 +2588,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         setLoading(true); setError(null);
         try {
             const p = new URLSearchParams();
-            if (scope === 'all') p.set('scope', 'all');
+            p.set('scope', scope);
             if (filterStatus) p.set('status', filterStatus);
             if (filterSource) p.set('source', filterSource);
             if (filterCountry) p.set('country', filterCountry);
@@ -2602,7 +2602,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             if (closedOnly) p.set('closed_only', '1');
             if (hotOnly) p.set('hot', '1');
             if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
-            const sumP = scope === 'all' ? '?scope=all' : '';
+            const sumP = `?scope=${scope}`;
             const [lR, sR, rR, sumR] = await Promise.all([
                 fetch(`/api/lidy/leads?${p.toString()}`, { credentials: 'include' }),
                 fetch('/api/lidy/statuses', { credentials: 'include' }),
