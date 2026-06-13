@@ -3,6 +3,50 @@ import type { Country, Testimonial, FAQItem, VisibilityConfig, ContactConfig } f
 import { DEFAULT_VISIBILITY, DEFAULT_REGIONS } from './types';
 import { COUNTRIES, TESTIMONIALS, FAQS, CONTACT_INFO } from './constants';
 
+export type HomeText = {
+  heroBadge: string;
+  heroTitle: string;
+  heroAccent: string;
+  heroSubtitle: string;
+  heroCtaPrimary: string;
+  heroCtaSecondary: string;
+  aboutBadge: string;
+  aboutTitle: string;
+  aboutAccent: string;
+  aboutText1: string;
+  aboutText2: string;
+  aboutCta: string;
+  aboutStats: { value: string; label: string }[];
+  destinationsTitle: string;
+  faqTitle: string;
+  testimonialsTitle: string;
+};
+
+// Defaults mirror the original hard-coded copy 1:1 — the site renders
+// identically until an admin overrides a field.
+export const DEFAULT_HOME_TEXT: HomeText = {
+  heroBadge: '🚀 Твой билет в будущее',
+  heroTitle: 'Учись. Путешествуй.',
+  heroAccent: 'Живи ярко!',
+  heroSubtitle: 'Помогаем поступить в топовые вузы мира.\nСША, Европа, Азия — выбирай свой кампус мечты.',
+  heroCtaPrimary: 'Выбрать ВУЗ',
+  heroCtaSecondary: 'Как это работает?',
+  aboutBadge: 'Образовательный туризм',
+  aboutTitle: 'Собери чемодан',
+  aboutAccent: 'в большое будущее.',
+  aboutText1: 'Go Global — это не просто агентство, это твой штурман в мире образования. Мы превращаем сложный процесс переезда в захватывающее путешествие.',
+  aboutText2: 'Тысячи наших студентов уже гуляют по улицам Лондона, учатся в небоскребах Торонто и запускают стартапы в Калифорнии. Мы упрощаем границы, чтобы ты мог расширять горизонты.',
+  aboutCta: 'Записаться на консультацию',
+  aboutStats: [
+    { value: '10+', label: 'Лет полета' },
+    { value: '500+', label: 'Вузов-партнеров' },
+    { value: '∞', label: 'Возможностей' },
+  ],
+  destinationsTitle: 'Куда поедем учиться?',
+  faqTitle: 'Часто задаваемые вопросы',
+  testimonialsTitle: 'Студенты Go Global',
+};
+
 type DataStore = {
   countries: Country[];
   testimonials: Testimonial[];
@@ -16,6 +60,7 @@ type DataStore = {
     partnerUniversities?: { name: string; highlighted?: boolean; highlightColor?: string }[];
     visibility?: VisibilityConfig;
     regions?: { id: string; name: string }[];
+    homeText?: HomeText;
   };
 };
 
@@ -31,6 +76,7 @@ const defaultSiteConfig = {
   loaderTagline: 'Образование за рубежом',
   visibility: DEFAULT_VISIBILITY,
   regions: DEFAULT_REGIONS,
+  homeText: DEFAULT_HOME_TEXT,
 };
 
 const defaultContactInfo: ContactConfig = {
@@ -78,6 +124,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
               json.siteConfig?.regions && json.siteConfig.regions.length
                 ? json.siteConfig.regions
                 : DEFAULT_REGIONS,
+            // Deep-merge so a partially-overridden homeText keeps defaults for the rest.
+            homeText: { ...DEFAULT_HOME_TEXT, ...(json.siteConfig?.homeText || {}) },
           },
         };
         setData(merged);

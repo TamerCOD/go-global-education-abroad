@@ -1,11 +1,12 @@
 import React from 'react';
 import { motion, Variants } from 'framer-motion';
 import { ArrowRight, Plane, BookOpen, Globe2, GraduationCap } from 'lucide-react';
-import { useData } from '../DataContext';
+import { useData, DEFAULT_HOME_TEXT } from '../DataContext';
 
 export const Hero: React.FC = () => {
   const { data } = useData();
   const heroImage = data?.siteConfig?.heroImage || "https://images.unsplash.com/photo-1529390079861-591de354faf5?q=80&w=1920&auto=format&fit=crop";
+  const ht = { ...DEFAULT_HOME_TEXT, ...(data?.siteConfig?.homeText || {}) };
 
   // Floating animation variant
   const floatingVariant = (delay: number): Variants => ({
@@ -84,7 +85,7 @@ export const Hero: React.FC = () => {
             transition={{ duration: 0.5 }}
             className="inline-block mb-4 px-4 py-1.5 rounded-full bg-accent-500/90 backdrop-blur-md text-white font-bold uppercase tracking-wider text-xs md:text-sm shadow-lg transform -rotate-2"
         >
-            🚀 Твой билет в будущее
+            {ht.heroBadge}
         </motion.div>
 
         <motion.h1
@@ -93,9 +94,9 @@ export const Hero: React.FC = () => {
           transition={{ duration: 0.8 }}
           className="text-5xl sm:text-7xl md:text-8xl font-extrabold text-white tracking-tight mb-6 leading-tight drop-shadow-xl"
         >
-          Учись. Путешествуй. <br/>
+          {ht.heroTitle} <br/>
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent-400 to-yellow-300 relative">
-            Живи ярко!
+            {ht.heroAccent}
             <svg className="absolute w-full h-3 -bottom-1 left-0 text-accent-500" viewBox="0 0 100 10" preserveAspectRatio="none">
                 <path d="M0 5 Q 50 10 100 5" stroke="currentColor" strokeWidth="8" fill="none" className="opacity-80" />
             </svg>
@@ -108,8 +109,12 @@ export const Hero: React.FC = () => {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="mt-6 max-w-2xl mx-auto text-xl md:text-2xl text-brand-100 font-medium leading-relaxed"
         >
-          Помогаем поступить в топовые вузы мира. <br className="hidden md:block" />
-          США, Европа, Азия — выбирай свой кампус мечты.
+          {ht.heroSubtitle.split('\n').map((line, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <br className="hidden md:block" />}
+              {line}
+            </React.Fragment>
+          ))}
         </motion.p>
 
         <motion.div
@@ -124,14 +129,14 @@ export const Hero: React.FC = () => {
             className="w-full sm:w-auto px-8 py-5 bg-brand-600 hover:bg-brand-500 text-white text-lg font-bold rounded-2xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all flex items-center justify-center gap-3 group border-b-4 border-brand-800 active:border-b-0 active:translate-y-1 cursor-pointer"
           >
             <GraduationCap className="w-6 h-6" />
-            Выбрать ВУЗ
+            {ht.heroCtaPrimary}
           </a>
           <a
             href="#about"
             onClick={(e) => handleScrollTo(e, '#about')}
             className="w-full sm:w-auto px-8 py-5 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/30 text-white text-lg font-bold rounded-2xl transition-all flex items-center justify-center hover:-translate-y-1 cursor-pointer"
           >
-            Как это работает?
+            {ht.heroCtaSecondary}
           </a>
         </motion.div>
       </div>

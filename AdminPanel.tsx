@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useData } from './DataContext';
+import { useData, DEFAULT_HOME_TEXT } from './DataContext';
 import { DEFAULT_VISIBILITY, DEFAULT_REGIONS } from './types';
 
 // =====================================================================
@@ -3208,6 +3208,8 @@ const AdminPanel: React.FC = () => {
     const setSC = (patch: any) => setLocalData({ ...localData, siteConfig: { ...sc, ...patch } });
     const setCI = (patch: any) => setLocalData({ ...localData, contactInfo: { ...ci, ...patch } });
     const setVisibility = (patch: any) => setSC({ visibility: { ...v, ...patch } });
+    const ht = { ...DEFAULT_HOME_TEXT, ...(sc.homeText || {}) };
+    const setHT = (patch: any) => setSC({ homeText: { ...ht, ...patch } });
 
     return (
         <div className="min-h-screen relative text-slate-100" style={{ fontFamily: "'Space Grotesk', system-ui", background: 'radial-gradient(ellipse at top, #0f172a 0%, #020617 60%, #000 100%)' }}>
@@ -3495,6 +3497,88 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🧮 Калькулятор стоимости обучения" subtitle="Заголовок, чек-лист, услуги и базовые тексты — отображаются на главной" accent="amber">
                     <CalculatorConfigSection sc={sc} setSC={setSC} />
+                </Section>
+
+                <Section title="📝 Тексты главной страницы" subtitle="Заголовки и подписи Hero, блока «О нас» и секций — то, что видит клиент сверху сайта" accent="amber">
+                    <div className="space-y-5">
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-bold text-amber-300 mb-2">Главный экран (Hero)</div>
+                            <div className="space-y-3">
+                                {[
+                                    { k: 'heroBadge', label: 'Бейдж над заголовком' },
+                                    { k: 'heroTitle', label: 'Заголовок — строка 1' },
+                                    { k: 'heroAccent', label: 'Заголовок — цветная строка 2' },
+                                    { k: 'heroSubtitle', label: 'Подзаголовок (Enter — перенос строки)', area: true, rows: 2 },
+                                    { k: 'heroCtaPrimary', label: 'Кнопка 1 (синяя)' },
+                                    { k: 'heroCtaSecondary', label: 'Кнопка 2 (прозрачная)' },
+                                ].map(f => (
+                                    <label key={f.k} className="block text-sm">
+                                        <span className="block text-slate-400 mb-1">{f.label}</span>
+                                        {f.area
+                                            ? <textarea rows={f.rows || 2} className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
+                                                value={(ht as any)[f.k]} onChange={e => setHT({ [f.k]: e.target.value })} />
+                                            : <input className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
+                                                value={(ht as any)[f.k]} onChange={e => setHT({ [f.k]: e.target.value })} />}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-800">
+                            <div className="text-xs uppercase tracking-wider font-bold text-amber-300 mb-2">Блок «О нас»</div>
+                            <div className="space-y-3">
+                                {[
+                                    { k: 'aboutBadge', label: 'Бейдж' },
+                                    { k: 'aboutTitle', label: 'Заголовок — строка 1' },
+                                    { k: 'aboutAccent', label: 'Заголовок — цветная строка 2' },
+                                    { k: 'aboutText1', label: 'Абзац 1', area: true, rows: 3 },
+                                    { k: 'aboutText2', label: 'Абзац 2', area: true, rows: 3 },
+                                    { k: 'aboutCta', label: 'Кнопка' },
+                                ].map(f => (
+                                    <label key={f.k} className="block text-sm">
+                                        <span className="block text-slate-400 mb-1">{f.label}</span>
+                                        {f.area
+                                            ? <textarea rows={f.rows || 2} className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
+                                                value={(ht as any)[f.k]} onChange={e => setHT({ [f.k]: e.target.value })} />
+                                            : <input className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
+                                                value={(ht as any)[f.k]} onChange={e => setHT({ [f.k]: e.target.value })} />}
+                                    </label>
+                                ))}
+                                <div>
+                                    <span className="block text-slate-400 text-sm mb-1">Три цифры-достижения</span>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(ht.aboutStats || []).map((st: any, i: number) => (
+                                            <div key={i} className="space-y-1.5">
+                                                <input className="w-full bg-slate-800/60 text-slate-100 border border-slate-700 p-2 rounded-lg text-center font-bold focus:outline-none focus:border-sky-500"
+                                                    placeholder="10+" value={st.value}
+                                                    onChange={e => { const list = ht.aboutStats.map((x: any, j: number) => j === i ? { ...x, value: e.target.value } : x); setHT({ aboutStats: list }); }} />
+                                                <input className="w-full bg-slate-800/60 text-slate-100 border border-slate-700 p-1.5 rounded-lg text-center text-xs focus:outline-none focus:border-sky-500"
+                                                    placeholder="Подпись" value={st.label}
+                                                    onChange={e => { const list = ht.aboutStats.map((x: any, j: number) => j === i ? { ...x, label: e.target.value } : x); setHT({ aboutStats: list }); }} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="pt-4 border-t border-slate-800">
+                            <div className="text-xs uppercase tracking-wider font-bold text-amber-300 mb-2">Заголовки секций</div>
+                            <div className="space-y-3">
+                                {[
+                                    { k: 'destinationsTitle', label: 'Направления' },
+                                    { k: 'testimonialsTitle', label: 'Отзывы' },
+                                    { k: 'faqTitle', label: 'Частые вопросы' },
+                                ].map(f => (
+                                    <label key={f.k} className="block text-sm">
+                                        <span className="block text-slate-400 mb-1">{f.label}</span>
+                                        <input className="w-full bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
+                                            value={(ht as any)[f.k]} onChange={e => setHT({ [f.k]: e.target.value })} />
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
                 </Section>
 
                 <Section title="🖼 Изображения сайта" subtitle="Hero и About">

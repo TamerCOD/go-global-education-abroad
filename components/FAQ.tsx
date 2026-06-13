@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Minus } from 'lucide-react';
-import { useData } from '../DataContext';
+import { useData, DEFAULT_HOME_TEXT } from '../DataContext';
 
 export const FAQ: React.FC = () => {
   const { data } = useData();
   const FAQS = data.faqs;
+  const faqTitle = data?.siteConfig?.homeText?.faqTitle || DEFAULT_HOME_TEXT.faqTitle;
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const toggle = (index: number) => {
@@ -16,7 +17,7 @@ export const FAQ: React.FC = () => {
     <section id="faq" className="py-24 bg-white">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Часто задаваемые вопросы</h2>
+          <h2 className="text-3xl font-extrabold text-slate-900 mb-4">{faqTitle}</h2>
           <p className="text-lg text-slate-600">
             Мы собрали ответы на самые популярные вопросы о поступлении и обучении за границей.
           </p>

@@ -12,7 +12,7 @@ import {
   Map,
   ArrowRight
 } from 'lucide-react';
-import { useData } from '../DataContext';
+import { useData, DEFAULT_HOME_TEXT } from '../DataContext';
 
 interface AboutProps {
   onOpenModal: () => void;
@@ -22,6 +22,7 @@ export const About: React.FC<AboutProps> = ({ onOpenModal }) => {
   const { data } = useData();
   const aboutImage1 = data?.siteConfig?.aboutImage1 || "https://images.unsplash.com/photo-1544717305-2782549b5136?q=80&w=600&auto=format&fit=crop";
   const aboutImage2 = data?.siteConfig?.aboutImage2 || "https://images.unsplash.com/photo-1543269664-7eef42226a21?q=80&w=600&auto=format&fit=crop";
+  const ht = { ...DEFAULT_HOME_TEXT, ...(data?.siteConfig?.homeText || {}) };
   const services = [
     {
       icon: <GraduationCap className="w-8 h-8 text-white" />,
@@ -86,47 +87,41 @@ export const About: React.FC<AboutProps> = ({ onOpenModal }) => {
           >
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-50 text-brand-700 rounded-full font-bold text-sm mb-6 border border-brand-100 shadow-sm">
                <Plane className="w-4 h-4 transform -rotate-45" />
-               Образовательный туризм
+               {ht.aboutBadge}
             </div>
-            
+
             <h2 className="text-4xl md:text-6xl font-extrabold text-slate-900 mb-6 leading-tight">
-              Собери чемодан <br/>
+              {ht.aboutTitle} <br/>
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-accent-500">
-                в большое будущее.
+                {ht.aboutAccent}
               </span>
             </h2>
-            
+
             <p className="text-lg text-slate-600 mb-6 leading-relaxed font-medium">
-              <span className="font-bold text-brand-600">Go Global</span> — это не просто агентство, это твой штурман в мире образования. Мы превращаем сложный процесс переезда в захватывающее путешествие. 
+              {ht.aboutText1}
             </p>
 
             <p className="text-lg text-slate-600 mb-8 leading-relaxed">
-               Тысячи наших студентов уже гуляют по улицам Лондона, учатся в небоскребах Торонто и запускают стартапы в Калифорнии. Мы упрощаем границы, чтобы ты мог расширять горизонты.
+               {ht.aboutText2}
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 mb-10">
-                <button 
+                <button
                     onClick={onOpenModal}
                     className="px-8 py-4 bg-brand-600 text-white font-bold rounded-xl shadow-lg hover:bg-brand-700 transition-all hover:scale-105 flex items-center justify-center gap-2"
                 >
-                    Записаться на консультацию
+                    {ht.aboutCta}
                     <ArrowRight className="w-5 h-5" />
                 </button>
             </div>
 
             <div className="grid grid-cols-3 gap-4 border-t border-slate-100 pt-8">
-                <div>
-                    <div className="text-3xl font-black text-slate-900 mb-1">10+</div>
-                    <div className="text-xs font-bold text-slate-500 uppercase">Лет полета</div>
-                </div>
-                <div>
-                    <div className="text-3xl font-black text-brand-600 mb-1">500+</div>
-                    <div className="text-xs font-bold text-slate-500 uppercase">Вузов-партнеров</div>
-                </div>
-                <div>
-                    <div className="text-3xl font-black text-accent-500 mb-1">∞</div>
-                    <div className="text-xs font-bold text-slate-500 uppercase">Возможностей</div>
-                </div>
+                {(ht.aboutStats || []).map((s, i) => (
+                  <div key={i}>
+                      <div className={`text-3xl font-black mb-1 ${i === 1 ? 'text-brand-600' : i === 2 ? 'text-accent-500' : 'text-slate-900'}`}>{s.value}</div>
+                      <div className="text-xs font-bold text-slate-500 uppercase">{s.label}</div>
+                  </div>
+                ))}
             </div>
           </motion.div>
 

@@ -1,11 +1,12 @@
 import React from 'react';
-import { useData } from '../DataContext';
+import { useData, DEFAULT_HOME_TEXT } from '../DataContext';
 import { Quote } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
 export const Testimonials: React.FC = () => {
   const { data } = useData();
   const TESTIMONIALS = data.testimonials;
+  const testimonialsTitle = data?.siteConfig?.homeText?.testimonialsTitle || DEFAULT_HOME_TEXT.testimonialsTitle;
   
   // Duplicate array to create seamless loop
   const marqueeVariants: Variants = {
@@ -25,7 +26,7 @@ export const Testimonials: React.FC = () => {
   return (
     <section id="testimonials" className="py-24 bg-slate-50 overflow-hidden relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-12 text-center">
-        <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Студенты Go Global</h2>
+        <h2 className="text-3xl font-extrabold text-slate-900 mb-4">{testimonialsTitle}</h2>
         <p className="text-lg text-slate-600">Они уже сделали свой выбор. Теперь твоя очередь.</p>
       </div>
 

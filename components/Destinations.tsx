@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useData } from '../DataContext';
+import { useData, DEFAULT_HOME_TEXT } from '../DataContext';
 import { MapPin, X, ChevronRight, GraduationCap, ChevronLeft } from 'lucide-react';
 
 interface DestinationsProps {
@@ -103,7 +103,7 @@ export const Destinations: React.FC<DestinationsProps> = ({ onOpenModal }) => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 mb-6">Куда поедем учиться?</h2>
+          <h2 className="text-3xl md:text-5xl font-extrabold text-slate-900 mb-6">{data?.siteConfig?.homeText?.destinationsTitle || DEFAULT_HOME_TEXT.destinationsTitle}</h2>
           <p className="text-xl text-slate-600 max-w-2xl mx-auto">
             Кликай на страну, чтобы увидеть университеты.
           </p>
