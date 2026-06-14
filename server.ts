@@ -365,6 +365,18 @@ if (DATABASE_URL) {
     await pool!.query(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log (entity_type, entity_id, created_at DESC);`);
     await pool!.query(`CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log (actor_id, created_at DESC);`);
 
+    // Trigram indexes for fast ILIKE '%term%' lead search (keeps search snappy as the base grows).
+    try {
+      await pool!.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
+      await pool!.query(`CREATE INDEX IF NOT EXISTS idx_leads_name_trgm ON leads USING gin (name gin_trgm_ops);`);
+      await pool!.query(`CREATE INDEX IF NOT EXISTS idx_leads_phone_trgm ON leads USING gin (phone gin_trgm_ops);`);
+      await pool!.query(`CREATE INDEX IF NOT EXISTS idx_leads_email_trgm ON leads USING gin (email gin_trgm_ops);`);
+      await pool!.query(`CREATE INDEX IF NOT EXISTS idx_leads_comment_trgm ON leads USING gin (comment gin_trgm_ops);`);
+      await pool!.query(`CREATE INDEX IF NOT EXISTS idx_leads_univ_trgm ON leads USING gin (desired_university gin_trgm_ops);`);
+    } catch (e) {
+      console.error("[db] pg_trgm indexes skipped:", e);
+    }
+
     // ─────────────────── ROUTING RULES (auto-assign) ───────────────────
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS routing_rules (
@@ -1057,6 +1069,42 @@ function computeSlaDeadline(receivedAt: Date, schedule: WorkingSchedule | null =
   return computeSlaDeadlineForSchedule(receivedAt, schedule, slaMinutes ?? slaConfigCache.base);
 }
 
+// ─────────────────── Login brute-force guard ───────────────────
+// 5 wrong attempts (per login+IP) → 15-minute lockout, one audit entry +
+// one Telegram alert. A correct login clears the counter.
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCK_MS = 15 * 60_000;
+const loginAttempts = new Map<string, { fails: number; lockUntil: number; warned: boolean }>();
+function clientIp(req: any): string {
+  return ((req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0].trim())
+    || req.socket?.remoteAddress || "0.0.0.0";
+}
+function loginLockRemainingMs(key: string): number {
+  const rec = loginAttempts.get(key);
+  return rec && rec.lockUntil > Date.now() ? rec.lockUntil - Date.now() : 0;
+}
+function recordLoginFail(key: string, label: string) {
+  const rec = loginAttempts.get(key) || { fails: 0, lockUntil: 0, warned: false };
+  rec.fails += 1;
+  if (rec.fails >= LOGIN_MAX_ATTEMPTS) {
+    rec.lockUntil = Date.now() + LOGIN_LOCK_MS;
+    rec.fails = 0;
+    if (!rec.warned) {
+      rec.warned = true;
+      auditLog({ actor_id: null, actor_name: "security", actor_role: "system", action: "login.locked", entity_type: "auth", entity_id: label }).catch(() => {});
+      sendTelegram(`🔒 <b>Блокировка входа</b>\n${escapeHtml(label)} — 5 неверных попыток подряд. Вход закрыт на 15 минут.`).catch(() => {});
+    }
+  }
+  loginAttempts.set(key, rec);
+  if (loginAttempts.size > 500) {
+    const now = Date.now();
+    for (const [k, r] of loginAttempts) if (r.lockUntil < now && r.fails === 0) loginAttempts.delete(k);
+  }
+}
+function recordLoginSuccess(key: string) {
+  loginAttempts.delete(key);
+}
+
 async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned: number; details: any[] }> {
   if (!pool) return { assigned: 0, details: [] };
   await dbReady!;
@@ -1669,8 +1717,12 @@ async function startServer() {
 
   app.post("/api/login", (req, res) => {
     const { username, password } = req.body || {};
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) res.json({ success: true });
-    else res.status(401).json({ error: "Invalid credentials" });
+    const ip = clientIp(req);
+    const key = `admin|${ip}`;
+    const lock = loginLockRemainingMs(key);
+    if (lock > 0) return res.status(429).json({ error: `Слишком много попыток. Подождите ${Math.ceil(lock / 60000)} мин.` });
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) { recordLoginSuccess(key); res.json({ success: true }); }
+    else { recordLoginFail(key, `Админка (IP ${ip})`); res.status(401).json({ error: "Invalid credentials" }); }
   });
 
   // ----- Visit tracking -----
@@ -1978,19 +2030,25 @@ async function startServer() {
       const { login, password } = req.body || {};
       if (!login || !password) return res.status(400).json({ error: "Missing credentials" });
 
+      const ip = clientIp(req);
+      const lkey = `lidy|${String(login).trim().toLowerCase()}|${ip}`;
+      const lock = loginLockRemainingMs(lkey);
+      if (lock > 0) return res.status(429).json({ error: `Слишком много попыток. Подождите ${Math.ceil(lock / 60000)} мин.` });
+
       const { rows } = await pool.query(
         `SELECT id, login, password_hash, full_name, active, archived_at, role, is_online, telegram_tag
          FROM managers WHERE login = $1`,
         [String(login).trim().toLowerCase()]
       );
-      if (rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
+      if (rows.length === 0) { recordLoginFail(lkey, `Менеджер «${login}» (IP ${ip})`); return res.status(401).json({ error: "Invalid credentials" }); }
       const m = rows[0];
       if (m.archived_at) return res.status(403).json({ error: "Account archived (manager left)" });
       if (!m.active) return res.status(403).json({ error: "Manager is deactivated" });
 
       const ok = await bcrypt.compare(String(password), m.password_hash);
-      if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+      if (!ok) { recordLoginFail(lkey, `Менеджер «${login}» (IP ${ip})`); return res.status(401).json({ error: "Invalid credentials" }); }
 
+      recordLoginSuccess(lkey);
       const token = signSession({ mid: m.id, login: m.login });
       res.cookie("lidy_session", token, {
         httpOnly: true,
@@ -2153,12 +2211,13 @@ async function startServer() {
         params.push(new Date(filterTo));
       }
       if (filterSearch) {
+        // ILIKE (case-insensitive) so the per-column trigram GIN indexes are usable.
         const q = `%${filterSearch.replace(/[%_]/g, "\\$&")}%`;
-        where.push(`(LOWER(l.name) LIKE LOWER($${params.length + 1})
-                    OR LOWER(l.phone) LIKE LOWER($${params.length + 1})
-                    OR LOWER(l.email) LIKE LOWER($${params.length + 1})
-                    OR LOWER(l.comment) LIKE LOWER($${params.length + 1})
-                    OR LOWER(l.desired_university) LIKE LOWER($${params.length + 1}))`);
+        where.push(`(l.name ILIKE $${params.length + 1}
+                    OR l.phone ILIKE $${params.length + 1}
+                    OR l.email ILIKE $${params.length + 1}
+                    OR l.comment ILIKE $${params.length + 1}
+                    OR l.desired_university ILIKE $${params.length + 1})`);
         params.push(q);
       }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
