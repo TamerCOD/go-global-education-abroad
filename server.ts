@@ -1020,8 +1020,41 @@ async function pickNextManager(leadCtx?: {
   return rows[0];
 }
 
-function computeSlaDeadline(receivedAt: Date, schedule: WorkingSchedule | null = null): Date {
-  return computeSlaDeadlineForSchedule(receivedAt, schedule, LEAD_SLA_HOURS * 60);
+// ─────────────────── Configurable SLA levels ───────────────────
+// Admin-editable, stored in site_data → siteConfig.slaConfig:
+//   { baseSlaMinutes: 180, perSource: { 'реклама': 15, 'сайт': 60 }, hotSlaMinutes: 30 }
+// Cached in memory; refreshed at boot, on admin save, and each cron tick.
+type SlaConfig = { base: number; perSource: Record<string, number>; hot: number | null };
+let slaConfigCache: SlaConfig = { base: LEAD_SLA_HOURS * 60, perSource: {}, hot: null };
+async function refreshSlaConfig() {
+  try {
+    const store = await getStore();
+    const cfg = (store?.siteConfig?.slaConfig) || {};
+    const base = Number(cfg.baseSlaMinutes);
+    const hot = Number(cfg.hotSlaMinutes);
+    slaConfigCache = {
+      base: base > 0 ? base : LEAD_SLA_HOURS * 60,
+      perSource: (cfg.perSource && typeof cfg.perSource === "object") ? cfg.perSource : {},
+      hot: hot > 0 ? hot : null,
+    };
+  } catch {
+    slaConfigCache = { base: LEAD_SLA_HOURS * 60, perSource: {}, hot: null };
+  }
+  return slaConfigCache;
+}
+// Pick the SLA window (minutes) for a lead by its source / hotness.
+function slaMinutesFor(source?: string | null, score?: number | null): number {
+  const c = slaConfigCache;
+  if (c.hot && (score ?? 0) >= 60) return c.hot;
+  if (source) {
+    const key = Object.keys(c.perSource).find(k => k.toLowerCase() === String(source).toLowerCase());
+    if (key && Number(c.perSource[key]) > 0) return Number(c.perSource[key]);
+  }
+  return c.base;
+}
+
+function computeSlaDeadline(receivedAt: Date, schedule: WorkingSchedule | null = null, slaMinutes?: number): Date {
+  return computeSlaDeadlineForSchedule(receivedAt, schedule, slaMinutes ?? slaConfigCache.base);
 }
 
 async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned: number; details: any[] }> {
@@ -1043,7 +1076,7 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
     );
     const mgr = await pickNextManager(ctxRes.rows[0] || {});
     if (!mgr) break;
-    const sla = computeSlaDeadline(new Date(), mgr.working_hours ?? DEFAULT_SCHEDULE);
+    const sla = computeSlaDeadline(new Date(), mgr.working_hours ?? DEFAULT_SCHEDULE, slaMinutesFor(ctxRes.rows[0]?.source));
     await pool.query(
       `UPDATE leads SET assigned_manager_id = $1, sla_deadline_at = $2, sla_warned = FALSE, updated_at = NOW() WHERE id = $3`,
       [mgr.id, sla, lead.id]
@@ -1579,6 +1612,8 @@ async function maybeDigest() {
 }
 
 if (pool) {
+  // Load SLA levels at boot, then keep them fresh on each cron tick.
+  refreshSlaConfig().catch(() => {});
   // Initial run after 30s (gives DB time to be ready), then every interval
   setTimeout(() => {
     checkSlaBreaches();
@@ -1587,6 +1622,7 @@ if (pool) {
     runAutomations();
     maybeDigest();
     setInterval(() => {
+      refreshSlaConfig().catch(() => {});
       checkSlaBreaches();
       revertExpiredTransfers();
       checkTaskReminders();
@@ -1623,6 +1659,7 @@ async function startServer() {
       if (!data || typeof data !== "object") return res.status(400).json({ error: "Invalid payload" });
       const current = await getStore();
       await setStore({ ...current, ...data });
+      refreshSlaConfig().catch(() => {}); // pick up SLA-level edits immediately
       res.json({ success: true });
     } catch (err) {
       console.error("[api/data POST]", err);
@@ -1739,7 +1776,7 @@ async function startServer() {
         const dupManager = existing.assigned_manager_id ? await loadManager(existing.assigned_manager_id) : null;
         const dupAssignee = dupManager && dupManager.active && !dupManager.archived_at ? dupManager : null;
         const dupSla = dupAssignee
-          ? computeSlaDeadline(new Date(), (dupAssignee.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE)
+          ? computeSlaDeadline(new Date(), (dupAssignee.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE, slaMinutesFor(source))
           : null;
         const dupIns = await pq().query(
           `INSERT INTO leads (name, phone, email, country, comment, source, raw,
@@ -1813,7 +1850,7 @@ async function startServer() {
     });
     // If no manager online: store unassigned, sla_deadline_at NULL (will be set when assigned)
     const slaDeadline = manager
-      ? computeSlaDeadline(new Date(), (manager.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE)
+      ? computeSlaDeadline(new Date(), (manager.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE, slaMinutesFor(source))
       : null;
 
     const insert = await pq().query(

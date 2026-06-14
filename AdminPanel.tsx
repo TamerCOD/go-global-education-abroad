@@ -73,6 +73,7 @@ const ADMIN_GROUP_BY_TITLE: Record<string, AdminGroup> = {
     '📖 База знаний': 'crm',
     '💵 Комиссии и выплаты': 'crm',
     '📋 Все лиды (обзор)': 'crm',
+    '⏱ Уровни SLA (время на ответ)': 'crm',
     // Система
     '🛠 Утилиты и бэкапы': 'system',
     '🕒 Журнал аудита': 'system',
@@ -114,6 +115,63 @@ const Section: React.FC<{
                 <span className={`text-base text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>▾</span>
             </button>
             {open && <div className="p-5 bg-slate-950/40">{children}</div>}
+        </div>
+    );
+};
+
+// Configurable SLA levels editor (siteConfig.slaConfig)
+const SlaLevelsSection: React.FC<{ sc: any; setSC: (p: any) => void; sources: string[] }> = ({ sc, setSC, sources }) => {
+    const cfg = sc.slaConfig || {};
+    const base = Number(cfg.baseSlaMinutes) > 0 ? Number(cfg.baseSlaMinutes) : 180;
+    const perSource: Record<string, number> = (cfg.perSource && typeof cfg.perSource === 'object') ? cfg.perSource : {};
+    const setSLA = (patch: any) => setSC({ slaConfig: { ...cfg, ...patch } });
+    const fmt = (m: number) => m % 60 === 0 ? `${m / 60} ч` : m >= 60 ? `${Math.floor(m / 60)} ч ${m % 60} мин` : `${m} мин`;
+    return (
+        <div className="space-y-5 text-sm">
+            <p className="text-xs text-slate-400 leading-relaxed">
+                SLA — сколько времени у менеджера на <b className="text-slate-200">первый ответ</b> лиду. Считается только в рабочие часы:
+                ночная заявка не «горит», дедлайн переносится на утро. После просрочки лид краснеет, РОПу летит сигнал в Telegram.
+            </p>
+            <div>
+                <div className="text-xs uppercase tracking-wider font-bold text-violet-300 mb-1.5">Базовый SLA (для всех лидов)</div>
+                <div className="flex items-center gap-2">
+                    <input type="number" min={1} className="w-28 bg-slate-800/60 text-slate-100 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
+                        value={cfg.baseSlaMinutes ?? 180}
+                        onChange={e => setSLA({ baseSlaMinutes: Number(e.target.value) || 0 })} />
+                    <span className="text-slate-400">минут</span>
+                    <span className="text-xs text-slate-500">= {fmt(base)}</span>
+                </div>
+            </div>
+            <div className="pt-4 border-t border-slate-800">
+                <div className="text-xs uppercase tracking-wider font-bold text-violet-300 mb-1.5">Ускоренный SLA для горячих лидов</div>
+                <div className="flex items-center gap-2">
+                    <input type="number" min={0} placeholder="выкл" className="w-28 bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
+                        value={cfg.hotSlaMinutes ?? ''}
+                        onChange={e => setSLA({ hotSlaMinutes: e.target.value === '' ? null : (Number(e.target.value) || 0) })} />
+                    <span className="text-slate-400">минут</span>
+                    <span className="text-xs text-slate-500">скоринг 60+ · пусто = как базовый</span>
+                </div>
+            </div>
+            <div className="pt-4 border-t border-slate-800">
+                <div className="text-xs uppercase tracking-wider font-bold text-violet-300 mb-1.5">Переопределения по источнику</div>
+                <p className="text-xs text-slate-500 mb-2">Пусто = базовый SLA. Например, для платной рекламы поставьте 15–30 минут — такие лиды дороже и «остывают» быстрее.</p>
+                <div className="space-y-1.5">
+                    {sources.map(src => (
+                        <div key={src} className="flex items-center gap-2">
+                            <span className="flex-grow text-slate-200 truncate">{src}</span>
+                            <input type="number" min={0} placeholder={`база (${base})`}
+                                className="w-28 bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 p-1.5 rounded-lg text-center focus:outline-none focus:border-sky-500"
+                                value={perSource[src] ?? ''}
+                                onChange={e => {
+                                    const v = e.target.value; const next = { ...perSource };
+                                    if (v === '') delete next[src]; else next[src] = Number(v) || 0;
+                                    setSLA({ perSource: next });
+                                }} />
+                            <span className="text-xs text-slate-500 w-8">мин</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
         </div>
     );
 };
@@ -3364,6 +3422,11 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🎯 Статусы лидов" subtitle="Что менеджер выбирает в карточке лида" badge="CRM" accent="violet">
                     <StatusesSection password={password} />
+                </Section>
+
+                <Section title="⏱ Уровни SLA (время на ответ)" subtitle="Базовый срок + ускорение для рекламы и горячих лидов" badge="CRM" accent="violet">
+                    <SlaLevelsSection sc={sc} setSC={setSC}
+                        sources={(sc.attributionOptions && sc.attributionOptions.length) ? sc.attributionOptions : ['Сайт', 'Instagram', 'WhatsApp', 'Email', 'Реклама', 'Друзья / знакомые', 'Поиск Google', 'Другое']} />
                 </Section>
 
                 <Section title="🏷 Метки клиентов" subtitle="Цветные ярлыки для категоризации (горячий, VIP, грант и т.д.)" badge="CRM" accent="red">
