@@ -66,6 +66,7 @@ const ADMIN_GROUP_BY_TITLE: Record<string, AdminGroup> = {
     '🧑‍💼 Менеджеры по продажам (CRM)': 'crm',
     '🤖 Авто-распределение лидов': 'crm',
     '🎯 Статусы лидов': 'crm',
+    '🕓 Согласования этапов': 'crm',
     '🏷 Метки клиентов': 'crm',
     '📨 Шаблоны быстрых ответов': 'crm',
     '🤖 Авто-сценарии (no-code)': 'crm',
@@ -924,6 +925,9 @@ interface LeadStatusRec {
     requires_appointment?: boolean;
     is_semi_closed?: boolean;
     is_client_stage?: boolean;
+    requires_file?: boolean;
+    file_prompt?: string;
+    requires_approval?: boolean;
     sort: number;
 }
 
@@ -1141,6 +1145,79 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
     );
 };
 
+const ApprovalsSection: React.FC<{ password: string }> = ({ password }) => {
+    const [items, setItems] = useState<any[] | null>(null);
+    const [rejectId, setRejectId] = useState<number | null>(null);
+    const [comment, setComment] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState<string | null>(null);
+    const H = { 'Content-Type': 'application/json', 'X-Admin-Password': password };
+    const load = () => fetch('/api/admin/approvals', { headers: { 'X-Admin-Password': password } })
+        .then(r => r.json()).then(j => setItems(j.approvals || [])).catch(() => setItems([]));
+    useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
+    const decide = async (id: number, action: 'approve' | 'reject', cm?: string) => {
+        setBusy(true); setMsg(null);
+        try {
+            const r = await fetch(`/api/admin/approvals/${id}/${action}`, { method: 'POST', headers: H, body: JSON.stringify(action === 'reject' ? { comment: cm } : {}) });
+            const j = await r.json();
+            if (!r.ok) setMsg(j.error || 'Ошибка'); else { setMsg(action === 'approve' ? 'Подтверждено ✓' : 'Отклонено'); setRejectId(null); setComment(''); load(); }
+        } catch { setMsg('Сервер недоступен'); } finally { setBusy(false); }
+    };
+    if (items === null) return <p className="text-slate-400 text-sm">Загрузка…</p>;
+    const pending = items.filter(a => a.status === 'pending');
+    const recent = items.filter(a => a.status !== 'pending' && a.kind !== 'back').slice(0, 12);
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-slate-400">Запросы менеджеров на переход по этапам, требующим согласования. Подтвердите — лид перейдёт на этап; откажите (с причиной) — этап останется, причина попадёт в карточку.</p>
+            {msg && <div className="text-xs px-2 py-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-200">{msg}</div>}
+            <div className="text-sm font-semibold text-amber-300">⏳ Ожидают ({pending.length})</div>
+            {pending.length === 0 ? <p className="text-xs text-slate-400 italic">Нет ожидающих согласований.</p> :
+                pending.map(a => (
+                    <div key={a.id} className="bg-slate-800/40 border border-slate-700 rounded p-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                            <span className="font-semibold text-slate-100">{a.lead_name || '— без имени —'}</span>
+                            <span className="text-xs font-mono text-slate-400">#{a.lead_id}</span>
+                            {a.lead_phone && <span className="text-xs text-slate-400 font-mono">{a.lead_phone}</span>}
+                            <span className="text-xs text-slate-400">· запросил {a.requested_name || a.requested_by_name || '—'}</span>
+                        </div>
+                        <div className="text-xs text-slate-300 mt-1">Переход: «{a.from_label || '—'}» → <b className="text-violet-300">«{a.to_label || a.to_stage}»</b></div>
+                        {a.note && <div className="text-xs text-slate-400 mt-1">Заметка: {a.note}</div>}
+                        {a.file_url && <div className="text-xs mt-1"><a className="text-sky-300 underline" href={a.file_url} target="_blank" rel="noreferrer">📎 {a.file_name || 'приложенный файл'}</a></div>}
+                        {rejectId === a.id ? (
+                            <div className="mt-2">
+                                <textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Причина отказа (обязательно)"
+                                    className="w-full text-xs bg-slate-800/60 border border-slate-700 rounded p-2 text-slate-100" />
+                                <div className="flex gap-2 mt-1">
+                                    <button disabled={busy || !comment.trim()} onClick={() => decide(a.id, 'reject', comment)} className="text-xs bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white px-3 py-1 rounded">Отклонить переход</button>
+                                    <button onClick={() => { setRejectId(null); setComment(''); }} className="text-xs text-slate-300 px-3 py-1">Отмена</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex gap-2 mt-2">
+                                <button disabled={busy} onClick={() => decide(a.id, 'approve')} className="text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-1 rounded">✓ Подтвердить</button>
+                                <button onClick={() => { setRejectId(a.id); setComment(''); }} className="text-xs border border-rose-500/40 text-rose-300 hover:bg-rose-500/10 px-3 py-1 rounded">✗ Отказать</button>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            {recent.length > 0 && (
+                <div className="pt-2 border-t border-slate-800">
+                    <div className="text-xs text-slate-400 mb-1">Недавние решения</div>
+                    {recent.map(a => (
+                        <div key={a.id} className="text-xs flex items-center gap-2 py-0.5">
+                            <span className={a.status === 'approved' ? 'text-emerald-400' : 'text-rose-400'}>{a.status === 'approved' ? '✓' : '✗'}</span>
+                            <span className="text-slate-300">{a.lead_name}</span>
+                            <span className="text-slate-400">«{a.to_label || a.to_stage}»</span>
+                            <span className="text-slate-500">· {a.decided_by_name || ''}</span>
+                            {a.decision_comment && <span className="text-slate-500 italic truncate">— {a.decision_comment}</span>}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
     const [statuses, setStatuses] = useState<LeadStatusRec[]>([]);
     const [loading, setLoading] = useState(true);
@@ -1220,6 +1297,32 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
         </div>
     );
 
+    // Client stages get extra "gate" controls: require a file and/or RОП approval to move onto them.
+    const renderStageRow = (s: LeadStatusRec) => (
+        <div key={s.code} className="mb-2">
+            {renderRow(s)}
+            <div className="ml-2 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1.5 bg-sky-500/5 border border-sky-500/20 rounded px-2 py-1.5 text-xs">
+                <span className="text-slate-400">Шлюз перехода:</span>
+                <label className="flex items-center gap-1 whitespace-nowrap">
+                    <input type="checkbox" className="accent-sky-600" checked={!!s.requires_file}
+                        onChange={e => upsert({ ...s, requires_file: e.target.checked })} />
+                    требует файл
+                </label>
+                {s.requires_file && (
+                    <input key={s.code + '|' + (s.file_prompt || '')} defaultValue={s.file_prompt || ''}
+                        placeholder="Что приложить (напр. «Фото чека о предоплате»)"
+                        className="bg-slate-800/60 text-slate-100 placeholder-slate-500 border border-slate-700 rounded px-2 py-1 flex-grow min-w-[220px]"
+                        onBlur={e => { if (e.target.value !== (s.file_prompt || '')) upsert({ ...s, file_prompt: e.target.value }); }} />
+                )}
+                <label className="flex items-center gap-1 whitespace-nowrap">
+                    <input type="checkbox" className="accent-violet-600" checked={!!s.requires_approval}
+                        onChange={e => upsert({ ...s, requires_approval: e.target.checked })} />
+                    требует согласования РОП/админа
+                </label>
+            </div>
+        </div>
+    );
+
     return (
         <div className="space-y-3">
             <p className="text-xs text-slate-400">
@@ -1242,9 +1345,10 @@ const StatusesSection: React.FC<{ password: string }> = ({ password }) => {
                     <span className="text-sm font-semibold text-sky-300">🎓 Этапы клиента (после выигрыша)</span>
                     <span className="text-xs text-slate-400">— контракт, оплата, документы, экзамены, виза, и т.д.</span>
                 </div>
+                <p className="text-[11px] text-slate-400 mb-2">У каждого этапа можно включить <b>шлюз</b>: «требует файл» (менеджер прикладывает документ с вашим текстом-подсказкой) и/или «требует согласования» (переход создаёт заявку РОП/админу и применяется только после подтверждения).</p>
                 {clientStages.length === 0
                     ? <p className="text-xs text-slate-400 italic">Этапов клиента нет. Создайте статус и отметьте «этап клиента».</p>
-                    : clientStages.map(renderRow)}
+                    : clientStages.map(renderStageRow)}
             </div>
             <hr />
             <div className="grid gap-2 items-center bg-emerald-500/10 p-2 rounded border border-emerald-500/30" style={{ gridTemplateColumns: 'auto 1fr 60px 60px auto auto auto' }}>
@@ -3533,6 +3637,10 @@ const AdminPanel: React.FC = () => {
 
                 <Section title="🎯 Статусы лидов" subtitle="Что менеджер выбирает в карточке лида" badge="CRM" accent="violet">
                     <StatusesSection password={password} />
+                </Section>
+
+                <Section title="🕓 Согласования этапов" subtitle="Запросы менеджеров на переход по этапам, требующим подтверждения" badge="CRM" accent="violet">
+                    <ApprovalsSection password={password} />
                 </Section>
 
                 <Section title="⏱ Уровни SLA (время на ответ)" subtitle="Базовый срок + ускорение для рекламы и горячих лидов" badge="CRM" accent="violet">

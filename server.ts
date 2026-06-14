@@ -1320,7 +1320,8 @@ function requireManager(req: express.Request, res: express.Response, next: expre
 // lidy_session cookie automatically for same-origin <img>/<a>, so the CRM file UI
 // keeps working transparently while anonymous URL access gets 401.
 function requireUploadAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-  if (!readSession(req)) return res.status(401).send("Unauthorized");
+  // A valid CRM (manager) session OR a named-admin session may read uploaded files.
+  if (!readSession(req) && !readAdminSession(req)) return res.status(401).send("Unauthorized");
   next();
 }
 
@@ -2823,12 +2824,14 @@ async function startServer() {
   function approvalsListQuery() {
     return `SELECT a.*, l.name AS lead_name, l.phone AS lead_phone,
                    fs.label AS from_label, ts.label AS to_label,
-                   m.full_name AS requested_name
+                   m.full_name AS requested_name,
+                   lf.url AS file_url, lf.filename AS file_name
             FROM stage_approvals a
             JOIN leads l ON l.id = a.lead_id
             LEFT JOIN lead_statuses fs ON fs.code = a.from_stage
             LEFT JOIN lead_statuses ts ON ts.code = a.to_stage
             LEFT JOIN managers m ON m.id = a.requested_by
+            LEFT JOIN lead_files lf ON lf.id = a.file_id
             ORDER BY (a.status='pending') DESC, a.created_at DESC LIMIT 200`;
   }
   app.get("/api/lidy/approvals", requireManager, async (req, res) => {
