@@ -36,6 +36,77 @@ const ToastHost: React.FC = () => {
     );
 };
 
+// ═════════════════════════════════════════════════════════════════════
+//  COMMAND PALETTE (Ctrl+K / Cmd+K) — search leads + run actions
+// ═════════════════════════════════════════════════════════════════════
+interface CmdAction { id: string; label: string; hint?: string; run: () => void }
+const CommandPalette: React.FC<{
+    open: boolean;
+    onClose: () => void;
+    leads: any[];
+    onPickLead: (l: any) => void;
+    actions: CmdAction[];
+}> = ({ open, onClose, leads, onPickLead, actions }) => {
+    const [q, setQ] = useState('');
+    const [sel, setSel] = useState(0);
+    const inputRef = useRef<HTMLInputElement>(null);
+    useEffect(() => { if (open) { setQ(''); setSel(0); window.setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);
+    const ql = q.trim().toLowerCase();
+    const leadMatches = ql
+        ? leads.filter(l => (l.name || '').toLowerCase().includes(ql) || (l.phone || '').toLowerCase().includes(ql) || (l.email || '').toLowerCase().includes(ql) || String(l.id) === ql).slice(0, 6)
+        : [];
+    const actMatches = actions.filter(a => !ql || a.label.toLowerCase().includes(ql));
+    const items = [
+        ...actMatches.map(a => ({ type: 'action' as const, action: a, lead: null as any })),
+        ...leadMatches.map(l => ({ type: 'lead' as const, lead: l, action: null as any })),
+    ];
+    const run = (i: number) => {
+        const it = items[i]; if (!it) return;
+        if (it.type === 'lead') onPickLead(it.lead); else it.action.run();
+        onClose();
+    };
+    if (!open) return null;
+    return (
+        <div className="fixed inset-0 z-[150] flex items-start justify-center pt-[12vh] px-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+            <div className="w-full max-w-xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+                <input ref={inputRef} value={q}
+                    onChange={e => { setQ(e.target.value); setSel(0); }}
+                    onKeyDown={e => {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setSel(s => Math.min(s + 1, items.length - 1)); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); setSel(s => Math.max(s - 1, 0)); }
+                        else if (e.key === 'Enter') { e.preventDefault(); run(sel); }
+                        else if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+                    }}
+                    placeholder="Поиск лида (имя, телефон, #id) или действие…"
+                    className="w-full bg-transparent text-slate-100 placeholder-slate-500 px-5 py-4 text-base outline-none border-b border-slate-800" />
+                <div className="max-h-80 overflow-y-auto py-1.5">
+                    {items.length === 0 && <div className="px-5 py-6 text-center text-slate-500 text-sm">Ничего не найдено</div>}
+                    {items.map((it, i) => (
+                        <button key={i} onMouseEnter={() => setSel(i)} onClick={() => run(i)}
+                            className={`w-full text-left px-5 py-2.5 flex items-center gap-3 transition-colors ${i === sel ? 'bg-sky-500/15' : 'hover:bg-slate-800/60'}`}>
+                            {it.type === 'lead' ? (
+                                <>
+                                    <span className="text-xs text-slate-500 w-10 flex-shrink-0">#{it.lead.id}</span>
+                                    <span className="flex-grow text-sm text-slate-100 truncate">{it.lead.name || '— без имени —'}</span>
+                                    <span className="text-xs text-slate-400 font-mono">{it.lead.phone}</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="text-sm text-slate-100">{it.action.label}</span>
+                                    {it.action.hint && <span className="text-xs text-slate-500 ml-auto">{it.action.hint}</span>}
+                                </>
+                            )}
+                        </button>
+                    ))}
+                </div>
+                <div className="px-5 py-2 border-t border-slate-800 text-[11px] text-slate-500 flex gap-4">
+                    <span>↑↓ выбрать</span><span>↵ открыть</span><span>Esc закрыть</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Skeleton loader — shimmering placeholder card
 const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
     <div className={`relative overflow-hidden bg-slate-800/40 rounded ${className || ''}`}>
@@ -571,9 +642,15 @@ const LeadCard: React.FC<{
     const sm = sourceMeta(lead.source || '');
     const isIncomingTransfer = lead.pending_transfer_to_id === me.id;
     const wa = lead.phone ? whatsappLink(lead.phone) : null;
+    const dupAgeH = lead.status_code === 'duplicate' && !lead.processed_at
+        ? Math.floor((Date.now() - new Date(lead.received_at).getTime()) / 3_600_000) : 0;
+    const isStaleDupe = dupAgeH >= 24;
     return (
         <div onClick={() => selectable ? onToggleSelect && onToggleSelect() : onOpen()}
-            className={`group bg-slate-900 border rounded-2xl p-4 hover:bg-slate-800/60 hover:border-sky-500/40 transition-all cursor-pointer relative ${selected ? 'ring-2 ring-sky-400 border-sky-500/60 bg-sky-500/5' : isIncomingTransfer ? 'border-fuchsia-500/50 ring-1 ring-fuchsia-500/40' : 'border-slate-800'}`}>
+            className={`group bg-slate-900 border rounded-2xl p-4 hover:bg-slate-800/60 hover:border-sky-500/40 transition-all cursor-pointer relative ${selected ? 'ring-2 ring-sky-400 border-sky-500/60 bg-sky-500/5' : isIncomingTransfer ? 'border-fuchsia-500/50 ring-1 ring-fuchsia-500/40' : isStaleDupe ? 'border-amber-500/50 ring-1 ring-amber-500/40' : 'border-slate-800'}`}>
+            {isStaleDupe && (
+                <div className="absolute -top-2 left-4 bg-amber-500 text-slate-950 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shadow">⏳ дубль висит {dupAgeH >= 48 ? `${Math.floor(dupAgeH / 24)}д` : `${dupAgeH}ч`}</div>
+            )}
             {selectable && (
                 <div className="absolute top-3 right-3 z-10">
                     <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition ${selected ? 'bg-sky-500 border-sky-400' : 'bg-slate-800/80 border-slate-600'}`}>
@@ -2549,21 +2626,23 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [closedOnly, setClosedOnly] = useState(false);
     const [hotOnly, setHotOnly] = useState(false);
     const [inboxZero, setInboxZero] = useState(false);
+    const [staleOnly, setStaleOnly] = useState(false);
     const [summary, setSummary] = useState<any>(null);
 
     // Quick filters behave like a radio group — one active at a time (re-click turns it off)
     const QUICK_STATUS_CODES = ['new', 'callback', 'no_answer', 'office_visit', 'duplicate'];
-    const activeQuick = inboxZero ? 'inbox' : overdueOnly ? 'overdue' : hotOnly ? 'hot' : closedOnly ? 'closed'
+    const activeQuick = inboxZero ? 'inbox' : overdueOnly ? 'overdue' : hotOnly ? 'hot' : closedOnly ? 'closed' : staleOnly ? 'stale'
         : (QUICK_STATUS_CODES.includes(filterStatus) ? filterStatus : '');
     const setQuick = (k: string) => {
         const wasActive = activeQuick === k;
-        setInboxZero(false); setOverdueOnly(false); setHotOnly(false); setClosedOnly(false);
+        setInboxZero(false); setOverdueOnly(false); setHotOnly(false); setClosedOnly(false); setStaleOnly(false);
         if (QUICK_STATUS_CODES.includes(filterStatus)) setFilterStatus('');
         if (wasActive) return;
         if (k === 'inbox') setInboxZero(true);
         else if (k === 'overdue') setOverdueOnly(true);
         else if (k === 'hot') setHotOnly(true);
         else if (k === 'closed') setClosedOnly(true);
+        else if (k === 'stale') setStaleOnly(true);
         else if (k) setFilterStatus(k);
     };
     const [sidebarOpen, setSidebarOpen] = useState(() => lsGet('sidebarOpen', true));
@@ -2608,14 +2687,26 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         if (f.scope) setScope(f.scope);
     };
     const deletePreset = async (id: number, name: string) => {
-        if (!confirm(`Удалить «${name}»?`)) return;
         await fetch(`/api/lidy/filter-presets/${id}`, { method: 'DELETE', credentials: 'include' });
         loadPresets();
+        toast(`Набор «${name}» удалён`, { kind: 'info' });
     };
 
     // UI state
     const [openLead, setOpenLead] = useState<Lead | null>(null);
     const [showCreate, setShowCreate] = useState(false);
+    const [cmdkOpen, setCmdkOpen] = useState(false);
+    // Global Ctrl+K / Cmd+K (Windows-friendly: Ctrl) opens the command palette.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+                e.preventDefault();
+                setCmdkOpen(o => !o);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
     const [showKB, setShowKB] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -2699,8 +2790,17 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     // Apply client-side Inbox-Zero filter (only mine, only "action needed":
     // open AND (overdue OR new with no comment) AND not in transfer-pending state)
     const displayedLeads = useMemo(() => {
-        if (!inboxZero) return leads;
         const now = Date.now();
+        if (staleOnly) {
+            // Open leads no one has touched in 7+ days (last activity = updated_at, else received).
+            const cutoff = now - 7 * 86_400_000;
+            return leads.filter(l => {
+                if (l.processed_at || l.status_is_terminal) return false;
+                const last = new Date((l as any).updated_at || l.received_at).getTime();
+                return last < cutoff;
+            });
+        }
+        if (!inboxZero) return leads;
         return leads.filter(l => {
             if (l.processed_at) return false;
             if (l.assigned_manager_id !== manager.id) return false;
@@ -2709,7 +2809,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             const hasOpenTasks = (l.open_tasks || 0) > 0;
             return overdue || isNew || hasOpenTasks;
         });
-    }, [leads, inboxZero, manager.id]);
+    }, [leads, inboxZero, staleOnly, manager.id]);
     useEffect(() => {
         if (!autoRefresh) return;
         const t = window.setInterval(load, 15000);
@@ -2810,18 +2910,30 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
     const activeFiltersCount = [filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
         filterManagerId, filterFrom, filterTo].filter(Boolean).length
-        + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0) + (closedOnly ? 1 : 0) + (hotOnly ? 1 : 0) + (inboxZero ? 1 : 0);
+        + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0) + (closedOnly ? 1 : 0) + (hotOnly ? 1 : 0) + (inboxZero ? 1 : 0) + (staleOnly ? 1 : 0);
 
     const resetFilters = () => {
         setFilterStatus(''); setFilterSource(''); setFilterCountry(''); setFilterUniversity('');
         setFilterLevel(''); setFilterManagerId(''); setFilterFrom(''); setFilterTo('');
         setOverdueOnly(false); setIncludeClosed(false); setClosedOnly(false); setHotOnly(false);
-        setInboxZero(false); setSearch('');
+        setInboxZero(false); setStaleOnly(false); setSearch('');
     };
 
     return (
         <div className="min-h-screen flex flex-col relative text-slate-100 bg-slate-950">
             <ToastHost />
+            <CommandPalette open={cmdkOpen} onClose={() => setCmdkOpen(false)} leads={leads} onPickLead={l => setOpenLead(l)}
+                actions={[
+                    { id: 'create', label: '＋ Создать лида', hint: 'вручную', run: () => setShowCreate(true) },
+                    { id: 'f-overdue', label: '⏰ Фильтр: Просроченные', run: () => setQuick('overdue') },
+                    { id: 'f-hot', label: '🔥 Фильтр: Горячие', run: () => setQuick('hot') },
+                    { id: 'f-new', label: '🆕 Фильтр: Новые', run: () => setQuick('new') },
+                    { id: 'f-callback', label: '📞 Фильтр: Перезвонить', run: () => setQuick('callback') },
+                    { id: 'f-stale', label: '🕸 Фильтр: Давно без движения', run: () => setQuick('stale') },
+                    { id: 'f-inbox', label: '📥 Фильтр: Inbox 0', run: () => setQuick('inbox') },
+                    { id: 'f-reset', label: '✕ Сбросить фильтры', run: () => resetFilters() },
+                    { id: 'kb', label: '📖 База знаний', run: () => setShowKB(true) },
+                ]} />
 
             {/* Top bar — calm, no glow */}
             <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800">
@@ -2941,6 +3053,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                     { k: 'no_answer', l: '🔇 Не ответил', cls: 'slate', t: 'Не берут трубку — попробуйте другой канал или время' },
                                     { k: 'office_visit', l: '🏢 Визиты в офис', cls: 'cyan', t: 'Назначенные встречи (статус «Подойдёт в офис»)' },
                                     { k: 'duplicate', l: '🔁 Дубли', cls: 'violet', t: 'Повторные обращения клиентов — история в оригинальном лиде' },
+                                    { k: 'stale', l: '🕸 Давно без движения', cls: 'amber', t: 'Открытые лиды, которых никто не трогал 7+ дней — реанимируйте или закройте' },
                                     { k: 'closed', l: '📂 Закрытые', cls: 'emerald', t: 'Только завершённые: выигранные и отказы' },
                                 ].map(f => {
                                     const on = activeQuick === f.k;
@@ -3144,7 +3257,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     {/* Header bar: results count + view switcher */}
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                         <div className="text-sm text-slate-300">
-                            {loading ? 'Загрузка…' : `Найдено: ${leads.length}`}
+                            {loading ? 'Загрузка…' : `Найдено: ${displayedLeads.length}`}
                             {search.trim() && <span className="ml-2 text-slate-400">по запросу «{search.trim()}»</span>}
                         </div>
                         <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 shadow-sm flex-wrap">
@@ -3246,7 +3359,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                 credentials: 'include',
                                 body: JSON.stringify({ ids: [...selectedIds], action: 'set_status', payload: { status: code } }),
                             });
-                            setSelectedIds(new Set()); load();
+                            const n = selectedIds.size; setSelectedIds(new Set()); load();
+                            toast(`Статус сменён у ${n} лид(ов)`);
                             e.target.value = '';
                         }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
                             <option value="">→ Сменить статус…</option>
@@ -3259,7 +3373,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                 credentials: 'include',
                                 body: JSON.stringify({ ids: [...selectedIds], action: 'set_stage', payload: { stage: code === '__none__' ? '' : code } }),
                             });
-                            setSelectedIds(new Set()); load();
+                            const n = selectedIds.size; setSelectedIds(new Set()); load();
+                            toast(`Этап обновлён у ${n} лид(ов)`);
                             e.target.value = '';
                         }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
                             <option value="">→ Этап клиента…</option>
@@ -3275,7 +3390,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                     credentials: 'include',
                                     body: JSON.stringify({ ids: [...selectedIds], action, payload: { tag_id: Number(id) } }),
                                 });
-                                setSelectedIds(new Set()); load();
+                                const n = selectedIds.size; setSelectedIds(new Set()); load();
+                                toast(`Метка обновлена у ${n} лид(ов)`);
                                 e.target.value = '';
                             }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
                                 <option value="">→ Метка…</option>
@@ -3295,7 +3411,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                     credentials: 'include',
                                     body: JSON.stringify({ ids: [...selectedIds], action: 'reassign', payload: { manager_id: Number(mgrId) } }),
                                 });
-                                setSelectedIds(new Set()); load();
+                                const n = selectedIds.size; setSelectedIds(new Set()); load();
+                                toast(`Переназначено ${n} лид(ов)`);
                                 e.target.value = '';
                             }} className="text-sm bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-100">
                                 <option value="">→ Переназначить…</option>
