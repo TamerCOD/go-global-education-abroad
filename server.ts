@@ -3860,6 +3860,109 @@ async function startServer() {
     }
   });
 
+  // Teamlead bulk CSV import. Client parses the file and posts clean JSON rows.
+  // No per-row Telegram/push spam (one summary), no duplicate-status explosion —
+  // optional skipDuplicates drops rows whose phone/email already exists.
+  app.post("/api/lidy/leads/import", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+
+      const rows: any[] = Array.isArray(req.body?.rows) ? req.body.rows : [];
+      if (rows.length === 0) return res.status(400).json({ error: "Нет строк для импорта" });
+      if (rows.length > 2000) return res.status(400).json({ error: "Слишком много строк (максимум 2000 за раз)" });
+      const skipDuplicates = req.body?.skipDuplicates !== false; // default ON
+      const assignTo = req.body?.assignTo; // 'auto' | number | undefined
+
+      // Resolve a fixed assignee once if a specific manager was chosen
+      let fixedAssignee: any = null;
+      if (assignTo && assignTo !== "auto") {
+        fixedAssignee = await loadManager(Number(assignTo));
+        if (!fixedAssignee || fixedAssignee.archived_at || !fixedAssignee.active) {
+          return res.status(400).json({ error: "Выбранный менеджер недоступен" });
+        }
+      }
+
+      let created = 0, skipped = 0, failed = 0;
+      const createdIds: number[] = [];
+      for (const row of rows) {
+        try {
+          const name = (row.name || "").toString().slice(0, 200);
+          const phone = (row.phone || "").toString().slice(0, 50);
+          const email = (row.email || "").toString().slice(0, 200);
+          if (!name && !phone && !email) { failed++; continue; }
+
+          if (skipDuplicates) {
+            const normPhone = phone.replace(/\D/g, "").slice(-10);
+            if (normPhone || email) {
+              const dup = await pq().query(
+                `SELECT id FROM leads
+                 WHERE deleted_at IS NULL AND (
+                   (LENGTH($1) >= 7 AND REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]','','g') LIKE '%' || $1)
+                   OR ($2 <> '' AND LOWER(COALESCE(email,'')) = LOWER($2)))
+                 LIMIT 1`,
+                [normPhone, email]
+              );
+              if (dup.rows.length > 0) { skipped++; continue; }
+            }
+          }
+
+          const source = (row.source || "").toString().trim().slice(0, 80) || "Импорт";
+          const country = (row.country || "").toString().slice(0, 100);
+          const comment = (row.comment || "").toString().slice(0, 2000);
+          const desired_university = (row.desired_university || "").toString().slice(0, 200);
+          const study_level = (row.study_level || "").toString().slice(0, 80);
+          const intake_term = (row.intake_term || "").toString().slice(0, 80);
+          const budget = (row.budget || "").toString().slice(0, 80);
+          const english_level = (row.english_level || "").toString().slice(0, 40);
+          const birth_year = row.birth_year ? Number(row.birth_year) || null : null;
+          const current_education = (row.current_education || "").toString().slice(0, 120);
+
+          const assignee = fixedAssignee || (assignTo === "auto" ? await pickNextManager({ country, source, study_level, english_level }) : null);
+          const slaDeadline = assignee
+            ? computeSlaDeadline(new Date(), (assignee.working_hours as WorkingSchedule | null) ?? DEFAULT_SCHEDULE, slaMinutesFor(source))
+            : null;
+
+          const ins = await pq().query(
+            `INSERT INTO leads (name, phone, email, country, comment, source, raw,
+                                assigned_manager_id, status_code, sla_deadline_at,
+                                desired_university, study_level, intake_term, budget,
+                                english_level, birth_year, current_education)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'new',$9,$10,$11,$12,$13,$14,$15,$16)
+             RETURNING id`,
+            [name, phone, email, country, comment, source,
+             JSON.stringify({ ...row, _imported_by: me.login, _import: true }),
+             assignee?.id ?? null, slaDeadline,
+             desired_university || null, study_level || null, intake_term || null, budget || null,
+             english_level || null, birth_year, current_education || null]
+          );
+          createdIds.push(ins.rows[0].id);
+          created++;
+        } catch (rowErr) {
+          console.error("[lidy/import row]", rowErr);
+          failed++;
+        }
+      }
+
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "lead.import", entity_type: "lead", entity_id: null,
+        after: { created, skipped, failed, total: rows.length },
+      });
+      sendTelegram(
+        `📥 <b>Импорт лидов</b> от ${escapeHtml(me.full_name)}: ` +
+        `создано <b>${created}</b>, пропущено дублей ${skipped}, ошибок ${failed} (всего строк ${rows.length}).`
+      ).catch(() => {});
+
+      res.json({ ok: true, created, skipped, failed, total: rows.length, createdIds });
+    } catch (err) {
+      console.error("[lidy/leads import]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
   // Teamlead can delete a lead from /lidy
   app.delete("/api/lidy/leads/:id", requireManager, async (req, res) => {
     try {

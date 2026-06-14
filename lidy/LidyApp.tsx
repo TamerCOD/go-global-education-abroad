@@ -2451,6 +2451,228 @@ const Field: React.FC<{ label: string; value?: string | null }> = ({ label, valu
 );
 
 // ═════════════════════════════════════════════════════════════════════
+//  CSV IMPORT MODAL (teamlead) — client-side parse → bulk insert
+// ═════════════════════════════════════════════════════════════════════
+const IMPORT_FIELDS: [string, string][] = [
+    ['', '— не импортировать —'],
+    ['name', 'Имя'], ['phone', 'Телефон'], ['email', 'Email'], ['country', 'Страна'],
+    ['source', 'Источник'], ['comment', 'Комментарий'], ['desired_university', 'ВУЗ'],
+    ['study_level', 'Уровень'], ['intake_term', 'Поступление'], ['budget', 'Бюджет'],
+    ['english_level', 'Английский'], ['birth_year', 'Год рождения'], ['current_education', 'Образование'],
+];
+const IMPORT_ALIASES: Record<string, string[]> = {
+    name: ['name', 'имя', 'фио', 'клиент', 'contact', 'контакт', 'full name'],
+    phone: ['phone', 'телефон', 'тел', 'тлф', 'номер', 'mobile', 'whatsapp', 'ватсап'],
+    email: ['email', 'почта', 'e-mail', 'мейл', 'mail'],
+    country: ['country', 'страна'],
+    source: ['source', 'источник', 'откуда'],
+    comment: ['comment', 'комментарий', 'заметка', 'note', 'примечание'],
+    desired_university: ['university', 'вуз', 'университет', 'desired_university'],
+    study_level: ['level', 'уровень', 'study_level', 'программа'],
+    intake_term: ['intake', 'term', 'intake_term', 'семестр', 'поступление'],
+    budget: ['budget', 'бюджет'],
+    english_level: ['english', 'английский', 'english_level', 'язык'],
+    birth_year: ['birth_year', 'год', 'год рождения', 'birthyear'],
+    current_education: ['education', 'образование', 'current_education'],
+};
+function autoMapHeader(h: string): string {
+    const k = h.trim().toLowerCase();
+    for (const [field, aliases] of Object.entries(IMPORT_ALIASES)) {
+        if (aliases.includes(k)) return field;
+    }
+    return '';
+}
+// Minimal RFC-4180-ish CSV parser: quotes, escaped quotes, , or ; delimiter, CRLF/LF, BOM.
+function parseCsv(text: string): { headers: string[]; rows: string[][] } {
+    let s = text.replace(/^﻿/, '');
+    // Detect delimiter from the first line
+    const firstLine = s.slice(0, s.search(/\r?\n/) === -1 ? s.length : s.search(/\r?\n/));
+    const delim = (firstLine.split(';').length > firstLine.split(',').length) ? ';' : ',';
+    const out: string[][] = [];
+    let row: string[] = [], cur = '', inQ = false;
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (inQ) {
+            if (c === '"') {
+                if (s[i + 1] === '"') { cur += '"'; i++; } else { inQ = false; }
+            } else cur += c;
+        } else {
+            if (c === '"') inQ = true;
+            else if (c === delim) { row.push(cur); cur = ''; }
+            else if (c === '\n') { row.push(cur); out.push(row); row = []; cur = ''; }
+            else if (c === '\r') { /* skip */ }
+            else cur += c;
+        }
+    }
+    if (cur !== '' || row.length) { row.push(cur); out.push(row); }
+    const nonEmpty = out.filter(r => r.some(c => c.trim() !== ''));
+    if (nonEmpty.length === 0) return { headers: [], rows: [] };
+    return { headers: nonEmpty[0].map(h => h.trim()), rows: nonEmpty.slice(1) };
+}
+
+const ImportLeadsModal: React.FC<{ onClose: () => void; onDone: () => void; roster: RosterManager[] }> = ({ onClose, onDone, roster }) => {
+    const [fileName, setFileName] = useState('');
+    const [headers, setHeaders] = useState<string[]>([]);
+    const [rawRows, setRawRows] = useState<string[][]>([]);
+    const [mapping, setMapping] = useState<string[]>([]); // per-column target field
+    const [assignTo, setAssignTo] = useState<string>('auto');
+    const [skipDuplicates, setSkipDuplicates] = useState(true);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const [result, setResult] = useState<{ created: number; skipped: number; failed: number; total: number } | null>(null);
+
+    const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        setErr(''); setResult(null);
+        const reader = new FileReader();
+        reader.onload = () => {
+            try {
+                const { headers, rows } = parseCsv(String(reader.result || ''));
+                if (headers.length === 0) { setErr('Файл пуст или не распознан'); return; }
+                setHeaders(headers);
+                setRawRows(rows);
+                setMapping(headers.map(autoMapHeader));
+                setFileName(f.name);
+            } catch { setErr('Не удалось разобрать CSV'); }
+        };
+        reader.readAsText(f, 'utf-8');
+    };
+
+    const mappedRows = () => rawRows.map(cells => {
+        const obj: Record<string, string> = {};
+        mapping.forEach((field, i) => { if (field && cells[i] != null && cells[i].trim() !== '') obj[field] = cells[i].trim(); });
+        return obj;
+    }).filter(o => o.name || o.phone || o.email);
+
+    const previewRows = mappedRows().slice(0, 5);
+    const validCount = mappedRows().length;
+    const hasIdentity = mapping.some(m => m === 'name' || m === 'phone' || m === 'email');
+    const activeManagers = roster.filter(m => m.role === 'manager' && m.active !== false && !m.archived_at);
+
+    const doImport = async () => {
+        const rows = mappedRows();
+        if (rows.length === 0) { setErr('Нет строк с именем/телефоном/email'); return; }
+        setBusy(true); setErr('');
+        try {
+            const r = await fetch('/api/lidy/leads/import', {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rows, assignTo, skipDuplicates }),
+            });
+            const j = await r.json();
+            if (!r.ok) { setErr(j.error || `HTTP ${r.status}`); return; }
+            setResult({ created: j.created, skipped: j.skipped, failed: j.failed, total: j.total });
+            toast(`Импортировано: ${j.created} (пропущено ${j.skipped})`);
+            onDone();
+        } catch (e: any) { setErr(e?.message || 'Ошибка импорта'); }
+        finally { setBusy(false); }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[120] flex items-start justify-center p-4 overflow-y-auto bg-slate-950/70 backdrop-blur-sm" onClick={onClose}>
+            <div className="relative w-full max-w-2xl my-8 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+                    <h3 className="text-lg font-bold text-slate-50">📥 Импорт лидов из CSV</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-xl leading-none">×</button>
+                </div>
+                <div className="p-6 space-y-5">
+                    {result ? (
+                        <div className="text-center py-6">
+                            <div className="text-5xl mb-3">✅</div>
+                            <div className="text-lg font-semibold text-slate-50 mb-2">Импорт завершён</div>
+                            <div className="text-sm text-slate-300 space-y-1">
+                                <div>Создано: <b className="text-emerald-300">{result.created}</b></div>
+                                <div>Пропущено дублей: <b className="text-amber-300">{result.skipped}</b></div>
+                                {result.failed > 0 && <div>Ошибок: <b className="text-rose-300">{result.failed}</b></div>}
+                                <div className="text-slate-500">Всего строк: {result.total}</div>
+                            </div>
+                            <Btn variant="primary" onClick={onClose} className="mt-5">Готово</Btn>
+                        </div>
+                    ) : (
+                        <>
+                            <div>
+                                <label className="block text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">1. Выберите CSV-файл</label>
+                                <input type="file" accept=".csv,text/csv" onChange={onFile}
+                                    className="block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-sky-600 file:text-white file:font-semibold hover:file:bg-sky-500 cursor-pointer" />
+                                <p className="text-xs text-slate-500 mt-1.5">Первая строка — заголовки. Разделитель «,» или «;». Колонки сопоставятся автоматически (можно поправить).</p>
+                                {fileName && <p className="text-xs text-sky-300 mt-1">📄 {fileName} — строк: {rawRows.length}</p>}
+                            </div>
+
+                            {headers.length > 0 && (
+                                <>
+                                    <div>
+                                        <label className="block text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">2. Сопоставление колонок</label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {headers.map((h, i) => (
+                                                <div key={i} className="flex items-center gap-2 text-sm">
+                                                    <span className="text-slate-400 truncate flex-1 font-mono text-xs" title={h}>{h || `колонка ${i + 1}`}</span>
+                                                    <span className="text-slate-600">→</span>
+                                                    <select value={mapping[i] || ''} onChange={e => setMapping(m => m.map((v, j) => j === i ? e.target.value : v))}
+                                                        className="text-sm bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200 flex-1">
+                                                        {IMPORT_FIELDS.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+                                                    </select>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {!hasIdentity && <p className="text-xs text-rose-300 mt-2">⚠ Сопоставьте хотя бы одну из колонок: Имя, Телефон или Email.</p>}
+                                    </div>
+
+                                    {previewRows.length > 0 && (
+                                        <div>
+                                            <label className="block text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Предпросмотр (первые {previewRows.length})</label>
+                                            <div className="overflow-x-auto rounded-lg border border-slate-800">
+                                                <table className="w-full text-xs">
+                                                    <thead><tr className="text-left text-slate-400 bg-slate-800/40">
+                                                        <th className="px-2 py-1">Имя</th><th className="px-2 py-1">Телефон</th><th className="px-2 py-1">Email</th><th className="px-2 py-1">Страна</th>
+                                                    </tr></thead>
+                                                    <tbody>
+                                                        {previewRows.map((r, i) => (
+                                                            <tr key={i} className="border-t border-slate-800/60 text-slate-200">
+                                                                <td className="px-2 py-1">{r.name || '—'}</td><td className="px-2 py-1 font-mono">{r.phone || '—'}</td>
+                                                                <td className="px-2 py-1">{r.email || '—'}</td><td className="px-2 py-1">{r.country || '—'}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">3. Назначить</label>
+                                            <select value={assignTo} onChange={e => setAssignTo(e.target.value)}
+                                                className="w-full text-sm bg-slate-800 border border-slate-700 rounded px-2 py-2 text-slate-200">
+                                                <option value="auto">⚙ Авто (по правилам / очереди)</option>
+                                                {activeManagers.map(m => <option key={m.id} value={String(m.id)}>{m.full_name}</option>)}
+                                            </select>
+                                        </div>
+                                        <label className="flex items-center gap-2 text-sm text-slate-300 mt-6 cursor-pointer">
+                                            <input type="checkbox" checked={skipDuplicates} onChange={e => setSkipDuplicates(e.target.checked)} className="accent-sky-500" />
+                                            Пропускать дубли (по телефону/email)
+                                        </label>
+                                    </div>
+                                </>
+                            )}
+
+                            {err && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm rounded-lg px-3 py-2">⚠ {err}</div>}
+
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                                <Btn variant="ghost" onClick={onClose}>Отмена</Btn>
+                                <Btn variant="primary" onClick={doImport} disabled={busy || validCount === 0 || !hasIdentity}>
+                                    {busy ? 'Импорт…' : `Импортировать ${validCount} лид(ов)`}
+                                </Btn>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ═════════════════════════════════════════════════════════════════════
 //  CREATE LEAD MODAL
 // ═════════════════════════════════════════════════════════════════════
 const CreateLeadModal: React.FC<{
@@ -2763,6 +2985,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     // UI state
     const [openLead, setOpenLead] = useState<Lead | null>(null);
     const [showCreate, setShowCreate] = useState(false);
+    const [showImport, setShowImport] = useState(false);
     const [cmdkOpen, setCmdkOpen] = useState(false);
     // Global Ctrl+K / Cmd+K (Windows-friendly: Ctrl) opens the command palette.
     useEffect(() => {
@@ -3041,6 +3264,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         </button>
                         <Btn variant="secondary" onClick={() => setShowKB(true)} title="База знаний — статьи и инструкции для менеджеров">📖</Btn>
                         <Btn variant="primary" onClick={() => setShowCreate(true)} title="Создать лида вручную: звонок, визит в офис, рекомендация">+ Лид</Btn>
+                        {isTeamlead && <Btn variant="secondary" onClick={() => setShowImport(true)} title="Импорт лидов из CSV-файла">📥 CSV</Btn>}
                         <Dropdown align="right" width="w-60"
                             buttonCls="flex items-center gap-1 p-1 rounded-full hover:bg-slate-800 transition-colors"
                             button={<Avatar name={manager.full_name} size="sm" />}>
@@ -3514,6 +3738,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             {showCreate && (
                 <CreateLeadModal onClose={() => setShowCreate(false)} onCreated={load}
                     sourceOptions={sourceOptions} roster={roster} isTeamlead={isTeamlead} />
+            )}
+
+            {/* CSV import modal (teamlead) */}
+            {showImport && (
+                <ImportLeadsModal onClose={() => setShowImport(false)} onDone={load} roster={roster} />
             )}
 
             {/* Knowledge base modal */}
