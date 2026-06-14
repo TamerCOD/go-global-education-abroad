@@ -981,6 +981,7 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
     });
     const [editing, setEditing] = useState<Record<number, Partial<ManagerRec> & { password?: string }>>({});
     const [openSchedule, setOpenSchedule] = useState<Record<number, boolean>>({});
+    const [tgCodes, setTgCodes] = useState<Record<number, string>>({});
 
     const load = async () => {
         setLoading(true);
@@ -991,6 +992,15 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
         } finally { setLoading(false); }
     };
     useEffect(() => { load(); }, []);
+
+    // Generate / regenerate a one-time Telegram link code (regenerating unlinks the bot).
+    const genTgCode = async (id: number, linked: boolean) => {
+        if (linked && !window.confirm('У сотрудника уже привязан Telegram. Новый код сбросит текущую привязку — продолжить?')) return;
+        const r = await fetch(`/api/admin/managers/${id}/tg-code`, { method: 'POST', headers: { 'X-Admin-Password': password } });
+        const j = await r.json().catch(() => ({}));
+        if (j.code) { setTgCodes(p => ({ ...p, [id]: j.code })); load(); }
+        else alert('Не удалось создать код: ' + (j.error || r.status));
+    };
 
     const create = async () => {
         if (!draft.login || !draft.password || !draft.full_name) {
@@ -1135,11 +1145,19 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
                                                     className={`text-xs px-2 py-1 rounded mr-1 ${isScheduleOpen ? 'bg-brand-200 text-brand-800' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>
                                                     🕐 Часы
                                                 </button>
+                                                <button onClick={() => genTgCode(m.id, !!(m as any).tg_linked)}
+                                                    title="Код привязки Telegram-бота для сотрудника. Новый код сбрасывает текущую привязку."
+                                                    className={`text-xs px-2 py-1 rounded mr-1 ${(m as any).tg_linked ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800/70 hover:bg-slate-700 text-slate-200'}`}>
+                                                    📱 {(m as any).tg_linked ? 'TG ✓' : 'TG-код'}
+                                                </button>
                                                 <button onClick={() => update(m.id)} disabled={!hasEdit} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-30 text-white text-xs px-3 py-1 rounded mr-1">Сохранить</button>
                                                 {m.archived_at ? (
                                                     <button onClick={() => restore(m.id, m.full_name)} className="bg-emerald-500/20 hover:bg-emerald-200 text-emerald-300 text-xs px-3 py-1 rounded">↺ Восстановить</button>
                                                 ) : (
                                                     <button onClick={() => remove(m.id, m.full_name, (m as any).lead_count || 0)} className="bg-red-100 hover:bg-red-200 text-red-300 text-xs px-3 py-1 rounded">Уволить</button>
+                                                )}
+                                                {(tgCodes[m.id] || ((m as any).tg_link_code && !(m as any).tg_linked)) && (
+                                                    <div className="text-[11px] mt-1 text-amber-300">код для бота: <b className="font-mono">{tgCodes[m.id] || (m as any).tg_link_code}</b> — отдайте сотруднику</div>
                                                 )}
                                             </td>
                                         </tr>

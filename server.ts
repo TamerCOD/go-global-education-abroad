@@ -187,6 +187,104 @@ async function sendTelegram(text: string): Promise<boolean> {
   }
 }
 
+// Send a Telegram message to a specific chat — per-user DMs after they link the bot.
+async function sendTelegramTo(chatId: string | number, text: string): Promise<boolean> {
+  if (!TELEGRAM_BOT_TOKEN || !chatId) return false;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+// Look up a manager's linked Telegram chat and DM them personally. No-op if unlinked.
+async function sendManagerTg(managerId: number | null | undefined, text: string): Promise<void> {
+  if (!pool || !managerId || !TELEGRAM_BOT_TOKEN) return;
+  try {
+    const { rows } = await pool.query(`SELECT telegram_chat_id FROM managers WHERE id = $1`, [managerId]);
+    const cid = rows[0]?.telegram_chat_id;
+    if (cid) await sendTelegramTo(String(cid), text);
+  } catch {}
+}
+// DM every linked teamlead/admin (used for approval requests etc.).
+async function notifyTeamleadsTg(text: string): Promise<void> {
+  if (!pool || !TELEGRAM_BOT_TOKEN) return;
+  try {
+    const { rows } = await pool.query(
+      `SELECT telegram_chat_id FROM managers WHERE role = 'teamlead' AND telegram_chat_id IS NOT NULL AND archived_at IS NULL`
+    );
+    for (const r of rows) if (r.telegram_chat_id) await sendTelegramTo(String(r.telegram_chat_id), text);
+  } catch {}
+}
+
+// ── Telegram bot pairing (private chat /start → login → one-time code) ──
+const TG_WEBHOOK_SECRET = (process.env.TELEGRAM_WEBHOOK_SECRET || JWT_SECRET || "gg")
+  .replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40) || "gg-webhook";
+const tgChatState = new Map<number, { step: "await_login" | "await_code"; login?: string }>();
+function genLinkCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars
+  let s = "";
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+async function handleTgMessage(chatId: number, text: string): Promise<void> {
+  if (!pool) return;
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === "/start" || lower === "start" || lower === "/login") {
+    tgChatState.set(chatId, { step: "await_login" });
+    await sendTelegramTo(chatId, "👋 Это бот <b>GoGlobal CRM</b>.\nОтправьте ваш <b>логин</b> сотрудника (как при входе в CRM).");
+    return;
+  }
+  if (lower === "/stop" || lower === "/unlink") {
+    await pool.query(`UPDATE managers SET telegram_chat_id = NULL WHERE telegram_chat_id = $1`, [chatId]);
+    tgChatState.delete(chatId);
+    await sendTelegramTo(chatId, "🔌 Уведомления отвязаны. Чтобы привязать снова — /start.");
+    return;
+  }
+  const st = tgChatState.get(chatId);
+  if (!st) {
+    await sendTelegramTo(chatId, "Чтобы получать уведомления, отправьте /start.");
+    return;
+  }
+  if (st.step === "await_login") {
+    const { rows } = await pool.query(
+      `SELECT id, full_name, tg_link_code FROM managers WHERE LOWER(login) = LOWER($1) AND archived_at IS NULL`, [trimmed]);
+    if (rows.length === 0) {
+      await sendTelegramTo(chatId, "❌ Такой логин не найден. Проверьте и отправьте ещё раз, или /start заново.");
+      return;
+    }
+    tgChatState.set(chatId, { step: "await_code", login: trimmed });
+    await sendTelegramTo(chatId, `Логин найден: <b>${escapeHtml(rows[0].full_name)}</b>.\nТеперь отправьте <b>код привязки</b> — его выдаёт администратор в админке (раздел «Менеджеры»).`);
+    return;
+  }
+  if (st.step === "await_code") {
+    const { rows } = await pool.query(
+      `SELECT id, full_name FROM managers WHERE LOWER(login) = LOWER($1) AND tg_link_code = $2 AND archived_at IS NULL`,
+      [st.login, trimmed]);
+    if (rows.length === 0) {
+      await sendTelegramTo(chatId, "❌ Неверный код. Запросите актуальный код у администратора и отправьте снова (или /start).");
+      return;
+    }
+    await pool.query(`UPDATE managers SET telegram_chat_id = NULL WHERE telegram_chat_id = $1`, [chatId]);
+    await pool.query(`UPDATE managers SET telegram_chat_id = $1 WHERE id = $2`, [chatId, rows[0].id]);
+    tgChatState.delete(chatId);
+    await sendTelegramTo(chatId, `✅ Готово, <b>${escapeHtml(rows[0].full_name)}</b>! Уведомления привязаны.\nСюда будут приходить: новые лиды, решения по согласованиям, напоминания по SLA и задачам.`);
+  }
+}
+async function registerTelegramWebhook(): Promise<void> {
+  if (!TELEGRAM_BOT_TOKEN || !PUBLIC_BASE_URL || PUBLIC_BASE_URL.startsWith("http://localhost")) return;
+  try {
+    const url = `${PUBLIC_BASE_URL.replace(/\/$/, "")}/api/telegram/webhook`;
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, secret_token: TG_WEBHOOK_SECRET, allowed_updates: ["message"] }),
+    });
+    console.log(`[telegram] setWebhook ${url}: ${res.ok ? "ok" : "failed " + res.status}`);
+  } catch (e) { console.error("[telegram] setWebhook error:", e); }
+}
+
 function escapeHtml(s: string) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -246,6 +344,10 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'manager';`);
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS is_online BOOLEAN NOT NULL DEFAULT TRUE;`);
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;`);
+    // Telegram personal linking: a one-time code the employee enters in the bot,
+    // and the linked chat id the bot DMs alerts to.
+    await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS tg_link_code TEXT;`);
+    await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT;`);
     // Transfer (handoff) columns on leads
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_to_id BIGINT REFERENCES managers(id) ON DELETE SET NULL;`);
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS pending_transfer_at TIMESTAMPTZ;`);
@@ -1173,6 +1275,9 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
       `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
     ];
     sendTelegram(lines.join("\n")).catch(() => {});
+    for (const d of details) {
+      sendManagerTg(d.manager.id, `🆕 <b>Вам назначен лид</b> ${escapeHtml(d.lead.name || "#"+d.leadId)}. Ответьте в течение SLA.`).catch(() => {});
+    }
   }
   return { assigned: details.length, details };
 }
@@ -1532,6 +1637,7 @@ async function checkSlaBreaches() {
           tag: `sla-${lead.id}`,
           requireInteraction: true,
         }).catch(() => {});
+        sendManagerTg(lead.manager_id, `⏰ <b>Просрочен SLA по лиду #${lead.id}</b>\nБез первой реакции уже ${Math.floor(overdueMin / 60)}ч ${overdueMin % 60}м. Срочно обработайте в CRM.`).catch(() => {});
       }
     }
   } catch (err) {
@@ -1545,7 +1651,7 @@ async function checkTaskReminders() {
   try {
     await dbReady!;
     const { rows } = await pool.query(
-      `SELECT t.id, t.lead_id, t.title, t.due_at,
+      `SELECT t.id, t.lead_id, t.title, t.due_at, t.assigned_to_id,
               m.full_name AS assignee_name, m.telegram_tag,
               l.name AS lead_name
        FROM lead_tasks t
@@ -1570,6 +1676,7 @@ async function checkTaskReminders() {
           `🔗 <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть CRM</a>`,
         ].filter(Boolean).join("\n")
       ).catch(() => {});
+      if (t.assigned_to_id) sendManagerTg(t.assigned_to_id, `⏰ <b>Просрочена задача</b>\n📋 ${escapeHtml(t.title)}${t.lead_name ? `\nПо лиду «${escapeHtml(t.lead_name)}» (#${t.lead_id})` : ""}`).catch(() => {});
       await pool.query(`UPDATE lead_tasks SET reminded_at = NOW() WHERE id = $1`, [t.id]);
     }
   } catch (err) {
@@ -2033,6 +2140,7 @@ async function startServer() {
             url: CRM_PATH,
             tag: `lead-${dupId}`,
           }).catch(() => {});
+          sendManagerTg(dupAssignee.id, `🔁 <b>Повторное обращение клиента</b> ${escapeHtml(name || phone || email || "—")} (оригинал #${existing.id}). Создан дубль — проверьте в CRM.`).catch(() => {});
         }
         return { leadId: dupId, assigned: dupAssignee?.id ?? null, deduplicated: true, duplicateOf: existing.id };
       }
@@ -2107,6 +2215,7 @@ async function startServer() {
         url: CRM_PATH,
         tag: `lead-${leadId}`,
       }).catch(() => {});
+      sendManagerTg(manager.id, `🆕 <b>Новый лид</b> ${escapeHtml(name || phone || email || "—")}${country ? " · " + escapeHtml(country) : ""}\nИсточник: ${escapeHtml(source || "—")}. Откройте CRM и ответьте в течение SLA.`).catch(() => {});
     }
 
     return { leadId, assigned: manager?.id ?? null };
@@ -2803,6 +2912,7 @@ async function startServer() {
       await pq().query(`INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1,NULL,$2,'system',$3)`,
         [ap.lead_id, "🤖 Согласование", `✅ Переход на этап «${toLabel}» подтверждён (${decider.name}).`]);
       if (ap.requested_by) sendPush({ managerId: ap.requested_by, title: `✅ Этап подтверждён`, body: `Лид «${lr.rows[0].name || "#"+ap.lead_id}» переведён на «${toLabel}»`, url: CRM_PATH, tag: `appr-${approvalId}` }).catch(() => {});
+      if (ap.requested_by) sendManagerTg(ap.requested_by, `✅ <b>Согласование подтверждено</b>\nЛид «${escapeHtml(lr.rows[0].name || "#"+ap.lead_id)}» переведён на этап «${escapeHtml(toLabel)}» (${escapeHtml(decider.name)}).`).catch(() => {});
       return { ok: true };
     } else {
       await pq().query(`UPDATE stage_approvals SET status='rejected', decided_by=$1, decided_by_name=$2, decision_comment=$3, decided_at=NOW() WHERE id=$4`,
@@ -2810,6 +2920,7 @@ async function startServer() {
       await pq().query(`INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1,NULL,$2,'system',$3)`,
         [ap.lead_id, "🤖 Согласование", `❌ Переход на этап «${toLabel}» отклонён (${decider.name})${comment ? `: ${comment}` : ""}. Этап остался прежним.`]);
       if (ap.requested_by) sendPush({ managerId: ap.requested_by, title: `❌ Переход отклонён`, body: `«${toLabel}»${comment ? `: ${comment}` : ""}`, url: CRM_PATH, tag: `appr-${approvalId}` }).catch(() => {});
+      if (ap.requested_by) sendManagerTg(ap.requested_by, `❌ <b>Переход отклонён</b>\nЭтап «${escapeHtml(toLabel)}» не подтверждён (${escapeHtml(decider.name)})${comment ? `:\n«${escapeHtml(comment)}»` : ""}. Этап остался прежним.`).catch(() => {});
       return { ok: true };
     }
   }
@@ -2904,6 +3015,7 @@ async function startServer() {
           [leadId, me.id, me.full_name, me.role || "manager", `🕓 Запрошено согласование перехода на этап «${tgt.label}».`]);
         await auditLog({ actor_id: me.id, actor_name: me.full_name, actor_role: me.role, action: "stage.approval.request", entity_type: "lead", entity_id: leadId, after: { to: stage } });
         sendTelegram(`🕓 <b>Согласование этапа</b>\n${escapeHtml(me.full_name)} просит перевести лид <a href="${PUBLIC_BASE_URL}${CRM_PATH}">#${leadId}</a> ${lead.name ? `(${escapeHtml(lead.name)})` : ""} на этап «${escapeHtml(tgt.label)}».\n→ откройте «Согласования» в CRM`).catch(() => {});
+        notifyTeamleadsTg(`🕓 <b>Нужно согласование этапа</b>\n${escapeHtml(me.full_name)} просит перевести лид «${escapeHtml(lead.name || "#"+leadId)}» на этап «${escapeHtml(tgt.label)}».\n→ вкладка «🕓 Согласования» в CRM.`).catch(() => {});
         return res.json({ ok: true, pending: true, approvalId: ins.rows[0].id });
       }
 
@@ -4233,6 +4345,7 @@ async function startServer() {
         assignee ? `👨‍💼 Назначен: <b>${escapeHtml(assignee.full_name)}</b> ${tag}`.trim() : "",
         `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
       ].filter(Boolean).join("\n")).catch(() => {});
+      if (assigneeId !== me.id) sendManagerTg(assigneeId, `🆕 <b>Вам назначен лид</b> ${escapeHtml(name || phone || email || "—")} (создан вручную). Откройте CRM.`).catch(() => {});
 
       res.json({ ok: true, leadId, assigned: assigneeId });
     } catch (err) {
@@ -4764,7 +4877,8 @@ async function startServer() {
     try {
       const { rows } = await pq().query(
         `SELECT id, login, full_name, telegram_tag, active, role, is_online, last_assigned_at,
-                working_hours, archived_at, created_at,
+                working_hours, archived_at, created_at, tg_link_code,
+                (telegram_chat_id IS NOT NULL) AS tg_linked,
                 (SELECT COUNT(*)::int FROM leads WHERE assigned_manager_id = managers.id) AS lead_count
          FROM managers
          ORDER BY (archived_at IS NOT NULL) ASC, id ASC`
@@ -4849,7 +4963,8 @@ async function startServer() {
       if (hasLeads && !force) {
         // Soft-archive: keep the row, mark as fired
         await pq().query(
-          `UPDATE managers SET archived_at = NOW(), active = FALSE, is_online = FALSE WHERE id = $1`,
+          `UPDATE managers SET archived_at = NOW(), active = FALSE, is_online = FALSE,
+                  telegram_chat_id = NULL, tg_link_code = NULL WHERE id = $1`,
           [id]
         );
         return res.json({ ok: true, mode: "archived", leadsKept: refRows[0].n });
@@ -4878,6 +4993,45 @@ async function startServer() {
       console.error("[admin/managers/restore]", err);
       res.status(500).json({ error: "Server error" });
     }
+  });
+
+  // Admin: (re)generate a one-time Telegram link code for an employee.
+  // Regenerating BREAKS any existing link (telegram_chat_id cleared) — the employee
+  // must /start again with the new code.
+  app.post("/api/admin/managers/:id/tg-code", requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const code = genLinkCode();
+      const { rows } = await pq().query(
+        `UPDATE managers SET tg_link_code = $1, telegram_chat_id = NULL WHERE id = $2 RETURNING id, login, full_name`,
+        [code, id]
+      );
+      if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true, code });
+    } catch (err) {
+      console.error("[admin/managers/tg-code]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+  // Admin: clear a Telegram link (unlink) without changing the code.
+  app.delete("/api/admin/managers/:id/tg-link", requireAdmin, async (req, res) => {
+    try {
+      await pq().query(`UPDATE managers SET telegram_chat_id = NULL WHERE id = $1`, [Number(req.params.id)]);
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: "Server error" }); }
+  });
+
+  // Telegram webhook — receives bot updates (private-chat pairing). Verified via secret header.
+  app.post("/api/telegram/webhook", async (req, res) => {
+    if (req.headers["x-telegram-bot-api-secret-token"] !== TG_WEBHOOK_SECRET) return res.sendStatus(401);
+    res.sendStatus(200); // ack immediately; process async
+    try {
+      const msg = req.body?.message;
+      // Only private 1:1 chats drive pairing — ignore group/channel chatter.
+      if (msg && msg.chat && msg.chat.type === "private" && typeof msg.text === "string") {
+        await handleTgMessage(Number(msg.chat.id), msg.text);
+      }
+    } catch (e) { console.error("[telegram webhook]", e); }
   });
 
   app.get("/api/admin/lead-statuses", requireAdmin, async (_req, res) => {
@@ -5521,6 +5675,7 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[server] Listening on http://0.0.0.0:${PORT}`);
     console.log(`[server] Uploads dir: ${UPLOADS_DIR}`);
+    registerTelegramWebhook().catch(() => {});
   });
 }
 
