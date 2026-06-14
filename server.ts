@@ -1333,6 +1333,15 @@ function requireManager(req: express.Request, res: express.Response, next: expre
   next();
 }
 
+// Uploaded lead files contain PII (passport scans, diplomas, contracts). They must
+// NOT be world-readable by URL. Require a valid CRM session — the browser sends the
+// lidy_session cookie automatically for same-origin <img>/<a>, so the CRM file UI
+// keeps working transparently while anonymous URL access gets 401.
+function requireUploadAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!readSession(req)) return res.status(401).send("Unauthorized");
+  next();
+}
+
 if (!existsSync(UPLOADS_DIR)) {
   mkdirSync(UPLOADS_DIR, { recursive: true });
 }
@@ -1790,7 +1799,7 @@ async function startServer() {
     }
   });
 
-  app.use("/uploads", express.static(UPLOADS_DIR, { maxAge: "30d", immutable: true, index: false }));
+  app.use("/uploads", requireUploadAuth, express.static(UPLOADS_DIR, { maxAge: "30d", immutable: true, index: false }));
 
   // ====================================================================
   // CRM — Lead intake
