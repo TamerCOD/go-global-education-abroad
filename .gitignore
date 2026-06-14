@@ -41,3 +41,8 @@ migrated_prompt_history/
 uploads/
 ~$*.pptx
 _pg*.png
+# Python build artifacts (doc builders)
+__pycache__/
+*.pyc
+# Temp PDF page renders used for QA
+docs/*_p*.png
