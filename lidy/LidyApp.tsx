@@ -1212,7 +1212,7 @@ const LeadDetailDrawer: React.FC<{
     onClose: () => void;
     onRefresh: () => void;
 }> = ({ lead, me, statuses, roster, sourceOptions, mode, onToggleMode, onClose, onRefresh }) => {
-    const [tab, setTab] = useState<'overview' | 'deal' | 'tasks' | 'files' | 'activity' | 'audit' | 'related'>('overview');
+    const [tab, setTab] = useState<'overview' | 'deal' | 'tasks' | 'files' | 'activity' | 'related'>('overview');
     const [tasks, setTasks] = useState<TaskRec[] | null>(null);
     const [allTags, setAllTags] = useState<TagRec[]>([]);
     const [leadTags, setLeadTags] = useState<TagRec[]>([]);
@@ -1311,7 +1311,8 @@ const LeadDetailDrawer: React.FC<{
     }, [tab, lead.id, files]);
 
     useEffect(() => {
-        if (tab !== 'audit' || auditEvents !== null) return;
+        // Audit events power the merged «История» timeline (tab 'activity'); fetch lazily on open
+        if (tab !== 'activity' || auditEvents !== null) return;
         fetch(`/api/lidy/leads/${lead.id}/audit`, { credentials: 'include' })
             .then(r => r.json()).then(j => setAuditEvents(j.events || [])).catch(() => setAuditEvents([]));
     }, [tab, lead.id, auditEvents]);
@@ -1683,9 +1684,8 @@ const LeadDetailDrawer: React.FC<{
                             { v: 'deal', l: '💰 Сделка' },
                             { v: 'tasks', l: '📋 Задачи', badge: (lead.open_tasks || 0) > 0 ? lead.open_tasks : undefined },
                             { v: 'files', l: '📎 Файлы' },
-                            { v: 'activity', l: '💬 Чат' },
-                            { v: 'audit', l: '🕒 Аудит' },
-                            { v: 'related', l: '🔗 Связанные' },
+                            { v: 'activity', l: '🕒 История' },
+                            { v: 'related', l: '🔗 Связанные', badge: (related && related.length > 0) ? related.length : undefined },
                         ].map(t => (
                             <button key={t.v} onClick={() => setTab(t.v as any)}
                                 className={`px-3 py-2 text-sm font-medium border-b-2 transition whitespace-nowrap flex items-center gap-1 ${tab === t.v ? 'border-sky-500 text-sky-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
@@ -2021,18 +2021,20 @@ const LeadDetailDrawer: React.FC<{
                                     </div>
                                 ) : (
                                     <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                        {/* Always-on essentials */}
                                         <Field label="📞 Телефон" value={lead.phone} />
-                                        <Field label="✉ Email" value={lead.email} />
-                                        <Field label="🌍 Страна" value={lead.country} />
-                                        <Field label="🎓 Желаемый ВУЗ" value={lead.desired_university} />
-                                        <Field label="📚 Уровень" value={lead.study_level} />
-                                        <Field label="🗓 Поступление" value={lead.intake_term} />
-                                        <Field label="💰 Бюджет" value={lead.budget} />
-                                        <Field label="🇬🇧 Английский" value={lead.english_level} />
-                                        <Field label="🎂 Год рождения" value={lead.birth_year ? String(lead.birth_year) : null} />
-                                        <Field label="📖 Образование" value={lead.current_education} />
                                         <Field label="👨‍💼 Менеджер" value={lead.manager_name} />
                                         <Field label="📥 Получен" value={formatFull(lead.received_at)} />
+                                        {/* Optional fields — only render when filled, so the card isn't a wall of «—» */}
+                                        {lead.email && <Field label="✉ Email" value={lead.email} />}
+                                        {lead.country && <Field label="🌍 Страна" value={lead.country} />}
+                                        {lead.desired_university && <Field label="🎓 Желаемый ВУЗ" value={lead.desired_university} />}
+                                        {lead.study_level && <Field label="📚 Уровень" value={lead.study_level} />}
+                                        {lead.intake_term && <Field label="🗓 Поступление" value={lead.intake_term} />}
+                                        {lead.budget && <Field label="💰 Бюджет" value={lead.budget} />}
+                                        {lead.english_level && <Field label="🇬🇧 Английский" value={lead.english_level} />}
+                                        {lead.birth_year && <Field label="🎂 Год рождения" value={String(lead.birth_year)} />}
+                                        {lead.current_education && <Field label="📖 Образование" value={lead.current_education} />}
                                         {lead.sla_deadline_at && !lead.processed_at && <Field label="⏰ SLA до" value={formatFull(lead.sla_deadline_at)} />}
                                         {lead.event_name && <Field label="🎟 Событие" value={lead.event_name} />}
                                     </dl>
@@ -2329,71 +2331,73 @@ const LeadDetailDrawer: React.FC<{
                         </section>
                     )}
 
-                    {tab === 'audit' && (
-                        <section className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🕒 Полный аудит-лог</div>
-                            {auditEvents === null ? (
-                                <div className="text-sm text-slate-400">Загрузка…</div>
-                            ) : auditEvents.length === 0 ? (
-                                <div className="text-sm text-slate-500 italic text-center py-6">События не зафиксированы</div>
-                            ) : (
-                                <div className="space-y-2">
-                                    {auditEvents.map(e => (
-                                        <div key={e.id} className="border-l-2 border-sky-500/40 pl-3 py-1.5">
-                                            <div className="text-xs text-slate-500">{formatFull(e.created_at)} · {e.actor_name || '—'} {e.actor_role === 'teamlead' && '👑'}</div>
-                                            <div className="text-sm text-slate-200"><span className="font-mono text-sky-300">{e.action}</span></div>
-                                            {(e.after_data || e.before_data) && (
-                                                <details className="mt-1">
-                                                    <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-300">детали</summary>
-                                                    <pre className="text-[10px] text-slate-400 bg-slate-950/60 rounded p-2 mt-1 overflow-x-auto">
-{JSON.stringify(e.after_data || e.before_data, null, 2)}
-                                                    </pre>
-                                                </details>
-                                            )}
-                                        </div>
-                                    ))}
+                    {tab === 'activity' && (() => {
+                        // One chronological feed: manager comments + system audit events, newest first.
+                        const loading = comments === null || auditEvents === null;
+                        const feed = [
+                            ...(comments || []).map(c => ({ kind: 'comment' as const, key: 'c' + c.id, at: c.created_at, c })),
+                            ...(auditEvents || []).map(e => ({ kind: 'audit' as const, key: 'a' + e.id, at: e.created_at, e })),
+                        ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+                        return (
+                            <section className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">🕒 История — сообщения и события</div>
+                                    <Hint text="Единая лента: ваши комментарии и автоматические события (смена статуса, передачи, задачи) в хронологическом порядке — новые сверху." />
                                 </div>
-                            )}
-                        </section>
-                    )}
-
-                    {tab === 'activity' && (
-                        <section className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">📜 История событий</div>
-                            <div className="space-y-3">
-                                {comments === null ? (
+                                {loading ? (
                                     <div className="text-sm text-slate-400">Загрузка…</div>
-                                ) : comments.length === 0 ? (
-                                    <div className="text-sm text-slate-400 italic">Событий пока нет</div>
+                                ) : feed.length === 0 ? (
+                                    <div className="text-sm text-slate-500 italic text-center py-6">Пока ничего не произошло</div>
                                 ) : (
-                                    comments.slice().reverse().map(c => (
-                                        <div key={c.id} className="flex gap-3">
-                                            <Avatar name={c.author_name} size="sm" />
-                                            <div className="flex-grow">
-                                                <div className="flex items-baseline gap-2 flex-wrap">
-                                                    <span className="font-semibold text-sm text-slate-50">{c.author_name}</span>
-                                                    {c.author_role === 'teamlead' && <Pill cls="bg-violet-500/20 text-violet-300">тимлид</Pill>}
-                                                    <span className="text-xs text-slate-400 ml-auto">{formatRel(c.created_at)}</span>
+                                    <div className="space-y-3">
+                                        {feed.map(item => item.kind === 'comment' ? (
+                                            <div key={item.key} className="flex gap-3">
+                                                <Avatar name={item.c.author_name} size="sm" />
+                                                <div className="flex-grow min-w-0">
+                                                    <div className="flex items-baseline gap-2 flex-wrap">
+                                                        <span className="font-semibold text-sm text-slate-50">{item.c.author_name}</span>
+                                                        {item.c.author_role === 'teamlead' && <Pill cls="bg-violet-500/20 text-violet-300">тимлид</Pill>}
+                                                        <span className="text-xs text-slate-400 ml-auto">{formatRel(item.c.created_at)}</span>
+                                                    </div>
+                                                    <p className="text-sm text-slate-200 whitespace-pre-wrap mt-0.5">{item.c.body}</p>
                                                 </div>
-                                                <p className="text-sm text-slate-200 whitespace-pre-wrap mt-0.5">{c.body}</p>
                                             </div>
-                                        </div>
-                                    ))
+                                        ) : (
+                                            <div key={item.key} className="flex gap-3">
+                                                <span className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs flex-shrink-0 mt-0.5">⚙</span>
+                                                <div className="flex-grow min-w-0">
+                                                    <div className="flex items-baseline gap-2 flex-wrap">
+                                                        <span className="text-sm text-slate-300">{item.e.actor_name || 'Система'} {item.e.actor_role === 'teamlead' && '👑'}</span>
+                                                        <span className="text-xs text-slate-500 ml-auto">{formatRel(item.e.created_at)}</span>
+                                                    </div>
+                                                    <div className="text-sm text-slate-400 mt-0.5"><span className="font-mono text-sky-300/90 text-xs">{item.e.action}</span></div>
+                                                    {(item.e.after_data || item.e.before_data) && (
+                                                        <details className="mt-1">
+                                                            <summary className="text-[10px] text-slate-500 cursor-pointer hover:text-slate-300">детали</summary>
+                                                            <pre className="text-[10px] text-slate-400 bg-slate-950/60 rounded p-2 mt-1 overflow-x-auto">
+{JSON.stringify(item.e.after_data || item.e.before_data, null, 2)}
+                                                            </pre>
+                                                        </details>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 )}
-                            </div>
-                            {canEdit && (
-                                <div className="mt-4 pt-4 border-t border-slate-800/60 flex gap-2">
-                                    <textarea rows={2}
-                                        className="flex-grow text-sm border border-slate-700 rounded-lg bg-slate-800/40 focus:bg-slate-800/80 p-2"
-                                        value={newComment} onChange={e => setNewComment(e.target.value)}
-                                        placeholder="Оставить комментарий…" />
-                                    <Btn variant="primary" onClick={submitComment} disabled={!newComment.trim()}>
-                                        Отправить
-                                    </Btn>
-                                </div>
-                            )}
-                        </section>
-                    )}
+                                {canEdit && (
+                                    <div className="mt-4 pt-4 border-t border-slate-800/60 flex gap-2">
+                                        <textarea rows={2}
+                                            className="flex-grow text-sm border border-slate-700 rounded-lg bg-slate-800/40 focus:bg-slate-800/80 p-2"
+                                            value={newComment} onChange={e => setNewComment(e.target.value)}
+                                            placeholder="Оставить комментарий…" />
+                                        <Btn variant="primary" onClick={submitComment} disabled={!newComment.trim()}>
+                                            Отправить
+                                        </Btn>
+                                    </div>
+                                )}
+                            </section>
+                        );
+                    })()}
 
                     {tab === 'related' && (
                         <section className="bg-slate-900 border border-slate-800 rounded-xl p-4">
