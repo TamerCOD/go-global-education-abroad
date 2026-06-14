@@ -125,8 +125,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenModal }) => {
                 </button>
             </div>
              
-             {/* Mobile: Spacer to balance layout */}
-             <div className="flex md:hidden w-8"></div>
+             {/* Mobile: always-visible Заявка (not hidden behind the burger) */}
+             <div className="flex md:hidden z-20">
+                <button
+                    onClick={onOpenModal}
+                    className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-full text-xs font-bold shadow-lg transition-colors"
+                >
+                    Заявка
+                </button>
+             </div>
         </div>
       </div>
 

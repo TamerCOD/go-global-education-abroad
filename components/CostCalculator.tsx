@@ -188,7 +188,19 @@ export const CostCalculator: React.FC = () => {
                 ))}
               </div>
 
-              <div className="mt-8 bg-white/10 backdrop-blur rounded-lg p-3 text-xs text-center text-brand-200">
+              {(() => {
+                const waNumber = (data.contactInfo?.whatsappNumber || '').replace(/\D/g, '');
+                if (!waNumber || !estimatedCost) return null;
+                const msg = encodeURIComponent(`Здравствуйте! Рассчитал на сайте GoGlobal: ${countryData?.name || ''} — ориентировочно от $${estimatedCost.toLocaleString()}/год${isScholarship ? ' (с учётом грантов)' : ''}. Хочу узнать подробнее и обсудить варианты.`);
+                return (
+                  <a href={`https://wa.me/${waNumber}?text=${msg}`} target="_blank" rel="noopener noreferrer"
+                    className="mt-6 flex items-center justify-center gap-2 w-full bg-[#25D366] hover:bg-[#1eba56] text-white font-bold py-3.5 rounded-xl shadow-lg hover:-translate-y-0.5 transition-all">
+                    💬 Отправить расчёт в WhatsApp
+                  </a>
+                );
+              })()}
+
+              <div className="mt-6 bg-white/10 backdrop-blur rounded-lg p-3 text-xs text-center text-brand-200">
                 {disclaimer}
               </div>
             </div>

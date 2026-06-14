@@ -26,6 +26,13 @@ function MainSite() {
   };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const handleOpenModal = () => setIsModalOpen(true);
+  const [showApplyFab, setShowApplyFab] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShowApplyFab(window.scrollY > 500);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   return (
     <>
@@ -45,6 +52,12 @@ function MainSite() {
       </main>
       <Footer />
       <WhatsAppBtn />
+      <button
+        onClick={handleOpenModal}
+        className={`fixed bottom-5 left-5 z-[90] flex items-center gap-2 px-5 py-3 rounded-full bg-brand-600 hover:bg-brand-700 text-white font-bold shadow-xl transition-all duration-300 ${showApplyFab ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}
+      >
+        ✍️ Оставить заявку
+      </button>
       <ContactModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </>
   );

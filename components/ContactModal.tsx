@@ -20,6 +20,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) =
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -101,7 +102,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) =
                      </div>
                      <h3 className="text-xl font-bold">Оставить заявку</h3>
                  </div>
-                 <p className="text-brand-100 text-sm">Заполните форму, и мы подберем идеальный университет.</p>
+                 <p className="text-brand-100 text-sm">Оставьте имя и телефон — менеджер свяжется за 15 минут. Детали уточним в разговоре.</p>
              </div>
 
              {/* Form Body */}
@@ -133,65 +134,70 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) =
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Телефон</label>
-                                <input
-                                    type="tel"
-                                    name="phone"
-                                    required
-                                    value={formData.phone}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none"
-                                    placeholder="+7 (999)..."
-                                />
-                            </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Телефон</label>
+                            <input
+                                type="tel"
+                                name="phone"
+                                required
+                                value={formData.phone}
+                                onChange={handleChange}
+                                className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none"
+                                placeholder="+996 (700)..."
+                            />
+                        </div>
+
+                        {!showDetails ? (
+                            <button type="button" onClick={() => setShowDetails(true)}
+                                className="text-sm font-semibold text-brand-600 hover:text-brand-700">
+                                + Уточнить детали (необязательно)
+                            </button>
+                        ) : (
+                          <div className="space-y-5 border-t border-slate-100 pt-5">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Email</label>
                                 <input
                                     type="email"
                                     name="email"
-                                    required
                                     value={formData.email}
                                     onChange={handleChange}
                                     className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none"
                                     placeholder="example@..."
                                 />
                             </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Желаемая страна</label>
-                            <div className="relative">
-                                <select
-                                    name="country"
-                                    value={formData.country}
-                                    onChange={handleChange}
-                                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none appearance-none"
-                                >
-                                    <option value="">Не выбрано</option>
-                                    {COUNTRIES.map(c => (
-                                        <option key={c.id} value={c.name}>{c.name}</option>
-                                    ))}
-                                    <option value="other">Другое</option>
-                                </select>
-                                <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-500">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Желаемая страна</label>
+                                <div className="relative">
+                                    <select
+                                        name="country"
+                                        value={formData.country}
+                                        onChange={handleChange}
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none appearance-none"
+                                    >
+                                        <option value="">Не выбрано</option>
+                                        {COUNTRIES.map(c => (
+                                            <option key={c.id} value={c.name}>{c.name}</option>
+                                        ))}
+                                        <option value="other">Другое</option>
+                                    </select>
+                                    <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-500">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Комментарий</label>
-                            <textarea
-                                name="comment"
-                                rows={3}
-                                value={formData.comment}
-                                onChange={handleChange}
-                                className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none resize-none"
-                                placeholder="Например: хочу на магистратуру..."
-                            ></textarea>
-                        </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Комментарий</label>
+                                <textarea
+                                    name="comment"
+                                    rows={3}
+                                    value={formData.comment}
+                                    onChange={handleChange}
+                                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all outline-none resize-none"
+                                    placeholder="Например: хочу на магистратуру..."
+                                ></textarea>
+                            </div>
+                          </div>
+                        )}
 
                         <button
                             type="submit"
