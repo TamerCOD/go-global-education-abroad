@@ -149,6 +149,8 @@ interface RosterManager extends Manager {
     total30?: number;
     open?: number;
     closed30?: number;
+    won_mtd?: number;
+    monthly_goal?: number | null;
     overdue?: number;
 }
 interface Lead {
@@ -2543,7 +2545,63 @@ const CreateLeadModal: React.FC<{
 // ═════════════════════════════════════════════════════════════════════
 //  ROSTER PANEL (teamlead-only)
 // ═════════════════════════════════════════════════════════════════════
-const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
+const GoalCell: React.FC<{ m: RosterManager; isTeamlead: boolean; onChanged: () => void }> = ({ m, isTeamlead, onChanged }) => {
+    const [editing, setEditing] = useState(false);
+    const [val, setVal] = useState(String(m.monthly_goal ?? ''));
+    const [saving, setSaving] = useState(false);
+    const goal = m.monthly_goal ?? 0;
+    const won = m.won_mtd ?? 0;
+    const pct = goal > 0 ? Math.min(100, Math.round((won / goal) * 100)) : 0;
+    const done = goal > 0 && won >= goal;
+
+    const save = async () => {
+        setSaving(true);
+        try {
+            await fetch(`/api/lidy/managers/${m.id}/goal`, {
+                method: 'PATCH', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ goal: val.trim() === '' ? null : Number(val) }),
+            });
+            toast(val.trim() === '' ? 'Цель снята' : `Цель: ${Number(val)}/мес`);
+            setEditing(false);
+            onChanged();
+        } catch { toast('Не удалось сохранить цель', { kind: 'err' }); }
+        finally { setSaving(false); }
+    };
+
+    if (editing) {
+        return (
+            <div className="flex items-center gap-1 justify-end">
+                <input autoFocus type="number" min={0} value={val} onChange={e => setVal(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+                    className="w-16 text-sm border border-slate-600 rounded bg-slate-800 px-2 py-1 text-right" />
+                <button onClick={save} disabled={saving} className="text-emerald-400 hover:text-emerald-300 px-1">✓</button>
+                <button onClick={() => setEditing(false)} className="text-slate-500 hover:text-slate-300 px-1">✕</button>
+            </div>
+        );
+    }
+    if (goal <= 0) {
+        return isTeamlead
+            ? <button onClick={() => { setVal(''); setEditing(true); }} className="text-xs text-slate-500 hover:text-sky-300 hover:underline">+ цель</button>
+            : <span className="text-slate-600">—</span>;
+    }
+    return (
+        <button disabled={!isTeamlead} onClick={() => { setVal(String(goal)); setEditing(true); }}
+            className={`w-full max-w-[120px] ml-auto block text-right group ${isTeamlead ? 'cursor-pointer' : 'cursor-default'}`}
+            title={isTeamlead ? 'Изменить цель' : undefined}>
+            <div className="flex items-baseline justify-end gap-1 text-xs">
+                <span className={`font-mono font-semibold ${done ? 'text-emerald-300' : 'text-slate-200'}`}>{won}</span>
+                <span className="text-slate-500">/ {goal}</span>
+                {done && <span>🏆</span>}
+            </div>
+            <div className="h-1.5 rounded-full bg-slate-700/70 mt-1 overflow-hidden">
+                <div className={`h-full rounded-full ${done ? 'bg-emerald-500' : 'bg-sky-500'} group-hover:opacity-80`} style={{ width: `${pct}%` }} />
+            </div>
+        </button>
+    );
+};
+
+const RosterPanel: React.FC<{ roster: RosterManager[]; isTeamlead: boolean; onChanged: () => void }> = ({ roster, isTeamlead, onChanged }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">👥 Команда — 30 дней</div>
         <div className="overflow-x-auto">
@@ -2556,6 +2614,7 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
                         <th className="text-right">Открыто</th>
                         <th className="text-right">Закрыто</th>
                         <th className="text-right">SLA✗</th>
+                        <th className="text-right">Цель / мес</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2583,6 +2642,11 @@ const RosterPanel: React.FC<{ roster: RosterManager[] }> = ({ roster }) => (
                             <td className="text-right font-mono">{m.open ?? 0}</td>
                             <td className="text-right font-mono text-emerald-300">{m.closed30 ?? 0}</td>
                             <td className={`text-right font-mono ${(m.overdue ?? 0) > 0 ? 'text-rose-300 font-bold' : 'text-slate-400'}`}>{m.overdue ?? 0}</td>
+                            <td className="text-right py-2">
+                                {m.role === 'manager' && !m.archived_at
+                                    ? <GoalCell m={m} isTeamlead={isTeamlead} onChanged={onChanged} />
+                                    : <span className="text-slate-600">—</span>}
+                            </td>
                         </tr>
                     ))}
                 </tbody>
@@ -3256,7 +3320,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                     </section>
 
                     {/* Roster (teamlead) */}
-                    {isTeamlead && roster.length > 0 && <RosterPanel roster={roster} />}
+                    {isTeamlead && roster.length > 0 && <RosterPanel roster={roster} isTeamlead={isTeamlead} onChanged={load} />}
 
                     {/* Header bar: results count + view switcher */}
                     <div className="flex items-center justify-between gap-3 flex-wrap">

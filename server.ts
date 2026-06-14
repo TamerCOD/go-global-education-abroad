@@ -626,6 +626,10 @@ if (DATABASE_URL) {
        VALUES ('duplicate', 'Дубль', '#a78bfa', FALSE, 25)
        ON CONFLICT (code) DO NOTHING`
     );
+    // Manager monthly goal (won deals/month target) — shown as progress in the team table
+    await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS monthly_goal INTEGER;`);
+    // Soft-delete for leads: «Корзина» + one-click restore (deletes become reversible)
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
     // Seed default password ONLY for managers with empty/missing password_hash.
     // Preserves any manually-changed passwords across restarts.
     try {
@@ -2337,20 +2341,46 @@ async function startServer() {
         return res.json({ managers: r.rows, role: me.role });
       }
       const r = await pq().query(
-        `SELECT m.id, m.full_name, m.login, m.is_online, m.active, m.role, m.telegram_tag,
+        `SELECT m.id, m.full_name, m.login, m.is_online, m.active, m.role, m.telegram_tag, m.monthly_goal,
                 COUNT(l.*) FILTER (WHERE l.received_at >= NOW() - INTERVAL '30 days')::int AS total30,
                 COUNT(*) FILTER (WHERE l.processed_at IS NULL)::int AS open,
                 COUNT(*) FILTER (WHERE ls.is_terminal AND l.received_at >= NOW() - INTERVAL '30 days')::int AS closed30,
+                COUNT(*) FILTER (WHERE l.status_code = 'closed_won' AND l.processed_at >= date_trunc('month', NOW()))::int AS won_mtd,
                 COUNT(*) FILTER (WHERE l.processed_at IS NULL AND l.first_response_at IS NULL AND l.sla_deadline_at < NOW())::int AS overdue
          FROM managers m
          LEFT JOIN leads l ON l.assigned_manager_id = m.id
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
-         GROUP BY m.id, m.full_name, m.login, m.is_online, m.active, m.role, m.telegram_tag
+         GROUP BY m.id, m.full_name, m.login, m.is_online, m.active, m.role, m.telegram_tag, m.monthly_goal
          ORDER BY m.full_name`
       );
       res.json({ managers: r.rows, role: me.role });
     } catch (err) {
       console.error("[lidy/managers]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Teamlead sets a manager's monthly goal (won deals/month). null/0 clears it.
+  app.patch("/api/lidy/managers/:id/goal", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const mid = Number(req.params.id);
+      const raw = req.body?.goal;
+      const goal = raw === null || raw === "" || Number(raw) <= 0 ? null : Math.round(Number(raw));
+      if (goal !== null && (!Number.isFinite(goal) || goal > 100000)) {
+        return res.status(400).json({ error: "Invalid goal" });
+      }
+      const r = await pq().query(
+        `UPDATE managers SET monthly_goal = $1 WHERE id = $2 RETURNING id`,
+        [goal, mid]
+      );
+      if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
+      res.json({ ok: true, goal });
+    } catch (err) {
+      console.error("[lidy/manager goal]", err);
       res.status(500).json({ error: "Server error" });
     }
   });
