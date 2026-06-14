@@ -267,6 +267,20 @@ class Diagram(Flowable):
         c.setFillColor(C_INK2)
         c.drawString(2, 4, "Если гейты у этапа выключены — переход мгновенный. Откат на предыдущий этап — только РОП/админ.")
 
+    def d_tglink(self):
+        w = self.w; bw, bh = 38*mm, 15*mm; y = self.h/2 - bh/2 + 4
+        steps = [("Админ: код", "кнопка TG-код", C_ACCENT),
+                 ("/start", "сотрудник в боте", C_TEAL),
+                 ("логин + код", "бот проверяет", C_INK3),
+                 ("Привязано", "личные алерты идут", C_OK)]
+        gap = (w - len(steps)*bw - 4)/(len(steps)-1)
+        for i, (l, s, col) in enumerate(steps):
+            x = 2 + i*(bw + gap)
+            self.box(x, y, bw, bh, l, s, line=col, fs=8.5)
+            if i < len(steps)-1: self.arrow(x + bw + 1, y + bh/2, x + bw + gap - 1, y + bh/2)
+        c = self.canv; c.setFont("Arial", 7.5); c.setFillColor(C_INK2)
+        c.drawString(2, 4, "Новый код сбрасывает привязку; увольнение стирает её; /stop — отвязаться самому.")
+
     def d_sla(self):
         w = self.w; c = self.canv
         y = self.h - 16*mm; bw, bh = 42*mm, 12*mm
