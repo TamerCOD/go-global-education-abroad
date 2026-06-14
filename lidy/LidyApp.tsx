@@ -597,8 +597,11 @@ const LeadRow: React.FC<{ lead: Lead; me: Manager; onOpen: () => void }> = ({ le
         <tr className={`border-b border-slate-800/60 hover:bg-slate-800/40 cursor-pointer ${isIncomingTransfer ? 'bg-fuchsia-500/10' : ''}`} onClick={onOpen}>
             <td className="py-2 px-3"><Avatar name={lead.name} size="sm" /></td>
             <td className="py-2 px-3">
-                <div className="font-medium text-slate-50">{lead.name || '— без имени —'}</div>
-                <div className="text-xs text-slate-400">#{lead.id} · {formatRel(lead.received_at)}</div>
+                <div className="font-medium text-slate-50 flex items-center gap-1.5">
+                    <span>{lead.name || '— без имени —'}</span>
+                    {(lead as any).has_pending_approval && <span className="text-[10px] px-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30" title="На согласовании">🕓</span>}
+                </div>
+                <div className="text-xs text-slate-400">{(lead as any).public_id || ('#' + lead.id)} · {formatRel(lead.received_at)}</div>
             </td>
             <td className="py-2 px-3 text-sm">
                 {lead.phone && <div className="font-mono">{lead.phone}</div>}
@@ -669,8 +672,11 @@ const LeadCard: React.FC<{
             <div className="flex items-start gap-3 mb-3">
                 <Avatar name={lead.name} />
                 <div className="flex-grow min-w-0">
-                    <div className="font-semibold text-slate-50 truncate">{lead.name || '— без имени —'}</div>
-                    <div className="text-xs text-slate-400">#{lead.id} · {formatRel(lead.received_at)}</div>
+                    <div className="font-semibold text-slate-50 truncate flex items-center gap-1.5">
+                        <span className="truncate">{lead.name || '— без имени —'}</span>
+                        {(lead as any).has_pending_approval && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0" title="На согласовании">🕓</span>}
+                    </div>
+                    <div className="text-xs text-slate-400">{(lead as any).public_id || ('#' + lead.id)} · {formatRel(lead.received_at)}</div>
                 </div>
                 <div className="flex flex-col gap-1 items-end">
                     <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
@@ -1221,6 +1227,7 @@ const LeadDetailDrawer: React.FC<{
     const [tasks, setTasks] = useState<TaskRec[] | null>(null);
     const [allTags, setAllTags] = useState<TagRec[]>([]);
     const [leadTags, setLeadTags] = useState<TagRec[]>([]);
+    const [newTag, setNewTag] = useState('');
     const [files, setFiles] = useState<any[] | null>(null);
     const [auditEvents, setAuditEvents] = useState<any[] | null>(null);
     const [quickReplies, setQuickReplies] = useState<any[]>([]);
@@ -1442,6 +1449,23 @@ const LeadDetailDrawer: React.FC<{
         onRefresh();
     };
 
+    // Any employee can create a tag inline and assign it to this client.
+    const createAndAssignTag = async () => {
+        const label = newTag.trim();
+        if (!label) return;
+        try {
+            const r = await fetch('/api/lidy/tags', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                body: JSON.stringify({ label }),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j.tag) { toast(j.error || 'Не удалось создать метку', { kind: 'err' }); return; }
+            setAllTags(prev => prev.some(t => t.id === j.tag.id) ? prev : [...prev, j.tag]);
+            if (!leadTags.some(t => t.id === j.tag.id)) await toggleTag(j.tag);
+            setNewTag('');
+        } catch { toast('Сервер недоступен', { kind: 'err' }); }
+    };
+
     const saveDeal = async () => {
         setSavingDeal(true);
         try {
@@ -1630,7 +1654,9 @@ const LeadDetailDrawer: React.FC<{
                         <div className="flex-grow min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                                 <h2 className="text-xl font-bold text-slate-50 truncate">{lead.name || '— без имени —'}</h2>
-                                <span className="text-sm font-mono text-slate-400">#{lead.id}</span>
+                                {(lead as any).public_id
+                                    ? <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-slate-800 text-sky-300 border border-slate-700" title="Публичный ID лида">{(lead as any).public_id}</span>
+                                    : <span className="text-sm font-mono text-slate-400">#{lead.id}</span>}
                             </div>
                             <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
                                 <span>Поступил {formatFull(lead.received_at)}</span>
@@ -1643,6 +1669,9 @@ const LeadDetailDrawer: React.FC<{
                             <div className="flex items-center gap-1.5 flex-wrap mt-2">
                                 <StatusBadge code={lead.status_code} label={lead.status_label} color={lead.status_color} />
                                 {lead.stage_code && <StatusBadge code={lead.stage_code} label={lead.stage_label || ''} color={lead.stage_color || '#0ea5e9'} />}
+                                {leadApprovals.some((a: any) => a.status === 'pending') && (
+                                    <span className="text-xs px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse" title="Есть запрос на согласование перехода по этапу">🕓 на согласовании</span>
+                                )}
                                 <Pill cls={sla.cls}>{sla.text}</Pill>
                                 {canEdit ? (
                                     <button onClick={() => setEditSource(!editSource)}
@@ -1867,6 +1896,32 @@ const LeadDetailDrawer: React.FC<{
                                             </div>
                                         );
                                     })()}
+                                    {/* Этапы согласований — кто запросил, кто подтвердил/отклонил */}
+                                    {leadApprovals.filter((a: any) => a.kind !== 'back').length > 0 && (
+                                        <div className="mt-3 bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+                                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">🕓 Этапы согласований</div>
+                                            <div className="space-y-1.5">
+                                                {leadApprovals.filter((a: any) => a.kind !== 'back').map((a: any) => (
+                                                    <div key={a.id} className="text-xs flex items-start gap-2">
+                                                        <span className={a.status === 'pending' ? 'text-amber-400' : a.status === 'approved' ? 'text-emerald-400' : 'text-rose-400'}>
+                                                            {a.status === 'pending' ? '🕓' : a.status === 'approved' ? '✓' : '✗'}
+                                                        </span>
+                                                        <div className="min-w-0">
+                                                            <div className="text-slate-200">
+                                                                «{a.to_label || a.to_stage}» — {a.status === 'pending'
+                                                                    ? <span className="text-amber-300">ожидает согласования</span>
+                                                                    : a.status === 'approved'
+                                                                        ? <span className="text-emerald-300">подтвердил {a.decided_by_name || ''}</span>
+                                                                        : <span className="text-rose-300">отклонил {a.decided_by_name || ''}</span>}
+                                                            </div>
+                                                            <div className="text-slate-500">запросил {a.requested_name || a.requested_by_name || '—'} · {formatRel(a.created_at)}</div>
+                                                            {a.decision_comment && <div className="text-rose-300/80 italic">причина: {a.decision_comment}</div>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                     {stageFileModal && (
                                         <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
                                             onClick={() => pendingStatus === null && setStageFileModal(null)}>
@@ -2267,9 +2322,7 @@ const LeadDetailDrawer: React.FC<{
                             {/* Tag picker */}
                             <div className="pt-3 border-t border-slate-800/60">
                                 <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">🏷 Метки</div>
-                                {allTags.length === 0 ? (
-                                    <div className="text-sm text-slate-400 italic">Меток пока нет — настройте в админке</div>
-                                ) : (
+                                {allTags.length > 0 && (
                                     <div className="flex flex-wrap gap-1.5">
                                         {allTags.map(tag => {
                                             const on = leadTags.some(t => t.id === tag.id);
@@ -2285,6 +2338,17 @@ const LeadDetailDrawer: React.FC<{
                                         })}
                                     </div>
                                 )}
+                                {canEdit && (
+                                    <div className="flex gap-1.5 mt-2">
+                                        <input type="text" value={newTag} onChange={e => setNewTag(e.target.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createAndAssignTag(); } }}
+                                            placeholder="Новая метка для клиента…" maxLength={40}
+                                            className="flex-grow text-xs border border-slate-700 rounded-lg px-2.5 py-1 bg-slate-900 text-slate-100" />
+                                        <button onClick={createAndAssignTag} disabled={!newTag.trim()}
+                                            className="text-xs px-2.5 py-1 rounded-lg bg-sky-600 text-white disabled:opacity-40 hover:bg-sky-500 whitespace-nowrap">+ Добавить</button>
+                                    </div>
+                                )}
+                                {allTags.length === 0 && <div className="text-xs text-slate-500 italic mt-1">Меток пока нет — создайте первую выше.</div>}
                             </div>
                         </section>
                     )}
@@ -3128,7 +3192,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     };
 
     // View + filters (persisted)
-    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'stages' | 'calendar' | 'approvals'>(() => lsGet('view', 'cards'));
+    const [view, setView] = useState<'cards' | 'list' | 'table' | 'pipeline' | 'stages' | 'calendar' | 'approvals'>(() => lsGet('view', 'cards'));
     const [drawerMode, setDrawerMode] = useState<'side' | 'center'>(() => lsGet('drawerMode', 'side'));
     const [calendarData, setCalendarData] = useState<any[]>([]);
     const [scope, setScope] = useState<'mine' | 'all'>(() => lsGet('scope', isTeamlead ? 'all' : 'mine'));
@@ -3148,6 +3212,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [hotOnly, setHotOnly] = useState(false);
     const [inboxZero, setInboxZero] = useState(false);
     const [staleOnly, setStaleOnly] = useState(false);
+    const [hasTasksOnly, setHasTasksOnly] = useState(false);
+    const [pendingApprovalOnly, setPendingApprovalOnly] = useState(false);
+    const [filterStage, setFilterStage] = useState('');
+    const [sortKey, setSortKey] = useState<string>(() => lsGet('sortKey', 'received'));
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => lsGet('sortDir', 'desc'));
     const [summary, setSummary] = useState<any>(null);
     const [leadLimit, setLeadLimit] = useState(300);   // pagination: how many to load
     const [leadTotal, setLeadTotal] = useState(0);     // total matching on server
@@ -3156,10 +3225,12 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     // Quick filters behave like a radio group — one active at a time (re-click turns it off)
     const QUICK_STATUS_CODES = ['new', 'callback', 'no_answer', 'office_visit', 'duplicate'];
     const activeQuick = inboxZero ? 'inbox' : overdueOnly ? 'overdue' : hotOnly ? 'hot' : closedOnly ? 'closed' : staleOnly ? 'stale'
+        : hasTasksOnly ? 'tasks' : pendingApprovalOnly ? 'approval'
         : (QUICK_STATUS_CODES.includes(filterStatus) ? filterStatus : '');
     const setQuick = (k: string) => {
         const wasActive = activeQuick === k;
         setInboxZero(false); setOverdueOnly(false); setHotOnly(false); setClosedOnly(false); setStaleOnly(false);
+        setHasTasksOnly(false); setPendingApprovalOnly(false);
         if (QUICK_STATUS_CODES.includes(filterStatus)) setFilterStatus('');
         if (wasActive) return;
         if (k === 'inbox') setInboxZero(true);
@@ -3167,6 +3238,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
         else if (k === 'hot') setHotOnly(true);
         else if (k === 'closed') setClosedOnly(true);
         else if (k === 'stale') setStaleOnly(true);
+        else if (k === 'tasks') setHasTasksOnly(true);
+        else if (k === 'approval') setPendingApprovalOnly(true);
         else if (k) setFilterStatus(k);
     };
     const [sidebarOpen, setSidebarOpen] = useState(() => lsGet('sidebarOpen', true));
@@ -3258,6 +3331,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             if (includeClosed) p.set('include_closed', '1');
             if (closedOnly) p.set('closed_only', '1');
             if (hotOnly) p.set('hot', '1');
+            if (hasTasksOnly) p.set('has_tasks', '1');
+            if (pendingApprovalOnly) p.set('pending_approval', '1');
+            if (filterStage) p.set('stage', filterStage);
+            if (sortKey) p.set('sort', sortKey);
+            if (sortDir) p.set('dir', sortDir);
             if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
             p.set('limit', String(leadLimit));
             const sumP = `?scope=${scope}`;
@@ -3278,9 +3356,12 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             setError(e?.message || String(e));
         } finally { setLoading(false); }
     }, [scope, filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
-        filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, closedOnly, hotOnly, debouncedSearch, leadLimit]);
+        filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, closedOnly, hotOnly,
+        hasTasksOnly, pendingApprovalOnly, filterStage, sortKey, sortDir, debouncedSearch, leadLimit]);
 
     useEffect(() => { load(); }, [load]);
+    useEffect(() => lsSet('sortKey', sortKey), [sortKey]);
+    useEffect(() => lsSet('sortDir', sortDir), [sortDir]);
 
     // Push notification setup (asks for permission once, then subscribes)
     useEffect(() => {
@@ -3436,14 +3517,15 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     }, [leads, manager.id]);
 
     const activeFiltersCount = [filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
-        filterManagerId, filterFrom, filterTo].filter(Boolean).length
-        + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0) + (closedOnly ? 1 : 0) + (hotOnly ? 1 : 0) + (inboxZero ? 1 : 0) + (staleOnly ? 1 : 0);
+        filterManagerId, filterFrom, filterTo, filterStage].filter(Boolean).length
+        + (overdueOnly ? 1 : 0) + (includeClosed ? 1 : 0) + (closedOnly ? 1 : 0) + (hotOnly ? 1 : 0) + (inboxZero ? 1 : 0) + (staleOnly ? 1 : 0)
+        + (hasTasksOnly ? 1 : 0) + (pendingApprovalOnly ? 1 : 0);
 
     const resetFilters = () => {
         setFilterStatus(''); setFilterSource(''); setFilterCountry(''); setFilterUniversity('');
-        setFilterLevel(''); setFilterManagerId(''); setFilterFrom(''); setFilterTo('');
+        setFilterLevel(''); setFilterManagerId(''); setFilterFrom(''); setFilterTo(''); setFilterStage('');
         setOverdueOnly(false); setIncludeClosed(false); setClosedOnly(false); setHotOnly(false);
-        setInboxZero(false); setStaleOnly(false); setSearch('');
+        setInboxZero(false); setStaleOnly(false); setHasTasksOnly(false); setPendingApprovalOnly(false); setSearch('');
     };
 
     return (
@@ -3582,6 +3664,8 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                     { k: 'no_answer', l: '🔇 Не ответил', cls: 'slate', t: 'Не берут трубку — попробуйте другой канал или время' },
                                     { k: 'office_visit', l: '🏢 Визиты в офис', cls: 'cyan', t: 'Назначенные встречи (статус «Подойдёт в офис»)' },
                                     { k: 'duplicate', l: '🔁 Дубли', cls: 'violet', t: 'Повторные обращения клиентов — история в оригинальном лиде' },
+                                    { k: 'tasks', l: '✅ Есть задачи', cls: 'cyan', t: 'Лиды с открытыми задачами — разобрать по делам' },
+                                    { k: 'approval', l: '🕓 На согласовании', cls: 'amber', t: 'Лиды с запросом на согласование перехода по этапу' },
                                     { k: 'stale', l: '🕸 Давно без движения', cls: 'amber', t: 'Открытые лиды, которых никто не трогал 7+ дней — реанимируйте или закройте' },
                                     { k: 'closed', l: '📂 Закрытые', cls: 'emerald', t: 'Только завершённые: выигранные и отказы' },
                                 ].map(f => {
@@ -3621,6 +3705,16 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                 className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900">
                                 <option value="">Все статусы (открытые)</option>
                                 {statuses.filter(s => !s.is_client_stage).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Client stage */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Этап клиента (после выигрыша)</div>
+                            <select value={filterStage} onChange={e => setFilterStage(e.target.value)}
+                                className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900">
+                                <option value="">Все этапы</option>
+                                {statuses.filter(s => s.is_client_stage).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                             </select>
                         </div>
 
@@ -3684,6 +3778,27 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                     className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900" />
                                 <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)}
                                     className="w-full border border-slate-700 rounded-lg px-3 py-1.5 text-sm bg-slate-900" />
+                            </div>
+                        </div>
+
+                        {/* Sort */}
+                        <div>
+                            <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Сортировка</div>
+                            <div className="flex gap-1.5">
+                                <select value={sortKey} onChange={e => setSortKey(e.target.value)}
+                                    className="flex-grow border border-slate-700 rounded-lg px-2 py-1.5 text-sm bg-slate-900">
+                                    <option value="received">По дате получения</option>
+                                    <option value="updated">По изменению</option>
+                                    <option value="name">По имени</option>
+                                    <option value="score">По скорингу</option>
+                                    <option value="deal">По сумме сделки</option>
+                                    <option value="sla">По дедлайну SLA</option>
+                                </select>
+                                <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                                    title={sortDir === 'asc' ? 'По возрастанию — кликните для убывания' : 'По убыванию — кликните для возрастания'}
+                                    className="px-3 border border-slate-700 rounded-lg bg-slate-900 text-slate-200 hover:bg-slate-800">
+                                    {sortDir === 'asc' ? '↑' : '↓'}
+                                </button>
                             </div>
                         </div>
 
@@ -3801,15 +3916,17 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 shadow-sm flex-wrap">
                             {[
                                 { v: 'cards', l: '🪟 Карточки' },
+                                { v: 'list', l: '📃 Список' },
                                 { v: 'table', l: '📋 Таблица' },
                                 { v: 'pipeline', l: '🎯 Воронка статусов' },
                                 { v: 'stages', l: '🎓 Этапы клиентов' },
                                 { v: 'calendar', l: '📅 Календарь' },
-                                ...(isTeamlead ? [{ v: 'approvals', l: '🕓 Согласования' }] : []),
-                            ].map(o => (
+                                ...(isTeamlead ? [{ v: 'approvals', l: '🕓 Согласования', badge: summary?.pending_approvals || 0 }] : []),
+                            ].map((o: any) => (
                                 <button key={o.v} onClick={() => setView(o.v as any)}
-                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800/70'}`}>
+                                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-1.5 ${view === o.v ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800/70'}`}>
                                     {o.l}
+                                    {o.badge > 0 && <span className="text-[10px] min-w-[18px] text-center bg-rose-500 text-white px-1 py-0.5 rounded-full font-bold animate-pulse">{o.badge}</span>}
                                 </button>
                             ))}
                         </div>
@@ -3835,6 +3952,26 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             {(activeFiltersCount > 0 || search) && (
                                 <Btn variant="ghost" onClick={resetFilters} className="mt-3">Сбросить фильтры</Btn>
                             )}
+                        </div>
+                    ) : view === 'list' ? (
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800 shadow-sm overflow-hidden">
+                            {displayedLeads.map(l => (
+                                <button key={l.id} onClick={() => setOpenLead(l)}
+                                    className="w-full text-left px-3 py-2 flex items-center gap-2.5 hover:bg-slate-800/50 transition">
+                                    <Avatar name={l.name || '—'} size="sm" />
+                                    <div className="min-w-0 flex-grow">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-medium text-slate-100 truncate">{l.name || '— без имени —'}</span>
+                                            {l.public_id && <span className="text-[10px] font-mono text-slate-500 shrink-0">{l.public_id}</span>}
+                                            {l.has_pending_approval && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 shrink-0">🕓 на согласовании</span>}
+                                        </div>
+                                        <div className="text-xs text-slate-400 truncate">{l.phone || l.email || '—'}{l.manager_name ? ` · ${l.manager_name}` : ''}</div>
+                                    </div>
+                                    {(l.open_tasks ?? 0) > 0 && <span className="text-[10px] text-cyan-300 shrink-0" title="Открытые задачи">✅ {l.open_tasks}</span>}
+                                    {l.status_label && <StatusBadge code={l.status_code} label={l.status_label} color={l.status_color} />}
+                                    <span className="text-xs text-slate-500 shrink-0 w-16 text-right">{formatRel(l.received_at)}</span>
+                                </button>
+                            ))}
                         </div>
                     ) : view === 'table' ? (
                         <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto shadow-sm">
