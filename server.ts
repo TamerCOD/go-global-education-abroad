@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import ExcelJS from "exceljs";
 import webpush from "web-push";
+import JSZip from "jszip";
 import { computeSlaDeadlineForSchedule, normalizePhone, computeScore } from "./lib/leadLogic";
 
 const { Pool } = pg;
@@ -3041,21 +3042,37 @@ async function startServer() {
 
   // ─────────────────────── BACKUP (zip of all tables) ───────────────────────
   app.get("/api/admin/backup", requireAdmin, async (_req, res) => {
-    const tables = ["leads", "managers", "lead_statuses", "lead_comments", "lead_files",
-      "lead_tasks", "lead_tags", "lead_tag_assignments", "events", "site_config",
-      "audit_log", "routing_rules", "quick_replies", "source_cost"];
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename=goglobal-backup-${new Date().toISOString().slice(0, 10)}.json`);
-    const out: any = { created_at: new Date().toISOString(), tables: {} };
-    for (const t of tables) {
-      try {
-        const r = await pq().query(`SELECT * FROM ${t}`);
-        out.tables[t] = r.rows;
-      } catch (e) {
-        out.tables[t] = { error: String(e) };
+    try {
+      const tables = ["leads", "managers", "lead_statuses", "lead_comments", "lead_files",
+        "lead_tasks", "lead_tags", "lead_tag_assignments", "events", "site_config",
+        "audit_log", "routing_rules", "quick_replies", "source_cost"];
+      const stamp = new Date().toISOString().slice(0, 10);
+      const zip = new JSZip();
+      const manifest: any = { created_at: new Date().toISOString(), tables: [] };
+      for (const t of tables) {
+        try {
+          const r = await pq().query(`SELECT * FROM ${t}`);
+          zip.file(`${t}.json`, JSON.stringify(r.rows, null, 2));
+          manifest.tables.push({ table: t, rows: r.rows.length });
+        } catch (e) {
+          zip.file(`${t}.ERROR.txt`, String(e));
+          manifest.tables.push({ table: t, error: String(e) });
+        }
       }
+      zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+      zip.file("README.txt",
+        "GoGlobal CRM — резервная копия базы данных.\n" +
+        `Создано: ${manifest.created_at}\n` +
+        "Каждый файл *.json — это одна таблица (массив записей). manifest.json — список таблиц и число строк.\n" +
+        "Для восстановления передайте этот архив разработчику.\n");
+      const buf = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename=goglobal-backup-${stamp}.zip`);
+      res.end(buf);
+    } catch (err) {
+      console.error("[admin/backup]", err);
+      res.status(500).json({ error: "Backup failed" });
     }
-    res.end(JSON.stringify(out, null, 2));
   });
 
   // ─────────────────────── PUSH SUBSCRIPTIONS ───────────────────────

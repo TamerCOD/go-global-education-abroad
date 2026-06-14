@@ -2387,7 +2387,7 @@ const BackupAndToolsSection: React.FC<{ password: string }> = ({ password }) => 
         const blob = await r.blob();
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `goglobal-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = `goglobal-backup-${new Date().toISOString().slice(0, 10)}.zip`;
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(a.href);
     };
@@ -2395,7 +2395,7 @@ const BackupAndToolsSection: React.FC<{ password: string }> = ({ password }) => 
         <div className="space-y-4">
             <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
                 <div className="text-sm font-semibold text-slate-100 mb-1">💾 Полный бэкап БД</div>
-                <p className="text-xs text-slate-400 mb-3">Скачивает JSON-дамп всех таблиц CRM (лиды, менеджеры, статусы, файлы, задачи, теги, audit log, routing rules и т.д.). На случай миграции или восстановления.</p>
+                <p className="text-xs text-slate-400 mb-3">Скачивает ZIP-архив всех таблиц CRM (лиды, менеджеры, статусы, файлы, задачи, теги, audit log, routing rules и т.д.) — по файлу на таблицу + manifest. На случай миграции или восстановления. Храните копию вне сервера.</p>
                 <button onClick={download} className="bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-white text-sm px-4 py-2 rounded-lg font-semibold shadow-[0_0_16px_-4px_rgba(56,189,248,0.5)]">
                     📦 Скачать полный дамп
                 </button>
