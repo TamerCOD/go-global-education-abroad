@@ -514,6 +514,10 @@ if (DATABASE_URL) {
     // Lead first_response_at — when the assigned manager first comments / changes status
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMPTZ;`);
 
+    // Human-friendly public id, e.g. GoG-INS-123 (prefix derived from the source).
+    await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS public_id TEXT;`);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_leads_public_id ON leads (public_id);`);
+
     // Churn reasons — structured categories for closed_lost
     await pool!.query(`
       CREATE TABLE IF NOT EXISTS churn_reasons (
@@ -815,6 +819,16 @@ if (DATABASE_URL) {
     } catch (err) {
       console.error("[db] Failed to backfill first_response_at:", err);
     }
+    // Backfill public_id (GoG-<src>-<id>) for leads created before this column existed.
+    try {
+      const { rows: noPid } = await pool!.query(`SELECT id, source FROM leads WHERE public_id IS NULL`);
+      for (const r of noPid) {
+        await pool!.query(`UPDATE leads SET public_id = $1 WHERE id = $2`, [leadPublicId(r.source, r.id), r.id]);
+      }
+      if (noPid.length > 0) console.log(`[db] Assigned public_id to ${noPid.length} lead(s)`);
+    } catch (err) {
+      console.error("[db] Failed to backfill public_id:", err);
+    }
 
     // Seed lead_statuses if empty
     const { rows: lsRows } = await pool!.query("SELECT 1 FROM lead_statuses LIMIT 1");
@@ -1047,21 +1061,27 @@ async function pickNextManager(leadCtx?: {
 // Admin-editable, stored in site_data → siteConfig.slaConfig:
 //   { baseSlaMinutes: 180, perSource: { 'реклама': 15, 'сайт': 60 }, hotSlaMinutes: 30 }
 // Cached in memory; refreshed at boot, on admin save, and each cron tick.
-type SlaConfig = { base: number; perSource: Record<string, number>; hot: number | null };
-let slaConfigCache: SlaConfig = { base: LEAD_SLA_HOURS * 60, perSource: {}, hot: null };
+type ReactionEvents = { status: boolean; comment: boolean; open: boolean };
+type SlaConfig = { base: number; perSource: Record<string, number>; hot: number | null; reactionEvents: ReactionEvents };
+// Default reaction SLA: 20 minutes to the first touch (status change / comment / card open).
+const DEFAULT_SLA_MIN = Number(process.env.LEAD_SLA_MINUTES || 20);
+const DEFAULT_REACTION_EVENTS: ReactionEvents = { status: true, comment: true, open: true };
+let slaConfigCache: SlaConfig = { base: DEFAULT_SLA_MIN, perSource: {}, hot: null, reactionEvents: { ...DEFAULT_REACTION_EVENTS } };
 async function refreshSlaConfig() {
   try {
     const store = await getStore();
     const cfg = (store?.siteConfig?.slaConfig) || {};
     const base = Number(cfg.baseSlaMinutes);
     const hot = Number(cfg.hotSlaMinutes);
+    const re = (cfg.reactionEvents && typeof cfg.reactionEvents === "object") ? cfg.reactionEvents : {};
     slaConfigCache = {
-      base: base > 0 ? base : LEAD_SLA_HOURS * 60,
+      base: base > 0 ? base : DEFAULT_SLA_MIN,
       perSource: (cfg.perSource && typeof cfg.perSource === "object") ? cfg.perSource : {},
       hot: hot > 0 ? hot : null,
+      reactionEvents: { status: re.status !== false, comment: re.comment !== false, open: re.open !== false },
     };
   } catch {
-    slaConfigCache = { base: LEAD_SLA_HOURS * 60, perSource: {}, hot: null };
+    slaConfigCache = { base: DEFAULT_SLA_MIN, perSource: {}, hot: null, reactionEvents: { ...DEFAULT_REACTION_EVENTS } };
   }
   return slaConfigCache;
 }
@@ -1250,9 +1270,39 @@ async function recordTransition(opts: {
   } catch (e) { console.error("[recordTransition]", e); }
 }
 
-// Mark first response on a lead (called when manager comments or changes status the first time)
-async function markFirstResponse(leadId: number) {
+// Up-to-3-letter source code for a lead's public id (GoG-<code>-<n>).
+function leadCode(source?: string | null): string {
+  const s = (source || "").toLowerCase();
+  const map: [RegExp, string][] = [
+    [/instagram|инстаграм|инст/, "INS"],
+    [/whats|ватсап|вотсап/, "WAP"],
+    [/telegram|телеграм|\bтг\b/, "TGM"],
+    [/facebook|фейсбук|\bфб\b/, "FBK"],
+    [/tik\s*tok|тикток/, "TTK"],
+    [/сайт|website|web|форма|form/, "WEB"],
+    [/google|гугл|\bads\b|реклам|таргет|target/, "ADS"],
+    [/рекоменд|referral|refer|сарафан|знаком/, "REF"],
+    [/вуз|universit|партн|partner/, "UNI"],
+    [/звон|phone|call|\bтел/, "CAL"],
+    [/визит|office|офис|walk/, "OFF"],
+    [/event|ивент|событ|выставк|expo/, "EVT"],
+    [/импорт|import|csv|база/, "IMP"],
+  ];
+  for (const [re, code] of map) if (re.test(s)) return code;
+  const latin = (source || "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (latin.length >= 2) return latin.slice(0, 3);
+  return "LID";
+}
+function leadPublicId(source: string | null | undefined, id: number): string {
+  return `GoG-${leadCode(source)}-${id}`;
+}
+
+// Mark first response on a lead. `event` is which reaction triggered it; the admin
+// can disable status/comment/open as reaction triggers (touch always counts).
+async function markFirstResponse(leadId: number, event: "status" | "comment" | "open" | "touch" = "status") {
   if (!pool) return;
+  const ev = (slaConfigCache as any).reactionEvents || {};
+  if (event !== "touch" && ev[event] === false) return;
   try {
     await pool.query(
       `UPDATE leads SET first_response_at = NOW() WHERE id = $1 AND first_response_at IS NULL`,
@@ -1945,6 +1995,7 @@ async function startServer() {
            dupAssignee?.id ?? null, dupSla]
         );
         const dupId = dupIns.rows[0].id;
+        await pq().query(`UPDATE leads SET public_id = $1 WHERE id = $2`, [leadPublicId(source, dupId), dupId]);
         await pq().query(
           `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1, NULL, $2, 'system', $3)`,
           [dupId, "🤖 Дедупликация", `🔁 Повторное обращение клиента. Оригинал — лид #${existing.id}. История и документы — там.`]
@@ -2022,6 +2073,7 @@ async function startServer() {
         intake_term || null, budget || null, english_level || null, birth_year, current_education || null]
     );
     const leadId = insert.rows[0].id;
+    await pq().query(`UPDATE leads SET public_id = $1 WHERE id = $2`, [leadPublicId(source, leadId), leadId]);
 
     const tag = manager?.telegram_tag
       ? (manager.telegram_tag.startsWith("@") ? manager.telegram_tag : `@${manager.telegram_tag}`)
@@ -2255,6 +2307,16 @@ async function startServer() {
       const filterFrom = (req.query.from as string | undefined) || null;
       const filterTo = (req.query.to as string | undefined) || null;
       const filterSearch = ((req.query.q as string | undefined) || "").trim();
+      const filterStage = (req.query.stage as string | undefined) || null;
+      const hasTasksOnly = req.query.has_tasks === "1";
+      const pendingApprovalOnly = req.query.pending_approval === "1";
+      // Sorting (whitelisted columns + direction).
+      const SORT_COLS: Record<string, string> = {
+        received: "l.received_at", name: "l.name", score: "COALESCE(l.score,0)",
+        deal: "COALESCE(l.deal_value,0)", sla: "l.sla_deadline_at", updated: "l.updated_at", id: "l.id",
+      };
+      const sortCol = SORT_COLS[String(req.query.sort || "")] || "l.received_at";
+      const sortDir = String(req.query.dir || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
 
       // Pagination (load-more): default high enough that small datasets load fully.
       const reqLimit = Math.min(Math.max(Number(req.query.limit) || 300, 1), 1000);
@@ -2326,8 +2388,19 @@ async function startServer() {
                     OR l.phone ILIKE $${params.length + 1}
                     OR l.email ILIKE $${params.length + 1}
                     OR l.comment ILIKE $${params.length + 1}
+                    OR l.public_id ILIKE $${params.length + 1}
                     OR l.desired_university ILIKE $${params.length + 1})`);
         params.push(q);
+      }
+      if (filterStage) {
+        where.push(`l.stage_code = $${params.length + 1}`);
+        params.push(filterStage);
+      }
+      if (hasTasksOnly) {
+        where.push(`EXISTS (SELECT 1 FROM lead_tasks t WHERE t.lead_id = l.id AND t.completed_at IS NULL)`);
+      }
+      if (pendingApprovalOnly) {
+        where.push(`EXISTS (SELECT 1 FROM stage_approvals sa WHERE sa.lead_id = l.id AND sa.status = 'pending')`);
       }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
       // Total matching rows (for «показано M из N» + load-more), before LIMIT/OFFSET.
@@ -2344,6 +2417,7 @@ async function startServer() {
                 ev.name AS event_name, ev.slug AS event_slug,
                 (SELECT COUNT(*) FROM lead_tasks WHERE lead_id = l.id AND completed_at IS NULL)::int AS open_tasks,
                 (SELECT COUNT(*) FROM lead_tasks WHERE lead_id = l.id AND completed_at IS NULL AND due_at < NOW())::int AS overdue_tasks,
+                (EXISTS (SELECT 1 FROM stage_approvals sa WHERE sa.lead_id = l.id AND sa.status = 'pending')) AS has_pending_approval,
                 (SELECT COALESCE(json_agg(json_build_object('id', t.id, 'label', t.label, 'color', t.color, 'emoji', t.emoji)), '[]'::json)
                  FROM lead_tag_assignments a JOIN lead_tags t ON t.id = a.tag_id WHERE a.lead_id = l.id) AS tags
          FROM leads l
@@ -2354,7 +2428,7 @@ async function startServer() {
          LEFT JOIN managers pby ON pby.id = l.pending_transfer_by_id
          LEFT JOIN events ev ON ev.id = l.event_id
          ${whereSql}
-         ORDER BY l.received_at DESC
+         ORDER BY ${sortCol} ${sortDir} NULLS LAST, l.id DESC
          LIMIT $${limitParam} OFFSET $${offsetParam}`,
         [...params, reqLimit, reqOffset]
       );
@@ -2386,7 +2460,10 @@ async function startServer() {
                              AND l.sla_deadline_at IS NOT NULL AND l.sla_deadline_at < NOW() AND ${mineSql})::int AS overdue,
            COUNT(*) FILTER (WHERE l.assigned_manager_id IS NULL AND ls.is_terminal IS NOT TRUE)::int AS queued,
            COUNT(*) FILTER (WHERE l.pending_transfer_to_id = $1)::int AS incoming,
-           COUNT(*) FILTER (WHERE ls.is_terminal IS TRUE AND ${mineSql})::int AS closed
+           COUNT(*) FILTER (WHERE ls.is_terminal IS TRUE AND ${mineSql})::int AS closed,
+           (SELECT COUNT(*) FROM stage_approvals sa JOIN leads l2 ON l2.id = sa.lead_id
+             WHERE sa.status = 'pending' AND l2.deleted_at IS NULL
+             AND ${onlyMine ? `(l2.assigned_manager_id = $1 OR l2.pending_transfer_to_id = $1)` : `TRUE`})::int AS pending_approvals
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
          WHERE l.deleted_at IS NULL`,
@@ -2610,7 +2687,7 @@ async function startServer() {
         from_code: lead.status_code || null, to_code: status,
         manager_id: me.id,
       });
-      await markFirstResponse(leadId);
+      await markFirstResponse(leadId, "status");
 
       res.json({ ok: true, lead: updated.rows[0] });
     } catch (err) {
@@ -2622,6 +2699,7 @@ async function startServer() {
   // Single-lead detail (fast lookup for the drawer)
   app.get("/api/lidy/leads/:id", requireManager, async (req, res) => {
     try {
+      const session = (req as any).manager as { mid: number };
       const leadId = Number(req.params.id);
       const { rows } = await pq().query(
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color,
@@ -2643,6 +2721,10 @@ async function startServer() {
         [leadId]
       );
       if (rows.length === 0) return res.status(404).json({ error: "Not found" });
+      // Opening the card by its assigned manager counts as a first reaction (configurable).
+      if (rows[0].assigned_manager_id && rows[0].assigned_manager_id === session.mid) {
+        markFirstResponse(leadId, "open").catch(() => {});
+      }
       res.json({ lead: rows[0] });
     } catch (err) {
       console.error("[lidy/lead GET]", err);
@@ -2795,6 +2877,19 @@ async function startServer() {
         return res.json({ ok: true, stage });
       }
 
+      // Sequential rule: a manager may only step to the IMMEDIATE next client stage.
+      // Skipping ahead (or jumping past the first stage from none) is teamlead/admin-only.
+      if (me.role !== "teamlead" && Number(tgt.sort) !== curSort) {
+        const nextRow = await pq().query(
+          `SELECT sort FROM lead_statuses WHERE is_client_stage = TRUE AND sort > $1 ORDER BY sort ASC LIMIT 1`,
+          [curSort]
+        );
+        const nextSort = nextRow.rows[0]?.sort;
+        if (nextSort == null || Number(tgt.sort) > Number(nextSort)) {
+          return res.status(403).json({ error: "Этапы проходятся по порядку — перескакивать нельзя. Пропуск этапов доступен только РОП/админу." });
+        }
+      }
+
       // FORWARD (or setting the first stage)
       if (tgt.requires_file && !fileId) {
         return res.status(409).json({ needFile: true, prompt: tgt.file_prompt || "Приложите файл, чтобы перейти на этот этап.", stage });
@@ -2897,6 +2992,22 @@ async function startServer() {
   app.get("/api/lidy/tags", requireManager, async (_req, res) => {
     const { rows } = await pq().query(`SELECT id, label, color, emoji FROM lead_tags ORDER BY label`);
     res.json({ tags: rows });
+  });
+  // Any employee can create a tag on the fly, then assign it to a client.
+  app.post("/api/lidy/tags", requireManager, async (req, res) => {
+    const label = String(req.body?.label || "").trim().slice(0, 40);
+    if (!label) return res.status(400).json({ error: "Укажите название метки" });
+    const color = String(req.body?.color || "#64748b").slice(0, 16);
+    const emoji = String(req.body?.emoji || "").slice(0, 8);
+    try {
+      const ex = await pq().query(`SELECT id, label, color, emoji FROM lead_tags WHERE LOWER(label) = LOWER($1)`, [label]);
+      if (ex.rows.length > 0) return res.json({ tag: ex.rows[0], existed: true });
+      const { rows } = await pq().query(
+        `INSERT INTO lead_tags (label, color, emoji) VALUES ($1,$2,$3) RETURNING id, label, color, emoji`,
+        [label, color, emoji || null]
+      );
+      res.json({ tag: rows[0] });
+    } catch (err) { res.status(500).json({ error: "Server error" }); }
   });
   app.get("/api/lidy/leads/:id/tags", requireManager, async (req, res) => {
     const { rows } = await pq().query(
@@ -3450,7 +3561,7 @@ async function startServer() {
       `INSERT INTO lead_touches (lead_id, manager_id, channel, note) VALUES ($1,$2,$3,$4)`,
       [leadId, session.mid, channel, note || null]
     );
-    await markFirstResponse(leadId);
+    await markFirstResponse(leadId, "touch");
     res.json({ ok: true });
   });
   app.get("/api/lidy/leads/:id/touches", requireManager, async (req, res) => {
@@ -3874,7 +3985,7 @@ async function startServer() {
          RETURNING id, manager_id, author_name, author_role, body, created_at`,
         [leadId, me.id, me.full_name, me.role || "manager", body]
       );
-      await markFirstResponse(leadId);
+      await markFirstResponse(leadId, "comment");
       res.json({ ok: true, comment: rows[0] });
     } catch (err) {
       console.error("[lidy/comments POST]", err);
@@ -4100,6 +4211,7 @@ async function startServer() {
           intake_term || null, budget || null, english_level || null, birth_year, current_education || null]
       );
       const leadId = insert.rows[0].id;
+      await pq().query(`UPDATE leads SET public_id = $1 WHERE id = $2`, [leadPublicId(source, leadId), leadId]);
 
       // First comment: who created it
       await pq().query(
@@ -4207,6 +4319,7 @@ async function startServer() {
              desired_university || null, study_level || null, intake_term || null, budget || null,
              english_level || null, birth_year, current_education || null]
           );
+          await pq().query(`UPDATE leads SET public_id = $1 WHERE id = $2`, [leadPublicId(source, ins.rows[0].id), ins.rows[0].id]);
           createdIds.push(ins.rows[0].id);
           created++;
         } catch (rowErr) {

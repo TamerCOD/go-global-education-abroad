@@ -90,9 +90,12 @@ const Section: React.FC<{
     children: React.ReactNode;
     badge?: string;
     accent?: 'lime' | 'cyan' | 'fuchsia' | 'amber' | 'violet' | 'red';
-}> = ({ title, subtitle, defaultOpen = false, children, badge, accent }) => {
+    count?: number;
+}> = ({ title, subtitle, defaultOpen = false, children, badge, accent, count }) => {
     const activeGroup = React.useContext(AdminGroupCtx);
     const [open, setOpen] = useState(defaultOpen);
+    // Auto-expand when a non-zero count appears (e.g. pending approvals) so it's never missed.
+    React.useEffect(() => { if (count && count > 0) setOpen(true); }, [count]);
     // Hide only when explicitly assigned to a different group than the active one.
     const grp = ADMIN_GROUP_BY_TITLE[title];
     if (activeGroup && grp && grp !== activeGroup) return null;
@@ -110,6 +113,9 @@ const Section: React.FC<{
                     <div className="flex items-center gap-2 flex-wrap">
                         <h2 className={`text-base font-semibold tracking-tight ${isAlert ? 'text-rose-300' : 'text-slate-100'}`}>{title}</h2>
                         {badge && <span className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700 px-1.5 py-0.5 rounded font-medium uppercase tracking-wider">{badge}</span>}
+                        {count !== undefined && count > 0 && (
+                            <span className="text-[11px] min-w-[20px] text-center bg-rose-500 text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse">{count}</span>
+                        )}
                     </div>
                     {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
                 </div>
@@ -123,21 +129,23 @@ const Section: React.FC<{
 // Configurable SLA levels editor (siteConfig.slaConfig)
 const SlaLevelsSection: React.FC<{ sc: any; setSC: (p: any) => void; sources: string[] }> = ({ sc, setSC, sources }) => {
     const cfg = sc.slaConfig || {};
-    const base = Number(cfg.baseSlaMinutes) > 0 ? Number(cfg.baseSlaMinutes) : 180;
+    const base = Number(cfg.baseSlaMinutes) > 0 ? Number(cfg.baseSlaMinutes) : 20;
     const perSource: Record<string, number> = (cfg.perSource && typeof cfg.perSource === 'object') ? cfg.perSource : {};
+    const re: Record<string, boolean> = (cfg.reactionEvents && typeof cfg.reactionEvents === 'object') ? cfg.reactionEvents : {};
     const setSLA = (patch: any) => setSC({ slaConfig: { ...cfg, ...patch } });
     const fmt = (m: number) => m % 60 === 0 ? `${m / 60} ч` : m >= 60 ? `${Math.floor(m / 60)} ч ${m % 60} мин` : `${m} мин`;
     return (
         <div className="space-y-5 text-sm">
             <p className="text-xs text-slate-400 leading-relaxed">
-                SLA — сколько времени у менеджера на <b className="text-slate-200">первый ответ</b> лиду. Считается только в рабочие часы:
+                SLA — сколько времени у менеджера на <b className="text-slate-200">первую реакцию</b> по лиду (по умолчанию 20 минут).
+                Реакцией считается первое из выбранных ниже действий. Считается только в рабочие часы:
                 ночная заявка не «горит», дедлайн переносится на утро. После просрочки лид краснеет, РОПу летит сигнал в Telegram.
             </p>
             <div>
                 <div className="text-xs uppercase tracking-wider font-bold text-violet-300 mb-1.5">Базовый SLA (для всех лидов)</div>
                 <div className="flex items-center gap-2">
                     <input type="number" min={1} className="w-28 bg-slate-800/60 text-slate-100 border border-slate-700 p-2 rounded-lg focus:outline-none focus:border-sky-500"
-                        value={cfg.baseSlaMinutes ?? 180}
+                        value={cfg.baseSlaMinutes ?? 20}
                         onChange={e => setSLA({ baseSlaMinutes: Number(e.target.value) || 0 })} />
                     <span className="text-slate-400">минут</span>
                     <span className="text-xs text-slate-500">= {fmt(base)}</span>
@@ -170,6 +178,19 @@ const SlaLevelsSection: React.FC<{ sc: any; setSC: (p: any) => void; sources: st
                                 }} />
                             <span className="text-xs text-slate-500 w-8">мин</span>
                         </div>
+                    ))}
+                </div>
+            </div>
+            <div className="pt-4 border-t border-slate-800">
+                <div className="text-xs uppercase tracking-wider font-bold text-violet-300 mb-1.5">Что считается реакцией</div>
+                <p className="text-xs text-slate-500 mb-2">SLA «закрывается» первым из отмеченных действий менеджера по лиду. Снимите галочку, чтобы действие не засчитывалось.</p>
+                <div className="space-y-1.5">
+                    {([['status', 'Смена статуса лида'], ['comment', 'Первый комментарий'], ['open', 'Открытие карточки назначенным менеджером']] as [string, string][]).map(([k, label]) => (
+                        <label key={k} className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" className="accent-violet-500 w-4 h-4" checked={re[k] !== false}
+                                onChange={e => setSLA({ reactionEvents: { ...re, [k]: e.target.checked } })} />
+                            <span className="text-slate-200">{label}</span>
+                        </label>
                     ))}
                 </div>
             </div>
@@ -1145,7 +1166,7 @@ const ManagersSection: React.FC<{ password: string }> = ({ password }) => {
     );
 };
 
-const ApprovalsSection: React.FC<{ password: string }> = ({ password }) => {
+const ApprovalsSection: React.FC<{ password: string; onPending?: (n: number) => void }> = ({ password, onPending }) => {
     const [items, setItems] = useState<any[] | null>(null);
     const [rejectId, setRejectId] = useState<number | null>(null);
     const [comment, setComment] = useState('');
@@ -1153,7 +1174,7 @@ const ApprovalsSection: React.FC<{ password: string }> = ({ password }) => {
     const [msg, setMsg] = useState<string | null>(null);
     const H = { 'Content-Type': 'application/json', 'X-Admin-Password': password };
     const load = () => fetch('/api/admin/approvals', { headers: { 'X-Admin-Password': password } })
-        .then(r => r.json()).then(j => setItems(j.approvals || [])).catch(() => setItems([]));
+        .then(r => r.json()).then(j => { const arr = j.approvals || []; setItems(arr); onPending?.(arr.filter((a: any) => a.status === 'pending').length); }).catch(() => setItems([]));
     useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
     const decide = async (id: number, action: 'approve' | 'reject', cm?: string) => {
         setBusy(true); setMsg(null);
@@ -1215,6 +1236,17 @@ const ApprovalsSection: React.FC<{ password: string }> = ({ password }) => {
                 </div>
             )}
         </div>
+    );
+};
+
+// Wraps the approvals list in a Section that surfaces the pending count as a red
+// corner badge and auto-expands when something needs a decision.
+const ApprovalsAdminSection: React.FC<{ password: string }> = ({ password }) => {
+    const [pending, setPending] = useState(0);
+    return (
+        <Section title="🕓 Согласования этапов" subtitle="Запросы менеджеров на переход по этапам, требующим подтверждения" badge="CRM" accent="violet" count={pending}>
+            <ApprovalsSection password={password} onPending={setPending} />
+        </Section>
     );
 };
 
@@ -3639,9 +3671,7 @@ const AdminPanel: React.FC = () => {
                     <StatusesSection password={password} />
                 </Section>
 
-                <Section title="🕓 Согласования этапов" subtitle="Запросы менеджеров на переход по этапам, требующим подтверждения" badge="CRM" accent="violet">
-                    <ApprovalsSection password={password} />
-                </Section>
+                <ApprovalsAdminSection password={password} />
 
                 <Section title="⏱ Уровни SLA (время на ответ)" subtitle="Базовый срок + ускорение для рекламы и горячих лидов" badge="CRM" accent="violet">
                     <SlaLevelsSection sc={sc} setSC={setSC}
