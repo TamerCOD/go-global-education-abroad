@@ -23,6 +23,64 @@ const ATooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text,
     </span>
 );
 
+// ── Admin navigation groups ──────────────────────────────────────────────
+// One visible group at a time → no 39-accordion wall, and inactive groups'
+// heavy widgets never mount (lighter admin). A section whose title isn't
+// mapped shows in every group (safe: nothing disappears on a typo).
+export type AdminGroup = 'content' | 'analytics' | 'crm' | 'system';
+export const ADMIN_GROUPS: { id: AdminGroup; label: string; icon: string; hint: string }[] = [
+    { id: 'content', label: 'Контент сайта', icon: '🌐', hint: 'Тексты, картинки, страны, отзывы — всё, что видит клиент' },
+    { id: 'analytics', label: 'Аналитика продаж', icon: '📊', hint: 'Дашборды и отчёты (только чтение)' },
+    { id: 'crm', label: 'Настройки CRM', icon: '⚙️', hint: 'Менеджеры, статусы, правила, шаблоны' },
+    { id: 'system', label: 'Система', icon: '🛡', hint: 'Бэкапы, аудит, Telegram, вид админки' },
+];
+const ADMIN_GROUP_BY_TITLE: Record<string, AdminGroup> = {
+    // Контент сайта
+    '📝 Тексты главной страницы': 'content',
+    '🖼 Изображения сайта': 'content',
+    '🧮 Калькулятор стоимости обучения': 'content',
+    '🎓 Партнёры (плашки в About)': 'content',
+    '🌍 Континенты / Регионы': 'content',
+    '🌐 Страны и Университеты': 'content',
+    '💬 Отзывы студентов': 'content',
+    '❓ FAQ — Частые вопросы': 'content',
+    '📞 Контакты, WhatsApp и график работы': 'content',
+    '🎟 События / ивент-ссылки': 'content',
+    '🔗 Ссылка на форму заявки': 'content',
+    '🎯 Варианты источников лидов': 'content',
+    '🎬 Loader (анимация при загрузке)': 'content',
+    '👁 Видимость блоков сайта': 'content',
+    // Аналитика продаж
+    '🚦 Здоровье продаж': 'analytics',
+    '📊 Статистика посещений': 'analytics',
+    '📈 Дашборд CRM': 'analytics',
+    '📆 Когортный анализ': 'analytics',
+    '💸 ROI по источникам': 'analytics',
+    '🏆 Leaderboard менеджеров': 'analytics',
+    '📋 1-on-1 отчёт по менеджеру': 'analytics',
+    '⏱ Время в статусах + зависшие лиды': 'analytics',
+    '⏲ Скорость отклика менеджеров': 'analytics',
+    '🌡 Heatmap входящих лидов': 'analytics',
+    '🚪 Анализ отказов (churn)': 'analytics',
+    // Настройки CRM
+    '🧑‍💼 Менеджеры по продажам (CRM)': 'crm',
+    '🤖 Авто-распределение лидов': 'crm',
+    '🎯 Статусы лидов': 'crm',
+    '🏷 Метки клиентов': 'crm',
+    '📨 Шаблоны быстрых ответов': 'crm',
+    '🤖 Авто-сценарии (no-code)': 'crm',
+    '🚪 Причины отказов (CRUD)': 'crm',
+    '📖 База знаний': 'crm',
+    '💵 Комиссии и выплаты': 'crm',
+    '📋 Все лиды (обзор)': 'crm',
+    // Система
+    '🛠 Утилиты и бэкапы': 'system',
+    '🕒 Журнал аудита': 'system',
+    '🎨 Внешний вид админки': 'system',
+    '🔔 Telegram-уведомления': 'system',
+};
+const AdminGroupCtx = React.createContext<AdminGroup | null>(null);
+
 const Section: React.FC<{
     title: string;
     subtitle?: string;
@@ -31,7 +89,11 @@ const Section: React.FC<{
     badge?: string;
     accent?: 'lime' | 'cyan' | 'fuchsia' | 'amber' | 'violet' | 'red';
 }> = ({ title, subtitle, defaultOpen = false, children, badge, accent }) => {
+    const activeGroup = React.useContext(AdminGroupCtx);
     const [open, setOpen] = useState(defaultOpen);
+    // Hide only when explicitly assigned to a different group than the active one.
+    const grp = ADMIN_GROUP_BY_TITLE[title];
+    if (activeGroup && grp && grp !== activeGroup) return null;
     // Single calm accent — no more rainbow.
     const headerBg = 'bg-slate-800/50';
     const isAlert = accent === 'red';
@@ -3088,6 +3150,7 @@ const AdminPanel: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [savedAt, setSavedAt] = useState<number | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [activeGroup, setActiveGroup] = useState<AdminGroup>('content');
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -3246,7 +3309,30 @@ const AdminPanel: React.FC = () => {
                 </div>
             </div>
 
-            <div className="relative z-10 max-w-7xl mx-auto p-4">
+            <div className="relative z-10 max-w-7xl mx-auto p-4 flex gap-5 items-start">
+                {/* Left group navigation — one section-group visible at a time */}
+                <aside className="hidden md:flex flex-col gap-1.5 w-56 flex-shrink-0 sticky top-[60px]">
+                    {ADMIN_GROUPS.map(g => (
+                        <button key={g.id} type="button" onClick={() => setActiveGroup(g.id)} title={g.hint}
+                            className={`text-left px-3 py-2.5 rounded-lg border transition-colors ${activeGroup === g.id ? 'bg-sky-600/15 border-sky-500/40 text-sky-100' : 'bg-slate-900/40 border-slate-800 text-slate-300 hover:bg-slate-800/60'}`}>
+                            <div className="flex items-center gap-2 text-sm font-semibold"><span>{g.icon}</span>{g.label}</div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 leading-snug">{g.hint}</div>
+                        </button>
+                    ))}
+                </aside>
+
+                <div className="flex-grow min-w-0">
+                    {/* Mobile group selector */}
+                    <div className="md:hidden flex gap-1.5 overflow-x-auto pb-3 mb-1 -mx-1 px-1">
+                        {ADMIN_GROUPS.map(g => (
+                            <button key={g.id} type="button" onClick={() => setActiveGroup(g.id)}
+                                className={`flex-shrink-0 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${activeGroup === g.id ? 'bg-sky-600/15 border-sky-500/40 text-sky-100' : 'bg-slate-900/40 border-slate-800 text-slate-300'}`}>
+                                {g.icon} {g.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <AdminGroupCtx.Provider value={activeGroup}>
 
                 <Section title="🚦 Здоровье продаж" subtitle="Светофор: SLA, конверсия, оффлайн-менеджеры, застрявшие лиды" badge="CRM" accent="fuchsia">
                     <SalesHealthWidget password={password} />
@@ -4029,6 +4115,8 @@ const AdminPanel: React.FC = () => {
 
                 <div className="text-center text-xs text-slate-400 mt-8">
                     Не забудьте нажать «Сохранить всё» наверху после изменений.
+                </div>
+                    </AdminGroupCtx.Provider>
                 </div>
             </div>
         </div>
