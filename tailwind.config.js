@@ -15,11 +15,19 @@ export default {
     extend: {
       colors: {
         brand: {
+          // Full blue ramp — the original config omitted 200/300/400/800, but those
+          // shades ARE used across the site (text-brand-400 icons, bg-brand-200, the
+          // calculator's text-brand-200, etc.). Undefined shades silently don't
+          // generate, leaving elements with an inherited/wrong colour. Fill them in.
           50: '#eff6ff',
           100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
           500: '#3b82f6',
           600: '#2563eb',
           700: '#1d4ed8',
+          800: '#1e40af',
           900: '#1e3a8a',
         },
         accent: {
