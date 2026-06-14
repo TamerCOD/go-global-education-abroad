@@ -2673,6 +2673,98 @@ const ImportLeadsModal: React.FC<{ onClose: () => void; onDone: () => void; rost
 };
 
 // ═════════════════════════════════════════════════════════════════════
+//  КОРЗИНА (trash) MODAL — restore / purge soft-deleted leads (teamlead)
+// ═════════════════════════════════════════════════════════════════════
+const TrashModal: React.FC<{ onClose: () => void; onChanged: () => void }> = ({ onClose, onChanged }) => {
+    const [items, setItems] = useState<any[] | null>(null);
+    const [busyId, setBusyId] = useState<number | null>(null);
+    const [confirmPurge, setConfirmPurge] = useState<number | null>(null);
+
+    const load = () => {
+        setItems(null);
+        fetch('/api/lidy/trash', { credentials: 'include' })
+            .then(r => r.json()).then(j => setItems(j.leads || [])).catch(() => setItems([]));
+    };
+    useEffect(load, []);
+
+    const restore = async (id: number) => {
+        setBusyId(id);
+        try {
+            const r = await fetch(`/api/lidy/leads/${id}/restore`, { method: 'POST', credentials: 'include' });
+            if (!r.ok) throw new Error();
+            toast(`Лид #${id} восстановлен`);
+            setItems(prev => (prev || []).filter(x => Number(x.id) !== id));
+            onChanged();
+        } catch { toast('Не удалось восстановить', { kind: 'err' }); }
+        finally { setBusyId(null); }
+    };
+    const purge = async (id: number) => {
+        setBusyId(id);
+        try {
+            const r = await fetch(`/api/lidy/leads/${id}/purge`, { method: 'DELETE', credentials: 'include' });
+            if (!r.ok) throw new Error();
+            toast(`Лид #${id} удалён навсегда`);
+            setItems(prev => (prev || []).filter(x => Number(x.id) !== id));
+            setConfirmPurge(null);
+            onChanged();
+        } catch { toast('Не удалось удалить', { kind: 'err' }); }
+        finally { setBusyId(null); }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[120] flex items-start justify-center p-4 overflow-y-auto bg-slate-950/70 backdrop-blur-sm" onClick={onClose}>
+            <div className="relative w-full max-w-2xl my-8 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+                    <h3 className="text-lg font-bold text-slate-50">🗑 Корзина</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-xl leading-none">×</button>
+                </div>
+                <div className="p-6">
+                    <p className="text-xs text-slate-400 mb-4">Удалённые лиды. «Восстановить» вернёт лид в работу; «Навсегда» удалит безвозвратно.</p>
+                    {items === null ? (
+                        <div className="text-sm text-slate-400 py-6 text-center">Загрузка…</div>
+                    ) : items.length === 0 ? (
+                        <div className="text-sm text-slate-500 italic py-10 text-center">Корзина пуста 🎉</div>
+                    ) : (
+                        <div className="space-y-2">
+                            {items.map(l => (
+                                <div key={l.id} className="flex items-center gap-3 border border-slate-800 rounded-lg p-3">
+                                    <Avatar name={l.name} size="sm" />
+                                    <div className="flex-grow min-w-0">
+                                        <div className="text-sm font-medium text-slate-50 truncate">
+                                            {l.name || '— без имени —'} <span className="text-xs text-slate-400">#{l.id}</span>
+                                            {l.status_label && <StatusBadge code={l.status_code} label={l.status_label} color={l.status_color} />}
+                                        </div>
+                                        <div className="text-xs text-slate-400 truncate">
+                                            {l.phone && <span className="font-mono">{l.phone}</span>}
+                                            {l.manager_name && <span> · 👤 {l.manager_name}</span>}
+                                            {l.deleted_at && <span> · удалён {formatRel(l.deleted_at)}</span>}
+                                        </div>
+                                    </div>
+                                    {confirmPurge === Number(l.id) ? (
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-xs text-rose-300">Точно?</span>
+                                            <button disabled={busyId === Number(l.id)} onClick={() => purge(Number(l.id))}
+                                                className="text-xs px-2 py-1 rounded bg-rose-600 text-white hover:bg-rose-500">Да, навсегда</button>
+                                            <button onClick={() => setConfirmPurge(null)} className="text-xs px-2 py-1 rounded bg-slate-700 text-slate-200">Нет</button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                                            <Btn variant="success" onClick={() => restore(Number(l.id))} disabled={busyId === Number(l.id)}>↩ Восстановить</Btn>
+                                            <button onClick={() => setConfirmPurge(Number(l.id))} title="Удалить навсегда"
+                                                className="text-xs px-2 py-1.5 rounded-lg text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30">✕</button>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ═════════════════════════════════════════════════════════════════════
 //  CREATE LEAD MODAL
 // ═════════════════════════════════════════════════════════════════════
 const CreateLeadModal: React.FC<{
@@ -2918,6 +3010,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     const [inboxZero, setInboxZero] = useState(false);
     const [staleOnly, setStaleOnly] = useState(false);
     const [summary, setSummary] = useState<any>(null);
+    const [leadLimit, setLeadLimit] = useState(300);   // pagination: how many to load
+    const [leadTotal, setLeadTotal] = useState(0);     // total matching on server
+    const [showTrash, setShowTrash] = useState(false); // Корзина modal
 
     // Quick filters behave like a radio group — one active at a time (re-click turns it off)
     const QUICK_STATUS_CODES = ['new', 'callback', 'no_answer', 'office_visit', 'duplicate'];
@@ -3025,6 +3120,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             if (closedOnly) p.set('closed_only', '1');
             if (hotOnly) p.set('hot', '1');
             if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim());
+            p.set('limit', String(leadLimit));
             const sumP = `?scope=${scope}`;
             const [lR, sR, rR, sumR] = await Promise.all([
                 fetch(`/api/lidy/leads?${p.toString()}`, { credentials: 'include' }),
@@ -3036,13 +3132,14 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             const lj = await lR.json(); const sj = await sR.json(); const rj = await rR.json();
             const sumJ = sumR.ok ? await sumR.json() : null;
             setLeads(lj.leads || []); setStatuses(sj.statuses || []); setRoster(rj.managers || []);
+            setLeadTotal(lj.total ?? (lj.leads || []).length);
             if (sumJ?.summary) setSummary(sumJ.summary);
             setLastRefresh(Date.now());
         } catch (e: any) {
             setError(e?.message || String(e));
         } finally { setLoading(false); }
     }, [scope, filterStatus, filterSource, filterCountry, filterUniversity, filterLevel,
-        filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, closedOnly, hotOnly, debouncedSearch]);
+        filterManagerId, filterFrom, filterTo, overdueOnly, includeClosed, closedOnly, hotOnly, debouncedSearch, leadLimit]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -3265,6 +3362,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                         <Btn variant="secondary" onClick={() => setShowKB(true)} title="База знаний — статьи и инструкции для менеджеров">📖</Btn>
                         <Btn variant="primary" onClick={() => setShowCreate(true)} title="Создать лида вручную: звонок, визит в офис, рекомендация">+ Лид</Btn>
                         {isTeamlead && <Btn variant="secondary" onClick={() => setShowImport(true)} title="Импорт лидов из CSV-файла">📥 CSV</Btn>}
+                        {isTeamlead && <Btn variant="ghost" onClick={() => setShowTrash(true)} title="Корзина — удалённые лиды можно восстановить">🗑</Btn>}
                         <Dropdown align="right" width="w-60"
                             buttonCls="flex items-center gap-1 p-1 rounded-full hover:bg-slate-800 transition-colors"
                             button={<Avatar name={manager.full_name} size="sm" />}>
@@ -3548,8 +3646,17 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
                     {/* Header bar: results count + view switcher */}
                     <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="text-sm text-slate-300">
-                            {loading ? 'Загрузка…' : `Найдено: ${displayedLeads.length}`}
+                        <div className="text-sm text-slate-300 flex items-center gap-2 flex-wrap">
+                            <span>{loading ? 'Загрузка…' : `Найдено: ${displayedLeads.length}`}</span>
+                            {!loading && leadTotal > leads.length && (
+                                <>
+                                    <span className="text-slate-500">из {leadTotal} загружено {leads.length}</span>
+                                    <button onClick={() => setLeadLimit(l => l + 300)}
+                                        className="text-xs px-2 py-1 rounded-lg bg-sky-600/20 text-sky-300 border border-sky-500/30 hover:bg-sky-600/30">
+                                        ↓ Показать ещё
+                                    </button>
+                                </>
+                            )}
                             {search.trim() && <span className="ml-2 text-slate-400">по запросу «{search.trim()}»</span>}
                         </div>
                         <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 shadow-sm flex-wrap">
@@ -3744,6 +3851,9 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
             {showImport && (
                 <ImportLeadsModal onClose={() => setShowImport(false)} onDone={load} roster={roster} />
             )}
+
+            {/* Корзина modal (teamlead) */}
+            {showTrash && <TrashModal onClose={() => setShowTrash(false)} onChanged={load} />}
 
             {/* Knowledge base modal */}
             {showKB && <KnowledgeBaseModal onClose={() => setShowKB(false)} />}

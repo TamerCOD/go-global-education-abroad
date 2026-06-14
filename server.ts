@@ -1115,7 +1115,7 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
   const { rows: pending } = await pool.query(
     `SELECT id, name, phone, email, country, comment, received_at
      FROM leads
-     WHERE assigned_manager_id IS NULL AND processed_at IS NULL
+     WHERE assigned_manager_id IS NULL AND processed_at IS NULL AND deleted_at IS NULL
      ORDER BY received_at ASC
      LIMIT 100`
   );
@@ -1438,6 +1438,7 @@ async function checkSlaBreaches() {
          AND l.first_response_at IS NULL
          AND l.sla_warned = FALSE
          AND l.sla_deadline_at < NOW()
+         AND l.deleted_at IS NULL
        LIMIT 50`
     );
     for (const lead of rows) {
@@ -1819,8 +1820,9 @@ async function startServer() {
     if (normPhone || email) {
       const dupQ = await pq().query(
         `SELECT id, status_code, assigned_manager_id FROM leads
-         WHERE (LENGTH($1) >= 7 AND REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $1)
-            OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2))
+         WHERE deleted_at IS NULL AND (
+              (LENGTH($1) >= 7 AND REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE '%' || $1)
+              OR ($2 <> '' AND LOWER(COALESCE(email, '')) = LOWER($2)))
          ORDER BY received_at DESC LIMIT 1`,
         [normPhone, email]
       );
@@ -2155,7 +2157,11 @@ async function startServer() {
       const filterTo = (req.query.to as string | undefined) || null;
       const filterSearch = ((req.query.q as string | undefined) || "").trim();
 
-      const where: string[] = [];
+      // Pagination (load-more): default high enough that small datasets load fully.
+      const reqLimit = Math.min(Math.max(Number(req.query.limit) || 300, 1), 1000);
+      const reqOffset = Math.max(Number(req.query.offset) || 0, 0);
+
+      const where: string[] = ["l.deleted_at IS NULL"]; // soft-deleted leads live in the Корзина
       const params: any[] = [];
       if (onlyMine) {
         // "My leads" = owned by me OR pending incoming transfer to me
@@ -2225,6 +2231,11 @@ async function startServer() {
         params.push(q);
       }
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      // Total matching rows (for «показано M из N» + load-more), before LIMIT/OFFSET.
+      const countRes = await pq().query(`SELECT COUNT(*)::int AS total FROM leads l ${whereSql}`, params);
+      const total = countRes.rows[0]?.total ?? 0;
+      const limitParam = params.length + 1;
+      const offsetParam = params.length + 2;
       const { rows } = await pq().query(
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color, ls.is_terminal AS status_is_terminal,
                 stg.label AS stage_label, stg.color AS stage_color,
@@ -2245,10 +2256,10 @@ async function startServer() {
          LEFT JOIN events ev ON ev.id = l.event_id
          ${whereSql}
          ORDER BY l.received_at DESC
-         LIMIT 300`,
-        params
+         LIMIT $${limitParam} OFFSET $${offsetParam}`,
+        [...params, reqLimit, reqOffset]
       );
-      res.json({ leads: rows, role: me.role });
+      res.json({ leads: rows, role: me.role, total, limit: reqLimit, offset: reqOffset });
     } catch (err) {
       console.error("[lidy/leads]", err);
       res.status(500).json({ error: "Server error" });
@@ -2278,7 +2289,8 @@ async function startServer() {
            COUNT(*) FILTER (WHERE l.pending_transfer_to_id = $1)::int AS incoming,
            COUNT(*) FILTER (WHERE ls.is_terminal IS TRUE AND ${mineSql})::int AS closed
          FROM leads l
-         LEFT JOIN lead_statuses ls ON ls.code = l.status_code`,
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         WHERE l.deleted_at IS NULL`,
         [session.mid]
       );
       res.json({ summary: rows[0] });
@@ -2298,7 +2310,7 @@ async function startServer() {
       const to = req.query.to ? new Date(String(req.query.to)) : new Date(Date.now() + 30 * 86400_000);
       const onlyMine = req.query.scope !== "all" && me.role !== "teamlead";
 
-      const where: string[] = [`l.appointment_at IS NOT NULL`, `l.appointment_at >= $1`, `l.appointment_at <= $2`];
+      const where: string[] = [`l.deleted_at IS NULL`, `l.appointment_at IS NOT NULL`, `l.appointment_at >= $1`, `l.appointment_at <= $2`];
       const params: any[] = [from, to];
       if (onlyMine) { where.push(`l.assigned_manager_id = $${params.length + 1}`); params.push(me.id); }
 
@@ -2348,7 +2360,7 @@ async function startServer() {
                 COUNT(*) FILTER (WHERE l.status_code = 'closed_won' AND l.processed_at >= date_trunc('month', NOW()))::int AS won_mtd,
                 COUNT(*) FILTER (WHERE l.processed_at IS NULL AND l.first_response_at IS NULL AND l.sla_deadline_at < NOW())::int AS overdue
          FROM managers m
-         LEFT JOIN leads l ON l.assigned_manager_id = m.id
+         LEFT JOIN leads l ON l.assigned_manager_id = m.id AND l.deleted_at IS NULL
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
          GROUP BY m.id, m.full_name, m.login, m.is_online, m.active, m.role, m.telegram_tag, m.monthly_goal
          ORDER BY m.full_name`
@@ -2565,7 +2577,7 @@ async function startServer() {
          FROM leads l
          LEFT JOIN lead_statuses ls ON ls.code = l.status_code
          LEFT JOIN managers m ON m.id = l.assigned_manager_id
-         WHERE l.id <> $1 AND (${conds.join(" OR ")})
+         WHERE l.id <> $1 AND l.deleted_at IS NULL AND (${conds.join(" OR ")})
          ORDER BY l.received_at DESC
          LIMIT 20`,
         params
@@ -3963,7 +3975,7 @@ async function startServer() {
     }
   });
 
-  // Teamlead can delete a lead from /lidy
+  // Teamlead «deletes» a lead → soft-delete into the Корзина (reversible for 30 days)
   app.delete("/api/lidy/leads/:id", requireManager, async (req, res) => {
     try {
       const session = (req as any).manager as { mid: number; login: string };
@@ -3972,9 +3984,9 @@ async function startServer() {
       if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
       const leadId = Number(req.params.id);
       const snap = await pq().query(`SELECT id, name, phone, email, status_code FROM leads WHERE id = $1`, [leadId]);
-      const r = await pq().query(`DELETE FROM leads WHERE id = $1 RETURNING id`, [leadId]);
+      const r = await pq().query(`UPDATE leads SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id`, [leadId]);
       if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
-      sendTelegram(`🗑 Лид #${leadId} удалён тимлидом ${escapeHtml(me.full_name)}`).catch(() => {});
+      sendTelegram(`🗑 Лид #${leadId} перемещён в Корзину тимлидом ${escapeHtml(me.full_name)} (можно восстановить)`).catch(() => {});
       await auditLog({
         actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
         action: "lead.delete", entity_type: "lead", entity_id: leadId, before: snap.rows[0],
@@ -3986,13 +3998,80 @@ async function startServer() {
     }
   });
 
-  // Admin: delete + patch any lead from the admin panel
+  // Корзина — list soft-deleted leads (teamlead). Path avoids /leads/:id collision.
+  app.get("/api/lidy/trash", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const { rows } = await pq().query(
+        `SELECT l.id, l.name, l.phone, l.email, l.country, l.source, l.status_code, l.received_at, l.deleted_at,
+                ls.label AS status_label, ls.color AS status_color, m.full_name AS manager_name
+         FROM leads l
+         LEFT JOIN lead_statuses ls ON ls.code = l.status_code
+         LEFT JOIN managers m ON m.id = l.assigned_manager_id
+         WHERE l.deleted_at IS NOT NULL
+         ORDER BY l.deleted_at DESC
+         LIMIT 500`
+      );
+      res.json({ leads: rows });
+    } catch (err) {
+      console.error("[lidy/leads trash]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // One-click restore from the Корзина (teamlead)
+  app.post("/api/lidy/leads/:id/restore", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const leadId = Number(req.params.id);
+      const r = await pq().query(`UPDATE leads SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id`, [leadId]);
+      if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "lead.restore", entity_type: "lead", entity_id: leadId,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[lidy/lead restore]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Permanently purge a soft-deleted lead (teamlead) — empties it from the Корзина for good
+  app.delete("/api/lidy/leads/:id/purge", requireManager, async (req, res) => {
+    try {
+      const session = (req as any).manager as { mid: number; login: string };
+      const me = await loadManager(session.mid);
+      if (!me) return res.status(401).json({ error: "Not found" });
+      if (me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const leadId = Number(req.params.id);
+      const r = await pq().query(`DELETE FROM leads WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id`, [leadId]);
+      if (r.rows.length === 0) return res.status(404).json({ error: "Not found (only items in the Корзина can be purged)" });
+      sendTelegram(`❌ Лид #${leadId} удалён навсегда тимлидом ${escapeHtml(me.full_name)}`).catch(() => {});
+      await auditLog({
+        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
+        action: "lead.purge", entity_type: "lead", entity_id: leadId,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[lidy/lead purge]", err);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // Admin: soft-delete any lead from the admin panel (reversible from the CRM Корзина)
   app.delete("/api/admin/leads/:id", requireAdmin, async (req, res) => {
     try {
       const leadId = Number(req.params.id);
-      const r = await pq().query(`DELETE FROM leads WHERE id = $1 RETURNING id`, [leadId]);
+      const r = await pq().query(`UPDATE leads SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id`, [leadId]);
       if (r.rows.length === 0) return res.status(404).json({ error: "Not found" });
-      sendTelegram(`🗑 Лид #${leadId} удалён админом`).catch(() => {});
+      sendTelegram(`🗑 Лид #${leadId} перемещён в Корзину админом (можно восстановить)`).catch(() => {});
       res.json({ ok: true });
     } catch (err) {
       console.error("[admin/lead DELETE]", err);
@@ -4476,7 +4555,8 @@ async function startServer() {
     try {
       const limit = Math.min(500, Number(req.query.limit) || 100);
       const includeClosed = req.query.include_closed === "1";
-      const whereSql = includeClosed ? "" : "WHERE l.processed_at IS NULL";
+      // Soft-deleted leads live in the CRM Корзина — never show them in the admin list
+      const whereSql = includeClosed ? "WHERE l.deleted_at IS NULL" : "WHERE l.deleted_at IS NULL AND l.processed_at IS NULL";
       const { rows } = await pq().query(
         `SELECT l.*, ls.label AS status_label, ls.color AS status_color,
                 m.full_name AS manager_name, m.login AS manager_login
