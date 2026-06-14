@@ -29,3 +29,22 @@ body {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* Native form controls (checkboxes, radios, range sliders — e.g. the admin
+   stage-gate toggles and the deal-probability slider) adopt the brand indigo
+   instead of the browser's default blue/green. */
+:root {
+  accent-color: #6366f1;
+}
+
+/* Respect "reduce motion" OS settings: neutralise CSS animations/transitions and
+   smooth-scroll for users who get motion sick. Only active when explicitly opted
+   in; mouse/keyboard users see no change. (framer-motion honours this on its own.) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
