@@ -328,3 +328,152 @@ class Mock(Flowable):
             self.txt(cx, y0 + 14.5*mm, v, 10, col, bold=True, center_w=cw2)
         self.btn(x0 + w - 38*mm, y0 + 4*mm, 32*mm, "Сохранить сделку", fill=ACC, line=ACC, tcol=WHITE, size=6, h=5.5*mm)
         self.txt(px, y0 + 5.5*mm, "МЕТКИ:   VIP  ·  Hot  ·  Grant-track  ·  Referral", 6, INK2)
+
+    # ════════ HISTORY TIMELINE (merged Чат + Аудит) ════════
+    def m_history(self):
+        x0, y0, w, h = self.frame("goglobal.kg/lidy · карточка лида · вкладка «История»")
+        px = x0 + 6*mm
+        tabs = ["Обзор", "Сделка", "Задачи", "Файлы", "История", "Связанные"]
+        tx = px
+        for i, t in enumerate(tabs):
+            cur = (t == "История")
+            tw = self.canv.stringWidth(t, "Arial-Bold", 6.5) + 5*mm
+            if cur:
+                self.canv.setStrokeColor(ACC); self.canv.setLineWidth(1.2)
+                self.canv.line(tx, y0 + h - 9*mm, tx + tw, y0 + h - 9*mm)
+            self.txt(tx + 2*mm, y0 + h - 7.5*mm, t, 6.5, ACC2 if cur else INK2, bold=cur)
+            tx += tw
+        self.txt(px, y0 + h - 14*mm, "ИСТОРИЯ — СООБЩЕНИЯ И СОБЫТИЯ", 6, INK2, bold=True)
+        feed = [("event", "Тимур Лидов", "status.change", "9 мин"),
+                ("event", "Система", "lead.duplicate", "12 июн"),
+                ("comment", "Анна", "Созвонились, клиент думает. Перезвонить в пятницу.", "13 июн"),
+                ("event", "Анна", "task.create — перезвонить", "13 июн")]
+        yy = y0 + h - 20*mm
+        for kind, who, body, when in feed:
+            if kind == "comment":
+                self.dot(px + 2.5*mm, yy + 1*mm, 2.2*mm, _mix(ACC, 0.5))
+                self.txt(px + 1.3*mm, yy + 0.1*mm, who[0], 5.5, WHITE, bold=True)
+            else:
+                self.rr(px + 0.4*mm, yy - 1.6*mm, 4.2*mm, 4.2*mm, fill=SURF2, line=EDGE2, r=1*mm, lw=0.6)
+                self.txt(px + 1.3*mm, yy - 0.3*mm, "*", 7, INK2, bold=True)
+            self.txt(px + 7*mm, yy + 1.4*mm, who, 6.5, INK, bold=True)
+            self.rtxt(x0 + w - 5*mm, yy + 1.4*mm, when, 5.5, INK3)
+            self.txt(px + 7*mm, yy - 2.2*mm, body, 5.8, INK2 if kind == "comment" else ACC2, bold=(kind == "event"))
+            yy -= 9.5*mm
+        self.rr(px, y0 + 3*mm, w - 30*mm, 7*mm, fill=SURF2, line=EDGE2, r=1.6*mm, lw=0.6)
+        self.txt(px + 2*mm, y0 + 5.2*mm, "Оставить комментарий...", 6, INK3)
+        self.btn(x0 + w - 23*mm, y0 + 3*mm, 17*mm, "Отправить", fill=ACC, line=ACC, tcol=WHITE, size=6.5, h=7*mm)
+
+    # ════════ КОРЗИНА (restore) ════════
+    def m_trash(self):
+        x0, y0, w, h = self.frame("goglobal.kg/lidy · Корзина")
+        px = x0 + 6*mm
+        self.txt(px, y0 + h - 7*mm, "КОРЗИНА — удалённые лиды можно восстановить", 7.5, INK, bold=True)
+        self.txt(px, y0 + h - 11.5*mm, "«Восстановить» вернёт лид в работу; «Навсегда» — удалит безвозвратно.", 6, INK3)
+        rows = [("Айбек Жумаев", "+996 700 555 111", "удалён 2ч назад"),
+                ("Тест Дубля", "+996 700 999 888", "удалён вчера")]
+        for i, (nm, ph, when) in enumerate(rows):
+            ry = y0 + h - 18*mm - i*12*mm
+            self.rr(px, ry - 9*mm, w - 12*mm, 10*mm, fill=SURF, line=EDGE, r=1.8*mm)
+            self.dot(px + 5*mm, ry - 4*mm, 2.4*mm, _mix(INK3, 0.5))
+            self.txt(px + 9*mm, ry - 2.5*mm, nm, 6.5, INK, bold=True)
+            self.txt(px + 9*mm, ry - 6*mm, ph + " · " + when, 5.5, INK3)
+            self.btn(x0 + w - 50*mm, ry - 8*mm, 28*mm, "Восстановить", fill=_mix(OK, 0.14), line=_mix(OK, 0.4), tcol=OKL, size=6, h=6.5*mm)
+            self.btn(x0 + w - 20*mm, ry - 8*mm, 8*mm, "x", fill=_mix(BAD, 0.10), line=_mix(BAD, 0.3), tcol=BADL, size=7, h=6.5*mm)
+
+    # ════════ ИМПОРТ CSV ════════
+    def m_csv(self):
+        x0, y0, w, h = self.frame("goglobal.kg/lidy · импорт лидов из CSV")
+        fw, fh = 104*mm, h - 8*mm
+        fx, fy = x0 + (w - fw)/2, y0 + 4*mm
+        self.rr(fx, fy, fw, fh, fill=SURF, line=EDGE2, r=2.6*mm, lw=1)
+        self.txt(fx + 5*mm, fy + fh - 7*mm, "Импорт лидов из CSV", 8.5, INK, bold=True)
+        self.txt(fx + 5*mm, fy + fh - 12*mm, "1. Выберите файл — колонки сопоставятся автоматически", 6, INK2)
+        self.btn(fx + 5*mm, fy + fh - 19*mm, 28*mm, "Выберите файл", fill=ACC, line=ACC, tcol=WHITE, size=6.5, h=6*mm)
+        self.txt(fx + 36*mm, fy + fh - 17*mm, "leads.csv — строк: 240", 6, TEAL)
+        self.txt(fx + 5*mm, fy + fh - 25*mm, "2. Сопоставление колонок", 6, INK2, bold=True)
+        maps = [("Имя", "-> Имя"), ("Телефон", "-> Телефон"), ("e-mail", "-> Email"), ("страна", "-> Страна")]
+        for i, (a, b) in enumerate(maps):
+            cx = fx + 5*mm + (i % 2)*(fw/2 - 4*mm); cy = fy + fh - 31*mm - (i // 2)*7*mm
+            self.txt(cx, cy, a, 6, INK3)
+            self.rr(cx + 18*mm, cy - 1.5*mm, 26*mm, 5*mm, fill=SURF2, line=EDGE2, r=1.4*mm, lw=0.6)
+            self.txt(cx + 20*mm, cy, b, 5.8, INK)
+        self.txt(fx + 5*mm, fy + 16*mm, "3. Назначить: Авто (по правилам/очереди)", 6, INK2)
+        self.rr(fx + 5*mm, fy + 9*mm, 5*mm, 5*mm, fill=ACC, line=ACC, r=1*mm); self.txt(fx + 6*mm, fy + 10.4*mm, "√", 6, WHITE, bold=True)
+        self.txt(fx + 12*mm, fy + 10.4*mm, "Пропускать дубли (по телефону/email)", 6, INK2)
+        self.btn(fx + fw - 40*mm, fy + 3*mm, 35*mm, "Импортировать 240", fill=ACC, line=ACC, tcol=WHITE, size=6.5, h=6*mm)
+
+    # ════════ АДМИНКА: разделы ════════
+    def m_admin_groups(self):
+        x0, y0, w, h = self.frame("goglobal.kg/admin300499")
+        self.rr(x0, y0 + h - 8*mm, w, 8*mm, fill=SURF, line=EDGE, r=1.5*mm)
+        self.txt(x0 + 3*mm, y0 + h - 5.2*mm, "ADMIN", 8, INK, bold=True)
+        self.btn(x0 + w - 26*mm, y0 + h - 7*mm, 22*mm, "Сохранить", fill=ACC, line=ACC, tcol=WHITE, size=6.5, h=6*mm)
+        sb_w = 46*mm
+        groups = [("Контент сайта", "тексты, страны, отзывы", False),
+                  ("Аналитика продаж", "дашборды и отчёты", False),
+                  ("Настройки CRM", "менеджеры, статусы, правила", False),
+                  ("Система", "бэкапы, аудит, Telegram, админы", True)]
+        for i, (l, s, cur) in enumerate(groups):
+            gy = y0 + h - 22*mm - i*13*mm
+            self.rr(x0, gy, sb_w, 11*mm, fill=_mix(ACC, 0.12) if cur else SURF, line=_mix(ACC, 0.4) if cur else EDGE, r=2*mm)
+            self.txt(x0 + 3*mm, gy + 6.2*mm, l, 7, INK if cur else INK2, bold=True)
+            self.txt(x0 + 3*mm, gy + 2.4*mm, s, 5.2, INK3)
+        cx = x0 + sb_w + 3*mm; cw = w - sb_w - 3*mm
+        cards = [("Журнал аудита", "кто что менял"), ("Утилиты и бэкапы", "ZIP-дамп БД"),
+                 ("Администраторы", "входы с логином + суперпароль"), ("Telegram-бот", "токен, тест")]
+        for i, (l, s) in enumerate(cards):
+            cy = y0 + h - 18*mm - i*11*mm
+            self.rr(cx, cy, cw, 9*mm, fill=SURF, line=EDGE, r=2*mm)
+            self.txt(cx + 3*mm, cy + 4.8*mm, l, 6.8, INK, bold=True)
+            self.rtxt(cx + cw - 3*mm, cy + 4.8*mm, s, 5.5, INK3)
+
+    # ════════ ЦЕЛИ МЕНЕДЖЕРОВ ════════
+    def m_goals(self):
+        x0, y0, w, h = self.frame("goglobal.kg/lidy · Команда — 30 дней")
+        px = x0 + 6*mm
+        self.txt(px, y0 + h - 7*mm, "КОМАНДА — 30 ДНЕЙ", 7, INK2, bold=True)
+        cols = ["Менеджер", "Всего", "Открыто", "Закрыто", "SLAx", "Цель / мес"]
+        cxs = [px, px + 60*mm, px + 78*mm, px + 96*mm, px + 114*mm, px + 130*mm]
+        for c, cx in zip(cols, cxs):
+            self.txt(cx, y0 + h - 13*mm, c, 5.5, INK3, bold=True)
+        team = [("Менеджер Один", "5", "3", "3", "0", 1, 3),
+                ("Менеджер Два", "5", "5", "0", "1", 0, 0),
+                ("Анна Петрова", "8", "4", "4", "0", 4, 5)]
+        for i, (nm, tot, op, cl, sla, won, goal) in enumerate(team):
+            ry = y0 + h - 19*mm - i*9*mm
+            self.dot(px + 2.5*mm, ry + 1*mm, 2.2*mm, _mix([ACC, TEAL, VIO][i % 3], 0.5))
+            self.txt(px + 6*mm, ry + 0.2*mm, nm, 6, INK, bold=True)
+            for v, cx in zip([tot, op, cl, sla], cxs[1:5]):
+                self.txt(cx, ry + 0.2*mm, v, 6, INK2)
+            if goal:
+                pct = min(1.0, won/goal)
+                self.txt(cxs[5], ry + 2.2*mm, f"{won} / {goal}", 5.5, OKL if won >= goal else INK, bold=True)
+                self.rr(cxs[5], ry - 0.8*mm, 24*mm, 1.6*mm, fill=EDGE2, line=EDGE2, r=0.8*mm, lw=0)
+                self.canv.setFillColor(OK if won >= goal else ACC)
+                self.canv.roundRect(cxs[5], ry - 0.8*mm, 24*mm*pct, 1.6*mm, 0.8*mm, stroke=0, fill=1)
+            else:
+                self.txt(cxs[5], ry + 0.2*mm, "+ цель", 5.5, ACC2)
+
+    # ════════ АДМИН-АККАУНТЫ + СУПЕРПАРОЛЬ ════════
+    def m_admins(self):
+        x0, y0, w, h = self.frame("goglobal.kg/admin300499 · Система · Администраторы")
+        px = x0 + 6*mm
+        self.txt(px, y0 + h - 7*mm, "АДМИНИСТРАТОРЫ (входы с логином)", 7, INK, bold=True)
+        for i, lg in enumerate(["admin1", "admin2", "admin3"]):
+            ry = y0 + h - 14*mm - i*8.5*mm
+            self.rr(px, ry - 6.5*mm, w*0.6, 7.5*mm, fill=SURF, line=EDGE, r=1.6*mm)
+            self.txt(px + 2.5*mm, ry - 4*mm, lg, 6.5, INK, bold=True)
+            self.txt(px + 18*mm, ry - 4*mm, f"Администратор {i+1}", 5.5, INK3)
+            self.btn(px + w*0.6 - 26*mm, ry - 6*mm, 12*mm, "Сменить", fill=_mix(ACC, 0.14), line=_mix(ACC, 0.4), tcol=ACC2, size=5.5, h=6*mm)
+            self.btn(px + w*0.6 - 13*mm, ry - 6*mm, 7*mm, "Выкл", size=5.5, h=6*mm)
+        mw, mh = 62*mm, 40*mm
+        mx, my = x0 + w - mw - 6*mm, y0 + (h - mh)/2
+        self.rr(mx, my, mw, mh, fill=colors.HexColor("#15171c"), line=ACC, r=2.6*mm, lw=1.2)
+        self.txt(mx + 5*mm, my + mh - 8*mm, "Подтверждение", 8, INK, bold=True)
+        self.txt(mx + 5*mm, my + mh - 13*mm, "Сменить пароль для «admin2»", 6.5, INK2)
+        self.txt(mx + 5*mm, my + mh - 19*mm, "Введите суперпароль", 5.5, INK3)
+        self.rr(mx + 5*mm, my + mh - 26*mm, mw - 10*mm, 6*mm, fill=SURF2, line=EDGE2, r=1.6*mm)
+        self.txt(mx + 7*mm, my + mh - 24*mm, "••••••••••••", 7, INK)
+        self.btn(mx + mw - 44*mm, my + 4*mm, 18*mm, "Отмена", size=6, h=6*mm)
+        self.btn(mx + mw - 24*mm, my + 4*mm, 18*mm, "Подтвердить", fill=ACC, line=ACC, tcol=WHITE, size=6, h=6*mm)

@@ -623,6 +623,31 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_appointment BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_semi_closed BOOLEAN NOT NULL DEFAULT FALSE;`);
     await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS is_client_stage BOOLEAN NOT NULL DEFAULT FALSE;`);
+    // Per-stage gates: require a document and/or RОП/admin approval to move ONTO this stage.
+    await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_file BOOLEAN NOT NULL DEFAULT FALSE;`);
+    await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS file_prompt TEXT;`);
+    await pool!.query(`ALTER TABLE lead_statuses ADD COLUMN IF NOT EXISTS requires_approval BOOLEAN NOT NULL DEFAULT FALSE;`);
+    // Stage transition approvals («Согласования»): a forward move onto a gated stage waits here.
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS stage_approvals (
+        id BIGSERIAL PRIMARY KEY,
+        lead_id BIGINT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+        from_stage TEXT,
+        to_stage TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'forward',
+        status TEXT NOT NULL DEFAULT 'pending',
+        requested_by BIGINT,
+        requested_by_name TEXT,
+        file_id BIGINT,
+        note TEXT,
+        decided_by BIGINT,
+        decided_by_name TEXT,
+        decision_comment TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        decided_at TIMESTAMPTZ
+      );`);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_stage_approvals_status ON stage_approvals (status, created_at DESC);`);
+    await pool!.query(`CREATE INDEX IF NOT EXISTS idx_stage_approvals_lead ON stage_approvals (lead_id, created_at DESC);`);
     // Mark office_visit as the canonical "semi-closed with appointment" status
     await pool!.query(`UPDATE lead_statuses SET requires_appointment = TRUE, is_semi_closed = TRUE WHERE code = 'office_visit'`);
     // Seed post-win client pipeline stages (idempotent — only inserts if missing)
@@ -2662,8 +2687,53 @@ async function startServer() {
     }
   });
 
-  // Change client pipeline stage — the post-win continuation of the funnel.
-  // Stages can only be SET on won leads (closed_won); clearing is always allowed.
+  // Apply a stage move to a lead (used by the direct path and on approval).
+  async function applyStageMove(leadId: number, fromStage: string | null, toStage: string,
+                                toLabel: string, actor: { id: number | null; full_name: string; role?: string }, note?: string) {
+    await pq().query(`UPDATE leads SET stage_code = $1, updated_at = NOW() WHERE id = $2`, [toStage, leadId]);
+    await pq().query(
+      `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1,$2,$3,$4,$5)`,
+      [leadId, actor.id, actor.full_name, actor.role || "manager",
+        `🎓 Этап клиента: «${fromStage || "—"}» → «${toLabel}»${note ? `\nЗаметка: ${note}` : ""}`]
+    );
+    await auditLog({ actor_id: actor.id, actor_name: actor.full_name, actor_role: actor.role,
+      action: "stage.change", entity_type: "lead", entity_id: leadId, before: { stage: fromStage }, after: { stage: toStage } });
+    await recordTransition({ lead_id: leadId, kind: "stage", from_code: fromStage || null, to_code: toStage, manager_id: actor.id ?? undefined });
+  }
+
+  // Decide a pending stage approval. decider: who approves (teamlead or admin).
+  async function decideApproval(approvalId: number, decision: "approve" | "reject", comment: string | null,
+                                decider: { id: number | null; name: string; role: string }) {
+    const a = await pq().query(`SELECT * FROM stage_approvals WHERE id = $1`, [approvalId]);
+    if (a.rows.length === 0) return { code: 404, error: "Согласование не найдено" };
+    const ap = a.rows[0];
+    if (ap.status !== "pending") return { code: 409, error: "Согласование уже обработано" };
+    const stRow = await pq().query(`SELECT label FROM lead_statuses WHERE code = $1`, [ap.to_stage]);
+    const toLabel = stRow.rows[0]?.label || ap.to_stage;
+    if (decision === "approve") {
+      const lr = await pq().query(`SELECT stage_code, status_code, name FROM leads WHERE id = $1`, [ap.lead_id]);
+      if (lr.rows.length === 0) return { code: 404, error: "Лид не найден" };
+      if (lr.rows[0].status_code !== "closed_won") return { code: 400, error: "Лид больше не в статусе «Закрыт ✅» — переход невозможен" };
+      await applyStageMove(ap.lead_id, lr.rows[0].stage_code, ap.to_stage, toLabel, { id: decider.id, full_name: decider.name, role: decider.role }, ap.note);
+      await pq().query(`UPDATE stage_approvals SET status='approved', decided_by=$1, decided_by_name=$2, decided_at=NOW() WHERE id=$3`,
+        [decider.id, decider.name, approvalId]);
+      await pq().query(`INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1,NULL,$2,'system',$3)`,
+        [ap.lead_id, "🤖 Согласование", `✅ Переход на этап «${toLabel}» подтверждён (${decider.name}).`]);
+      if (ap.requested_by) sendPush({ managerId: ap.requested_by, title: `✅ Этап подтверждён`, body: `Лид «${lr.rows[0].name || "#"+ap.lead_id}» переведён на «${toLabel}»`, url: CRM_PATH, tag: `appr-${approvalId}` }).catch(() => {});
+      return { ok: true };
+    } else {
+      await pq().query(`UPDATE stage_approvals SET status='rejected', decided_by=$1, decided_by_name=$2, decision_comment=$3, decided_at=NOW() WHERE id=$4`,
+        [decider.id, decider.name, comment || null, approvalId]);
+      await pq().query(`INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1,NULL,$2,'system',$3)`,
+        [ap.lead_id, "🤖 Согласование", `❌ Переход на этап «${toLabel}» отклонён (${decider.name})${comment ? `: ${comment}` : ""}. Этап остался прежним.`]);
+      if (ap.requested_by) sendPush({ managerId: ap.requested_by, title: `❌ Переход отклонён`, body: `«${toLabel}»${comment ? `: ${comment}` : ""}`, url: CRM_PATH, tag: `appr-${approvalId}` }).catch(() => {});
+      return { ok: true };
+    }
+  }
+
+  // Change client pipeline stage — the post-win continuation of the funnel, with gates:
+  // a target stage may require an attached file and/or RОП/admin approval. Backward moves
+  // (to an earlier stage) and clearing the stage are teamlead/admin-only.
   app.post("/api/lidy/leads/:id/stage", requireManager, async (req, res) => {
     try {
       const session = (req as any).manager as { mid: number; login: string };
@@ -2672,8 +2742,9 @@ async function startServer() {
       const leadId = Number(req.params.id);
       const stage = (req.body?.stage || "").toString();
       const note = req.body?.note;
+      const fileId = req.body?.file_id ? Number(req.body.file_id) : null;
 
-      const leadRow = await pq().query(`SELECT id, assigned_manager_id, stage_code, status_code FROM leads WHERE id = $1`, [leadId]);
+      const leadRow = await pq().query(`SELECT id, assigned_manager_id, stage_code, status_code, name FROM leads WHERE id = $1`, [leadId]);
       if (leadRow.rows.length === 0) return res.status(404).json({ error: "Lead not found" });
       const lead = leadRow.rows[0];
       if (me.role !== "teamlead" && lead.assigned_manager_id && lead.assigned_manager_id !== me.id) {
@@ -2684,45 +2755,139 @@ async function startServer() {
       }
 
       if (stage === "") {
-        // Clear the stage
+        // Clearing the stage is a backward action → teamlead/admin only.
+        if (me.role !== "teamlead") return res.status(403).json({ error: "Снять этап может только РОП или администратор" });
         await pq().query(`UPDATE leads SET stage_code = NULL, updated_at = NOW() WHERE id = $1`, [leadId]);
         await pq().query(
-          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [leadId, me.id, me.full_name, me.role || "manager", `🎓 Этап клиента снят`]
+          `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1,$2,$3,$4,$5)`,
+          [leadId, me.id, me.full_name, me.role || "manager", `🎓 Этап клиента снят (${me.full_name})${note ? `\nЗаметка: ${note}` : ""}`]
         );
+        await pq().query(`INSERT INTO stage_approvals (lead_id, from_stage, to_stage, kind, status, requested_by, requested_by_name, decided_by, decided_by_name, decided_at, decision_comment)
+                          VALUES ($1,$2,'','back','applied',$3,$4,$3,$4,NOW(),$5)`,
+          [leadId, lead.stage_code || null, me.id, me.full_name, note || null]);
+        await auditLog({ actor_id: me.id, actor_name: me.full_name, actor_role: me.role, action: "stage.clear", entity_type: "lead", entity_id: leadId, before: { stage: lead.stage_code } });
         return res.json({ ok: true, stage: null });
       }
 
       const stRow = await pq().query(
-        `SELECT code, label, is_client_stage FROM lead_statuses WHERE code = $1`,
+        `SELECT code, label, is_client_stage, sort, requires_file, file_prompt, requires_approval FROM lead_statuses WHERE code = $1`,
         [stage]
       );
       if (stRow.rows.length === 0) return res.status(400).json({ error: "Unknown stage" });
-      if (!stRow.rows[0].is_client_stage) return res.status(400).json({ error: "Status is not a client stage" });
+      const tgt = stRow.rows[0];
+      if (!tgt.is_client_stage) return res.status(400).json({ error: "Status is not a client stage" });
 
-      await pq().query(`UPDATE leads SET stage_code = $1, updated_at = NOW() WHERE id = $2`, [stage, leadId]);
-      await pq().query(
-        `INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [leadId, me.id, me.full_name, me.role || "manager",
-          `🎓 Этап клиента: «${lead.stage_code || "—"}» → «${stRow.rows[0].label}»${note ? `\nЗаметка: ${note}` : ""}`]
-      );
-      await auditLog({
-        actor_id: me.id, actor_name: me.full_name, actor_role: me.role,
-        action: "stage.change", entity_type: "lead", entity_id: leadId,
-        before: { stage: lead.stage_code }, after: { stage },
-      });
-      await recordTransition({
-        lead_id: leadId, kind: "stage",
-        from_code: lead.stage_code || null, to_code: stage,
-        manager_id: me.id,
-      });
+      // direction: compare sort with the current stage
+      let curSort = -1;
+      if (lead.stage_code) {
+        const cs = await pq().query(`SELECT sort FROM lead_statuses WHERE code = $1`, [lead.stage_code]);
+        curSort = cs.rows[0]?.sort ?? -1;
+      }
+      const isBackward = !!lead.stage_code && Number(tgt.sort) < curSort;
+
+      if (isBackward) {
+        if (me.role !== "teamlead") return res.status(403).json({ error: "Откат на предыдущий этап доступен только РОП или администратору" });
+        await applyStageMove(leadId, lead.stage_code, stage, tgt.label, me, note);
+        await pq().query(`INSERT INTO stage_approvals (lead_id, from_stage, to_stage, kind, status, requested_by, requested_by_name, decided_by, decided_by_name, decided_at, decision_comment)
+                          VALUES ($1,$2,$3,'back','applied',$4,$5,$4,$5,NOW(),$6)`,
+          [leadId, lead.stage_code, stage, me.id, me.full_name, note || null]);
+        return res.json({ ok: true, stage });
+      }
+
+      // FORWARD (or setting the first stage)
+      if (tgt.requires_file && !fileId) {
+        return res.status(409).json({ needFile: true, prompt: tgt.file_prompt || "Приложите файл, чтобы перейти на этот этап.", stage });
+      }
+      if (tgt.requires_approval) {
+        const ins = await pq().query(
+          `INSERT INTO stage_approvals (lead_id, from_stage, to_stage, kind, status, requested_by, requested_by_name, file_id, note)
+           VALUES ($1,$2,$3,'forward','pending',$4,$5,$6,$7) RETURNING id`,
+          [leadId, lead.stage_code || null, stage, me.id, me.full_name, fileId, note || null]
+        );
+        await pq().query(`INSERT INTO lead_comments (lead_id, manager_id, author_name, author_role, body) VALUES ($1,$2,$3,$4,$5)`,
+          [leadId, me.id, me.full_name, me.role || "manager", `🕓 Запрошено согласование перехода на этап «${tgt.label}».`]);
+        await auditLog({ actor_id: me.id, actor_name: me.full_name, actor_role: me.role, action: "stage.approval.request", entity_type: "lead", entity_id: leadId, after: { to: stage } });
+        sendTelegram(`🕓 <b>Согласование этапа</b>\n${escapeHtml(me.full_name)} просит перевести лид <a href="${PUBLIC_BASE_URL}${CRM_PATH}">#${leadId}</a> ${lead.name ? `(${escapeHtml(lead.name)})` : ""} на этап «${escapeHtml(tgt.label)}».\n→ откройте «Согласования» в CRM`).catch(() => {});
+        return res.json({ ok: true, pending: true, approvalId: ins.rows[0].id });
+      }
+
+      await applyStageMove(leadId, lead.stage_code, stage, tgt.label, me, note);
       res.json({ ok: true, stage });
     } catch (err) {
       console.error("[lidy/stage]", err);
       res.status(500).json({ error: "Server error" });
     }
+  });
+
+  // ─────────────────────── STAGE APPROVALS («Согласования») ───────────────────────
+  function approvalsListQuery() {
+    return `SELECT a.*, l.name AS lead_name, l.phone AS lead_phone,
+                   fs.label AS from_label, ts.label AS to_label,
+                   m.full_name AS requested_name
+            FROM stage_approvals a
+            JOIN leads l ON l.id = a.lead_id
+            LEFT JOIN lead_statuses fs ON fs.code = a.from_stage
+            LEFT JOIN lead_statuses ts ON ts.code = a.to_stage
+            LEFT JOIN managers m ON m.id = a.requested_by
+            ORDER BY (a.status='pending') DESC, a.created_at DESC LIMIT 200`;
+  }
+  app.get("/api/lidy/approvals", requireManager, async (req, res) => {
+    try {
+      const me = await loadManager(((req as any).manager).mid);
+      if (!me || me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const { rows } = await pq().query(approvalsListQuery());
+      res.json({ approvals: rows });
+    } catch (err) { console.error("[lidy/approvals]", err); res.status(500).json({ error: "Server error" }); }
+  });
+  app.post("/api/lidy/approvals/:id/approve", requireManager, async (req, res) => {
+    try {
+      const me = await loadManager(((req as any).manager).mid);
+      if (!me || me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const r = await decideApproval(Number(req.params.id), "approve", null, { id: me.id, name: me.full_name, role: "teamlead" });
+      if ((r as any).error) return res.status((r as any).code || 400).json({ error: (r as any).error });
+      res.json({ ok: true });
+    } catch (err) { console.error("[lidy/approve]", err); res.status(500).json({ error: "Server error" }); }
+  });
+  app.post("/api/lidy/approvals/:id/reject", requireManager, async (req, res) => {
+    try {
+      const me = await loadManager(((req as any).manager).mid);
+      if (!me || me.role !== "teamlead") return res.status(403).json({ error: "Teamlead only" });
+      const comment = String(req.body?.comment || "").trim();
+      if (!comment) return res.status(400).json({ error: "Укажите причину отказа" });
+      const r = await decideApproval(Number(req.params.id), "reject", comment, { id: me.id, name: me.full_name, role: "teamlead" });
+      if ((r as any).error) return res.status((r as any).code || 400).json({ error: (r as any).error });
+      res.json({ ok: true });
+    } catch (err) { console.error("[lidy/reject]", err); res.status(500).json({ error: "Server error" }); }
+  });
+  // Per-lead approvals (so the card can show a pending banner)
+  app.get("/api/lidy/leads/:id/approvals", requireManager, async (req, res) => {
+    try {
+      const { rows } = await pq().query(
+        `SELECT a.*, ts.label AS to_label FROM stage_approvals a LEFT JOIN lead_statuses ts ON ts.code=a.to_stage
+         WHERE a.lead_id = $1 ORDER BY a.created_at DESC LIMIT 30`, [Number(req.params.id)]);
+      res.json({ approvals: rows });
+    } catch (err) { res.status(500).json({ error: "Server error" }); }
+  });
+  // Admin-side approvals (same data + decisions via the admin panel)
+  app.get("/api/admin/approvals", requireAdmin, async (_req, res) => {
+    try { const { rows } = await pq().query(approvalsListQuery()); res.json({ approvals: rows }); }
+    catch (err) { console.error("[admin/approvals]", err); res.status(500).json({ error: "Server error" }); }
+  });
+  app.post("/api/admin/approvals/:id/approve", requireAdmin, async (req, res) => {
+    try {
+      const r = await decideApproval(Number(req.params.id), "approve", null, { id: null, name: "Администратор", role: "admin" });
+      if ((r as any).error) return res.status((r as any).code || 400).json({ error: (r as any).error });
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: "Server error" }); }
+  });
+  app.post("/api/admin/approvals/:id/reject", requireAdmin, async (req, res) => {
+    try {
+      const comment = String(req.body?.comment || "").trim();
+      if (!comment) return res.status(400).json({ error: "Укажите причину отказа" });
+      const r = await decideApproval(Number(req.params.id), "reject", comment, { id: null, name: "Администратор", role: "admin" });
+      if ((r as any).error) return res.status((r as any).code || 400).json({ error: (r as any).error });
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: "Server error" }); }
   });
 
   // ─────────────────────── TAGS ───────────────────────
@@ -4466,7 +4631,7 @@ async function startServer() {
     try {
       const { rows } = await pq().query(
         `SELECT code, label, color, is_terminal, requires_reason, requires_appointment,
-                is_semi_closed, is_client_stage, sort
+                is_semi_closed, is_client_stage, requires_file, file_prompt, requires_approval, sort
          FROM lead_statuses ORDER BY sort ASC, label ASC`
       );
       res.json({ statuses: rows });
@@ -4602,19 +4767,21 @@ async function startServer() {
   app.get("/api/admin/lead-statuses", requireAdmin, async (_req, res) => {
     const { rows } = await pq().query(
       `SELECT code, label, color, is_terminal, requires_reason, requires_appointment,
-              is_semi_closed, is_client_stage, sort FROM lead_statuses ORDER BY sort, label`
+              is_semi_closed, is_client_stage, requires_file, file_prompt, requires_approval, sort
+       FROM lead_statuses ORDER BY sort, label`
     );
     res.json({ statuses: rows });
   });
 
   app.post("/api/admin/lead-statuses", requireAdmin, async (req, res) => {
     try {
-      const { code, label, color, is_terminal, requires_reason, requires_appointment, is_semi_closed, is_client_stage, sort } = req.body || {};
+      const { code, label, color, is_terminal, requires_reason, requires_appointment, is_semi_closed, is_client_stage, requires_file, file_prompt, requires_approval, sort } = req.body || {};
       if (!code || !label) return res.status(400).json({ error: "Missing code/label" });
       const { rows } = await pq().query(
         `INSERT INTO lead_statuses (code, label, color, is_terminal, requires_reason,
-                                    requires_appointment, is_semi_closed, is_client_stage, sort)
-         VALUES ($1,$2,$3,COALESCE($4,FALSE),COALESCE($5,FALSE),COALESCE($6,FALSE),COALESCE($7,FALSE),COALESCE($8,FALSE),COALESCE($9,0))
+                                    requires_appointment, is_semi_closed, is_client_stage,
+                                    requires_file, file_prompt, requires_approval, sort)
+         VALUES ($1,$2,$3,COALESCE($4,FALSE),COALESCE($5,FALSE),COALESCE($6,FALSE),COALESCE($7,FALSE),COALESCE($8,FALSE),COALESCE($9,FALSE),$10,COALESCE($11,FALSE),COALESCE($12,0))
          ON CONFLICT (code) DO UPDATE SET
            label = EXCLUDED.label,
            color = EXCLUDED.color,
@@ -4623,9 +4790,13 @@ async function startServer() {
            requires_appointment = EXCLUDED.requires_appointment,
            is_semi_closed = EXCLUDED.is_semi_closed,
            is_client_stage = EXCLUDED.is_client_stage,
+           requires_file = EXCLUDED.requires_file,
+           file_prompt = EXCLUDED.file_prompt,
+           requires_approval = EXCLUDED.requires_approval,
            sort = EXCLUDED.sort
          RETURNING *`,
-        [code, label, color || null, is_terminal, requires_reason, requires_appointment, is_semi_closed, is_client_stage, sort]
+        [code, label, color || null, is_terminal, requires_reason, requires_appointment, is_semi_closed, is_client_stage,
+         requires_file, file_prompt || null, requires_approval, sort]
       );
       res.json({ status: rows[0] });
     } catch (err) {
