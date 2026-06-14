@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@sentry/node": "^8.47.0",
     "@vitejs/plugin-react": "^5.0.0",
     "bcryptjs": "^2.4.3",
     "exceljs": "^4.4.0",

@@ -40,6 +40,20 @@ const PUBLIC_BASE_URL =
 const UPLOADS_DIR =
   process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
 
+// Error monitoring (Sentry) — fully optional. Without SENTRY_DSN the package is
+// never even imported, so this is a zero-cost no-op until the env var is set.
+const SENTRY_DSN = process.env.SENTRY_DSN || "";
+let Sentry: any = null;
+// Don't let a stray rejection/exception take the whole server down silently.
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason);
+  try { Sentry?.captureException?.(reason); } catch {}
+});
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err);
+  try { Sentry?.captureException?.(err); } catch {}
+});
+
 const storePath = path.join(process.cwd(), "store.json");
 
 const fallbackDefaults = {
@@ -5130,6 +5144,27 @@ async function startServer() {
     });
   }
 
+  // ----- Error monitoring (Sentry), only active when SENTRY_DSN is set -----
+  if (SENTRY_DSN) {
+    try {
+      Sentry = await import("@sentry/node");
+      Sentry.init({ dsn: SENTRY_DSN, environment: NODE_ENV, tracesSampleRate: 0.1 });
+      console.log("[sentry] error monitoring enabled");
+    } catch (e) {
+      console.warn("[sentry] init failed:", e);
+      Sentry = null;
+    }
+  } else {
+    console.log("[sentry] disabled (set SENTRY_DSN to enable)");
+  }
+  // Last-resort error handler: capture to Sentry (if enabled) and return 500
+  // instead of leaking a stack trace or hanging the request.
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("[unhandled route error]", err);
+    try { Sentry?.captureException?.(err); } catch {}
+    if (!res.headersSent) res.status(500).json({ error: "Server error" });
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[server] Listening on http://0.0.0.0:${PORT}`);
     console.log(`[server] Uploads dir: ${UPLOADS_DIR}`);
@@ -5138,5 +5173,6 @@ async function startServer() {
 
 startServer().catch((err) => {
   console.error("[server] Fatal startup error:", err);
+  try { Sentry?.captureException?.(err); } catch {}
   process.exit(1);
 });
