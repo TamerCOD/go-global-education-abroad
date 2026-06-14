@@ -251,6 +251,9 @@ interface StatusOption {
     requires_appointment?: boolean;
     is_semi_closed?: boolean;
     is_client_stage?: boolean;
+    requires_file?: boolean;
+    file_prompt?: string;
+    requires_approval?: boolean;
     sort: number;
 }
 interface CommentRec {
@@ -1238,6 +1241,8 @@ const LeadDetailDrawer: React.FC<{
     const [related, setRelated] = useState<any[] | null>(null);
     const [newComment, setNewComment] = useState('');
     const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+    const [stageFileModal, setStageFileModal] = useState<{ stage: string; prompt: string } | null>(null);
+    const [leadApprovals, setLeadApprovals] = useState<any[]>([]);
     const [actionError, setActionError] = useState<string | null>(null);
     const showActionError = (msg: string) => {
         setActionError(msg);
@@ -1496,23 +1501,52 @@ const LeadDetailDrawer: React.FC<{
         changeStatus(s.code);
     };
 
-    const changeStage = async (stageCode: string) => {
+    const loadApprovals = async () => {
+        try { const j = await fetch(`/api/lidy/leads/${lead.id}/approvals`, { credentials: 'include' }).then(r => r.json()); setLeadApprovals(j.approvals || []); }
+        catch { /* ignore */ }
+    };
+    useEffect(() => { loadApprovals(); /* eslint-disable-next-line */ }, [lead.id]);
+
+    const changeStage = async (stageCode: string, fileId?: number) => {
         setPendingStatus(stageCode);
         try {
             const r = await fetch(`/api/lidy/leads/${lead.id}/stage`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ stage: stageCode }),
+                body: JSON.stringify({ stage: stageCode, file_id: fileId }),
             });
+            if (r.status === 409) {
+                const j = await r.json().catch(() => ({}));
+                if (j.needFile) { setStageFileModal({ stage: stageCode, prompt: j.prompt || 'Приложите файл для перехода на этот этап.' }); return; }
+                showActionError(j.error || 'Ошибка'); return;
+            }
             if (!r.ok) {
                 const j = await r.json().catch(() => ({}));
                 showActionError(j.error || `Ошибка ${r.status}`);
                 return;
             }
+            const j = await r.json().catch(() => ({}));
             const c = await fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' }).then(r => r.json());
             setComments(c.comments || []);
+            loadApprovals();
             onRefresh();
-            toast(stageCode ? 'Этап обновлён' : 'Этап снят');
+            if (j.pending) toast('Отправлено на согласование РОП/админу', { kind: 'info' });
+            else toast(stageCode ? 'Этап обновлён' : 'Этап снят');
+        } finally { setPendingStatus(null); }
+    };
+
+    // Upload the required document, then retry the stage move with the file attached.
+    const submitStageFile = async (file: File) => {
+        if (!stageFileModal) return;
+        const stage = stageFileModal.stage;
+        setPendingStatus(stage);
+        try {
+            const fd = new FormData(); fd.append('file', file); fd.append('kind', `stage:${stage}`);
+            const up = await fetch(`/api/lidy/leads/${lead.id}/files`, { method: 'POST', credentials: 'include', body: fd });
+            const uj = await up.json().catch(() => ({}));
+            if (!up.ok || !uj.file?.id) { showActionError('Не удалось загрузить файл'); setPendingStatus(null); return; }
+            setStageFileModal(null);
+            await changeStage(stage, uj.file.id);
         } finally { setPendingStatus(null); }
     };
 
@@ -1772,6 +1806,8 @@ const LeadDetailDrawer: React.FC<{
                                         const stages = statuses.filter(s => s.is_client_stage).slice().sort((a, b) => a.sort - b.sort);
                                         const isWon = lead.status_code === 'closed_won';
                                         const curIdx = stages.findIndex(s => s.code === lead.stage_code);
+                                        const meIsTeamlead = me.role === 'teamlead';
+                                        const pendingStages = new Set(leadApprovals.filter((a: any) => a.status === 'pending').map((a: any) => a.to_stage));
                                         return (
                                             <div className="mt-4 pt-4 border-t border-slate-800">
                                                 <div className="flex items-center justify-between mb-2.5">
@@ -1779,7 +1815,7 @@ const LeadDetailDrawer: React.FC<{
                                                         <div className="text-xs uppercase tracking-wider font-semibold text-slate-400">🎓 Этапы ведения клиента</div>
                                                         <Hint wide text="Продолжение воронки после выигранной сделки: от подписания контракта до отъезда на учёбу. Открываются при статусе «Закрыт ✅» — первый этап ставится автоматически. Если статус откатить, этап снимается." />
                                                     </div>
-                                                    {isWon && lead.stage_code && (
+                                                    {isWon && lead.stage_code && meIsTeamlead && (
                                                         <button onClick={() => changeStage('')} disabled={pendingStatus !== null}
                                                             className="text-xs text-slate-400 hover:text-slate-200 hover:underline">
                                                             × снять этап
@@ -1801,7 +1837,13 @@ const LeadDetailDrawer: React.FC<{
                                                                         <span className={`absolute left-[13px] top-7 bottom-0 w-px ${state === 'done' ? 'bg-emerald-500/50' : 'bg-slate-700/60'}`} />
                                                                     )}
                                                                     <button disabled={pendingStatus !== null}
-                                                                        onClick={() => s.code !== lead.stage_code && changeStage(s.code)}
+                                                                        onClick={() => {
+                                                                            if (s.code === lead.stage_code) return;
+                                                                            const isBack = curIdx !== -1 && i < curIdx;
+                                                                            if (isBack && !meIsTeamlead) { toast('Откат на предыдущий этап — только РОП/админ', { kind: 'err' }); return; }
+                                                                            if (pendingStages.has(s.code)) { toast('Этот переход уже на согласовании', { kind: 'info' }); return; }
+                                                                            changeStage(s.code);
+                                                                        }}
                                                                         title={state === 'current' ? 'Текущий этап' : `Перевести на этап «${s.label}»`}
                                                                         className={`w-full flex items-center gap-3 text-left px-1 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${state === 'current' ? 'bg-sky-500/10' : 'hover:bg-slate-800/60'}`}>
                                                                         <span className={`w-[26px] h-[26px] rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 border ${state === 'done' ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
@@ -1809,9 +1851,12 @@ const LeadDetailDrawer: React.FC<{
                                                                                 : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
                                                                             {state === 'done' ? '✓' : i + 1}
                                                                         </span>
-                                                                        <span className={`text-sm ${state === 'current' ? 'text-slate-50 font-semibold' : state === 'done' ? 'text-slate-300' : 'text-slate-400'}`}>
+                                                                        <span className={`text-sm flex items-center flex-wrap gap-1.5 ${state === 'current' ? 'text-slate-50 font-semibold' : state === 'done' ? 'text-slate-300' : 'text-slate-400'}`}>
                                                                             {s.label}
-                                                                            {state === 'current' && <span className="ml-2 text-[10px] uppercase tracking-wider text-sky-300 font-bold">сейчас</span>}
+                                                                            {state === 'current' && <span className="text-[10px] uppercase tracking-wider text-sky-300 font-bold">сейчас</span>}
+                                                                            {pendingStages.has(s.code) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">🕓 на согласовании</span>}
+                                                                            {state === 'next' && s.requires_file && <span className="text-[10px] text-sky-300" title="требует приложить файл">📎</span>}
+                                                                            {state === 'next' && s.requires_approval && <span className="text-[10px] text-violet-300" title="требует согласования РОП/админа">🕓</span>}
                                                                         </span>
                                                                     </button>
                                                                 </li>
@@ -1822,6 +1867,22 @@ const LeadDetailDrawer: React.FC<{
                                             </div>
                                         );
                                     })()}
+                                    {stageFileModal && (
+                                        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+                                            onClick={() => pendingStatus === null && setStageFileModal(null)}>
+                                            <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+                                                <div className="text-sm font-semibold text-slate-50 mb-1">📎 Нужен документ для перехода</div>
+                                                <div className="text-sm text-slate-300 mb-3">{stageFileModal.prompt}</div>
+                                                <input type="file" disabled={pendingStatus !== null}
+                                                    onChange={e => { const f = e.target.files?.[0]; if (f) submitStageFile(f); }}
+                                                    className="block w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-sky-600 file:text-white file:font-semibold hover:file:bg-sky-500 cursor-pointer" />
+                                                <p className="text-xs text-slate-500 mt-2">Файл прикрепится к карточке (вкладка «Файлы») и пойдёт вместе с переходом.</p>
+                                                <div className="flex justify-end mt-3">
+                                                    <button disabled={pendingStatus !== null} onClick={() => setStageFileModal(null)} className="text-sm px-3 py-1.5 rounded-lg text-slate-300 hover:bg-slate-800">Отмена</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                     {appointmentForStatus && (
                                         <div className="mt-3">
                                             <AppointmentForm
@@ -2859,6 +2920,84 @@ const CreateLeadModal: React.FC<{
 // ═════════════════════════════════════════════════════════════════════
 //  ROSTER PANEL (teamlead-only)
 // ═════════════════════════════════════════════════════════════════════
+// ─── Согласования этапов (РОП): подтвердить/отклонить переход ───
+const CrmApprovalsView: React.FC<{ onRefresh: () => void; onOpenLead: (id: number) => void }> = ({ onRefresh, onOpenLead }) => {
+    const [items, setItems] = useState<any[] | null>(null);
+    const [rejectId, setRejectId] = useState<number | null>(null);
+    const [comment, setComment] = useState('');
+    const [busy, setBusy] = useState(false);
+    const load = () => fetch('/api/lidy/approvals', { credentials: 'include' }).then(r => r.json()).then(j => setItems(j.approvals || [])).catch(() => setItems([]));
+    useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
+    const decide = async (id: number, action: 'approve' | 'reject', cm?: string) => {
+        setBusy(true);
+        try {
+            const r = await fetch(`/api/lidy/approvals/${id}/${action}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action === 'reject' ? { comment: cm } : {}) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) toast(j.error || 'Ошибка', { kind: 'err' });
+            else { toast(action === 'approve' ? 'Переход подтверждён' : 'Переход отклонён'); setRejectId(null); setComment(''); load(); onRefresh(); }
+        } catch { toast('Сервер недоступен', { kind: 'err' }); } finally { setBusy(false); }
+    };
+    if (items === null) return <div className="text-sm text-slate-400 py-10 text-center">Загрузка…</div>;
+    const pending = items.filter(a => a.status === 'pending');
+    const recent = items.filter(a => a.status !== 'pending' && a.kind !== 'back').slice(0, 20);
+    return (
+        <div className="space-y-3">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-3">🕓 Ожидают согласования ({pending.length})</div>
+                {pending.length === 0 ? <div className="text-sm text-slate-500 italic py-6 text-center">Нет ожидающих согласований 🎉</div> :
+                    <div className="space-y-2">
+                        {pending.map(a => (
+                            <div key={a.id} className="border border-slate-800 rounded-lg p-3 bg-slate-800/30">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <Avatar name={a.lead_name} size="sm" />
+                                    <span className="font-medium text-slate-50">{a.lead_name || '— без имени —'}</span>
+                                    <span className="text-xs font-mono text-slate-400">#{a.lead_id}</span>
+                                    <button onClick={() => onOpenLead(a.lead_id)} className="text-xs text-sky-300 hover:underline ml-1">открыть карточку →</button>
+                                    <span className="text-xs text-slate-400 ml-auto">{formatRel(a.created_at)}</span>
+                                </div>
+                                <div className="text-sm text-slate-300 mt-1.5">Переход: «{a.from_label || '—'}» → <b className="text-violet-300">«{a.to_label || a.to_stage}»</b> · запросил {a.requested_name || a.requested_by_name}</div>
+                                {a.note && <div className="text-xs text-slate-400 mt-1">Заметка: {a.note}</div>}
+                                {a.file_url && <div className="text-xs mt-1"><a className="text-sky-300 underline" href={a.file_url} target="_blank" rel="noreferrer">📎 {a.file_name || 'приложенный файл'}</a></div>}
+                                {rejectId === a.id ? (
+                                    <div className="mt-2">
+                                        <textarea rows={2} value={comment} onChange={e => setComment(e.target.value)} placeholder="Причина отказа (обязательно)"
+                                            className="w-full text-sm bg-slate-800/60 border border-slate-700 rounded-lg p-2 text-slate-100" />
+                                        <div className="flex gap-2 mt-1.5">
+                                            <Btn variant="danger" disabled={busy || !comment.trim()} onClick={() => decide(a.id, 'reject', comment)}>Отклонить переход</Btn>
+                                            <Btn variant="ghost" onClick={() => { setRejectId(null); setComment(''); }}>Отмена</Btn>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-2 mt-2">
+                                        <Btn variant="success" disabled={busy} onClick={() => decide(a.id, 'approve')}>✓ Подтвердить</Btn>
+                                        <Btn variant="ghost" onClick={() => { setRejectId(a.id); setComment(''); }}>✗ Отказать</Btn>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>}
+            </div>
+            {recent.length > 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">История решений</div>
+                    <div className="space-y-1">
+                        {recent.map(a => (
+                            <div key={a.id} className="text-xs flex items-center gap-2 flex-wrap py-0.5">
+                                <span className={a.status === 'approved' ? 'text-emerald-400' : 'text-rose-400'}>{a.status === 'approved' ? '✓' : '✗'}</span>
+                                <span className="text-slate-200">{a.lead_name}</span>
+                                <span className="text-slate-400">«{a.to_label || a.to_stage}»</span>
+                                <span className="text-slate-500">· {a.decided_by_name || ''}</span>
+                                {a.decision_comment && <span className="text-slate-500 italic">— {a.decision_comment}</span>}
+                                <span className="text-slate-600 ml-auto">{formatRel(a.decided_at || a.created_at)}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const GoalCell: React.FC<{ m: RosterManager; isTeamlead: boolean; onChanged: () => void }> = ({ m, isTeamlead, onChanged }) => {
     const [editing, setEditing] = useState(false);
     const [val, setVal] = useState(String(m.monthly_goal ?? ''));
@@ -2989,7 +3128,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
     };
 
     // View + filters (persisted)
-    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'stages' | 'calendar'>(() => lsGet('view', 'cards'));
+    const [view, setView] = useState<'cards' | 'table' | 'pipeline' | 'stages' | 'calendar' | 'approvals'>(() => lsGet('view', 'cards'));
     const [drawerMode, setDrawerMode] = useState<'side' | 'center'>(() => lsGet('drawerMode', 'side'));
     const [calendarData, setCalendarData] = useState<any[]>([]);
     const [scope, setScope] = useState<'mine' | 'all'>(() => lsGet('scope', isTeamlead ? 'all' : 'mine'));
@@ -3666,6 +3805,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                                 { v: 'pipeline', l: '🎯 Воронка статусов' },
                                 { v: 'stages', l: '🎓 Этапы клиентов' },
                                 { v: 'calendar', l: '📅 Календарь' },
+                                ...(isTeamlead ? [{ v: 'approvals', l: '🕓 Согласования' }] : []),
                             ].map(o => (
                                 <button key={o.v} onClick={() => setView(o.v as any)}
                                     className={`px-3 py-1.5 text-sm font-medium rounded-md transition ${view === o.v ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800/70'}`}>
@@ -3726,6 +3866,11 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             // Fetch single lead and open drawer
                             const r = await fetch(`/api/lidy/leads/${id}`, { credentials: 'include' });
                             if (r.ok) { const j = await r.json(); setOpenLead(j.lead); }
+                        }} />
+                    ) : view === 'approvals' ? (
+                        <CrmApprovalsView onRefresh={load} onOpenLead={async (id) => {
+                            const r = await fetch(`/api/lidy/leads/${id}`, { credentials: 'include' });
+                            if (r.ok) { const j = await r.json(); if (j.lead) setOpenLead(j.lead); }
                         }} />
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
