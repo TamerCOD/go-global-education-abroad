@@ -1,5 +1,5 @@
 // GoGlobal CRM service worker — basic offline cache + push notifications
-const CACHE = 'goglobal-crm-v1';
+const CACHE = 'goglobal-crm-v2';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -15,7 +15,7 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  if (!url.pathname.startsWith('/lidy') && !url.pathname.startsWith('/assets') && url.pathname !== '/ppp.png') return;
+  if (!url.pathname.startsWith('/lidy300499') && !url.pathname.startsWith('/assets') && url.pathname !== '/ppp.png') return;
 
   e.respondWith(
     fetch(req).then(res => {
@@ -34,7 +34,7 @@ self.addEventListener('push', e => {
     body: data.body || '',
     icon: '/ppp.png',
     badge: '/ppp.png',
-    data: data.url || '/lidy',
+    data: data.url || '/lidy300499',
     tag: data.tag || 'crm',
     requireInteraction: !!data.requireInteraction,
   };
@@ -43,11 +43,11 @@ self.addEventListener('push', e => {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const target = e.notification.data || '/lidy';
+  const target = e.notification.data || '/lidy300499';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
       for (const c of clients) {
-        if (c.url.includes('/lidy')) { c.focus(); return; }
+        if (c.url.includes('/lidy300499')) { c.focus(); return; }
       }
       self.clients.openWindow(target);
     })

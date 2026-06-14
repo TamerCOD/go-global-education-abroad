@@ -66,8 +66,8 @@ function MainSite() {
 function App() {
   const { data } = useData();
   const location = useLocation();
-  const isAdminRoute = location.pathname.startsWith('/admin');
-  const isLidyRoute = location.pathname.startsWith('/lidy');
+  const isAdminRoute = location.pathname.startsWith('/admin300499');
+  const isLidyRoute = location.pathname.startsWith('/lidy300499');
   const isApplyRoute = location.pathname.startsWith('/apply');
   const isUtilityRoute = isAdminRoute || isLidyRoute || isApplyRoute;
   const [showLoader, setShowLoader] = useState(!isUtilityRoute);
@@ -105,10 +105,14 @@ function App() {
 
       <Routes>
         <Route path="/" element={<MainSite />} />
-        <Route path="/admin" element={<AdminPanel />} />
-        <Route path="/lidy" element={<LidyApp />} />
-        <Route path="/lidy/*" element={<LidyApp />} />
+        {/* Obscured entry points (defence-in-depth on top of auth). Keep in sync
+            with ADMIN_PATH/CRM_PATH in server.ts. */}
+        <Route path="/admin300499" element={<AdminPanel />} />
+        <Route path="/lidy300499" element={<LidyApp />} />
+        <Route path="/lidy300499/*" element={<LidyApp />} />
         <Route path="/apply" element={<ApplyForm />} />
+        {/* Anything else (incl. the old guessable /admin and /lidy) → public site */}
+        <Route path="*" element={<MainSite />} />
       </Routes>
     </div>
   );

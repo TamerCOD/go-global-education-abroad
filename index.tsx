@@ -22,7 +22,7 @@ root.render(
 );
 
 // Register service worker for CRM only (PWA + push)
-if ('serviceWorker' in navigator && (location.pathname.startsWith('/lidy') || location.pathname.startsWith('/admin'))) {
+if ('serviceWorker' in navigator && (location.pathname.startsWith('/lidy300499') || location.pathname.startsWith('/admin300499'))) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(err => {
       console.warn('[sw]', err);

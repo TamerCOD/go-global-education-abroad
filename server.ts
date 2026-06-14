@@ -41,6 +41,11 @@ const PUBLIC_BASE_URL =
 const UPLOADS_DIR =
   process.env.UPLOADS_DIR || path.join(process.cwd(), "uploads");
 
+// Obscure entry points for the admin panel + CRM (defence-in-depth on top of auth).
+// MUST match the client routes in App.tsx. Deep-links in Telegram/push use these.
+const ADMIN_PATH = "/admin300499";
+const CRM_PATH = "/lidy300499";
+
 // Error monitoring (Sentry) — fully optional. Without SENTRY_DSN the package is
 // never even imported, so this is a zero-cost no-op until the env var is set.
 const SENTRY_DSN = process.env.SENTRY_DSN || "";
@@ -1092,7 +1097,7 @@ async function assignPendingLeads(triggeredByLogin?: string): Promise<{ assigned
       ...details.map(d =>
         `• #${d.leadId} ${escapeHtml(d.lead.name || "—")} → <b>${escapeHtml(d.manager.full_name)}</b> ${tagOf(d.manager)}`.trim()
       ),
-      `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+      `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
     ];
     sendTelegram(lines.join("\n")).catch(() => {});
   }
@@ -1120,7 +1125,7 @@ async function sendPush(opts: {
       params
     );
     const payload = JSON.stringify({
-      title: opts.title, body: opts.body, url: opts.url || "/lidy",
+      title: opts.title, body: opts.body, url: opts.url || CRM_PATH,
       tag: opts.tag || "crm", requireInteraction: !!opts.requireInteraction,
     });
     for (const s of rows) {
@@ -1388,7 +1393,7 @@ async function checkSlaBreaches() {
         `Получен: ${new Date(lead.received_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
         `Дедлайн был: ${new Date(lead.sla_deadline_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
         `Просрочен на: <b>${Math.floor(overdueMin / 60)}ч ${overdueMin % 60}м</b>`,
-        `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+        `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
       ];
       const sent = await sendTelegram(lines.join("\n"));
       if (sent) {
@@ -1399,7 +1404,7 @@ async function checkSlaBreaches() {
           managerId: lead.manager_id,
           title: `⏰ SLA нарушен — лид #${lead.id}`,
           body: `Просрочен на ${Math.floor(overdueMin / 60)}ч ${overdueMin % 60}м. Срочно обработайте.`,
-          url: `/lidy`,
+          url: CRM_PATH,
           tag: `sla-${lead.id}`,
           requireInteraction: true,
         }).catch(() => {});
@@ -1438,7 +1443,7 @@ async function checkTaskReminders() {
           t.assignee_name ? `👨‍💼 ${escapeHtml(t.assignee_name)} ${tag}`.trim() : "",
           t.lead_name ? `📞 По лиду: <b>${escapeHtml(t.lead_name)}</b> (#${t.lead_id})` : "",
           `⏱ Дедлайн был: ${new Date(t.due_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
-          `🔗 <a href="${PUBLIC_BASE_URL}/lidy">открыть CRM</a>`,
+          `🔗 <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть CRM</a>`,
         ].filter(Boolean).join("\n")
       ).catch(() => {});
       await pool.query(`UPDATE lead_tasks SET reminded_at = NOW() WHERE id = $1`, [t.id]);
@@ -1576,7 +1581,7 @@ async function sendMorningDigest() {
       t.overdue > 0 ? `⚠️ Открытых с нарушением SLA: <b>${t.overdue}</b>` : "",
       t.overdue_tasks > 0 ? `📋 Просроченных задач: <b>${t.overdue_tasks}</b>` : "",
       offline.rows.length > 0 ? `⚪ Оффлайн >24ч: ${offline.rows.map((m: any) => escapeHtml(m.full_name)).join(", ")}` : "",
-      `→ <a href="${PUBLIC_BASE_URL}/admin">админка</a> · <a href="${PUBLIC_BASE_URL}/lidy">CRM</a>`,
+      `→ <a href="${PUBLIC_BASE_URL}${ADMIN_PATH}">админка</a> · <a href="${PUBLIC_BASE_URL}${CRM_PATH}">CRM</a>`,
     ].filter(Boolean);
     await sendTelegram(lines.join("\n"));
   } catch (e) {
@@ -1671,7 +1676,7 @@ async function startServer() {
       const ua = (req.headers["user-agent"] as string) || "";
       const ref = (req.headers["referer"] as string) || (req.body?.ref as string) || "";
       const pathStr = typeof req.body?.path === "string" ? req.body.path.slice(0, 500) : "/";
-      if (pathStr.startsWith("/admin") || pathStr.startsWith("/lidy")) {
+      if (pathStr.startsWith(ADMIN_PATH) || pathStr.startsWith(CRM_PATH)) {
         return res.json({ ok: true, ignored: true });
       }
       await recordVisit({ visitorId: hashVisitor(ip, ua), path: pathStr, ua, ref });
@@ -1800,20 +1805,20 @@ async function startServer() {
           ? (dupAssignee.telegram_tag.startsWith("@") ? dupAssignee.telegram_tag : `@${dupAssignee.telegram_tag}`)
           : "";
         sendTelegram([
-          `🔁 <b>Повторное обращение — дубль <a href="${PUBLIC_BASE_URL}/lidy">#${dupId}</a></b> ${sourceBadge(source)}`,
+          `🔁 <b>Повторное обращение — дубль <a href="${PUBLIC_BASE_URL}${CRM_PATH}">#${dupId}</a></b> ${sourceBadge(source)}`,
           `Оригинал: лид #${existing.id}`,
           name ? `👤 ${escapeHtml(name)}` : "",
           dupAssignee
             ? `👨‍💼 Назначен: <b>${escapeHtml(dupAssignee.full_name)}</b> ${dupTag}`.trim()
             : `⚠️ Менеджер оригинала недоступен — дубль в очереди.`,
-          `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+          `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
         ].filter(Boolean).join("\n")).catch(() => {});
         if (dupAssignee) {
           sendPush({
             managerId: dupAssignee.id,
             title: `🔁 Повторное обращение — дубль #${dupId}`,
             body: `${name || phone || email || "—"} · оригинал #${existing.id}`,
-            url: `/lidy`,
+            url: CRM_PATH,
             tag: `lead-${dupId}`,
           }).catch(() => {});
         }
@@ -1863,7 +1868,7 @@ async function startServer() {
     const wa = phone ? whatsappLink(phone) : null;
     const sourceLabel = sourceBadge(source);
     const lines = [
-      `🆕 <b>Новый лид <a href="${PUBLIC_BASE_URL}/lidy">#${leadId}</a></b> ${sourceLabel}`,
+      `🆕 <b>Новый лид <a href="${PUBLIC_BASE_URL}${CRM_PATH}">#${leadId}</a></b> ${sourceLabel}`,
       eventNameSnapshot ? `🎟 Событие: <b>${escapeHtml(eventNameSnapshot)}</b>` : "",
       name ? `👤 ${escapeHtml(name)}` : "",
       phone ? `📞 ${escapeHtml(phone)}${wa ? ` · <a href="${wa}">открыть WhatsApp</a>` : ""}` : "",
@@ -1876,7 +1881,7 @@ async function startServer() {
         ? `👨‍💼 Назначен: <b>${escapeHtml(manager.full_name)}</b> (${escapeHtml(manager.login)}) ${tag}`.trim()
         : `⚠️ <b>Нет онлайн-менеджеров!</b> Лид в очереди до выхода кого-то в сеть.`,
       slaDeadline ? `⏱ SLA до ${slaDeadline.toISOString().slice(0, 16).replace("T", " ")} UTC` : "",
-      `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+      `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
     ].filter(Boolean);
     sendTelegram(lines.join("\n")).catch(() => {});
 
@@ -1886,7 +1891,7 @@ async function startServer() {
         managerId: manager.id,
         title: `🆕 Новый лид #${leadId}`,
         body: `${name || phone || email || "—"}${country ? " · " + country : ""}${sourceLabel ? " · " + sourceLabel : ""}`,
-        url: `/lidy`,
+        url: CRM_PATH,
         tag: `lead-${leadId}`,
       }).catch(() => {});
     }
@@ -3795,7 +3800,7 @@ async function startServer() {
         country ? `🌍 ${escapeHtml(country)}` : "",
         comment ? `💬 ${escapeHtml(comment)}` : "",
         assignee ? `👨‍💼 Назначен: <b>${escapeHtml(assignee.full_name)}</b> ${tag}`.trim() : "",
-        `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+        `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
       ].filter(Boolean).join("\n")).catch(() => {});
 
       res.json({ ok: true, leadId, assigned: assigneeId });
@@ -4121,7 +4126,7 @@ async function startServer() {
           `🤝 <b>Передача лида #${leadId}</b>`,
           `От: <b>${escapeHtml(me.full_name)}</b> ${tag(me)}`,
           `Кому: <b>${escapeHtml(target.full_name)}</b> ${tag(target)} — ждём принятия (${TRANSFER_TIMEOUT_MIN} мин)`,
-          `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+          `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
         ].join("\n")
       ).catch(() => {});
 
@@ -4135,7 +4140,7 @@ async function startServer() {
         managerId: target.id,
         title: `🤝 Передан лид #${leadId}`,
         body: `${me.full_name} передал вам лид. Принять/отклонить в течение ${TRANSFER_TIMEOUT_MIN} мин.`,
-        url: `/lidy`,
+        url: CRM_PATH,
         tag: `transfer-${leadId}`,
         requireInteraction: true,
       }).catch(() => {});
@@ -4289,7 +4294,7 @@ async function startServer() {
         oldMgr ? `Был у: <b>${escapeHtml(oldMgr.full_name)}</b> ${tag(oldMgr)}` : `Был без менеджера`,
         `Теперь у: <b>${escapeHtml(target.full_name)}</b> ${tag(target)}`,
         `Тимлид: ${escapeHtml(me.full_name)}`,
-        `→ <a href="${PUBLIC_BASE_URL}/lidy">открыть в CRM</a>`,
+        `→ <a href="${PUBLIC_BASE_URL}${CRM_PATH}">открыть в CRM</a>`,
       ].filter(Boolean);
       sendTelegram(lines.join("\n")).catch(() => {});
 
