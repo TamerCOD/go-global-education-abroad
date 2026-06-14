@@ -19,6 +19,10 @@ const PORT = Number(process.env.PORT) || 3000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+// Super-password gating sensitive admin-account changes (add / change password /
+// enable-disable). Set ADMIN_SUPER_PASSWORD in the Railway env to a distinct value
+// (kept OUT of the public repo); falls back to the master ADMIN_PASSWORD if unset.
+const ADMIN_SUPER_PASSWORD = process.env.ADMIN_SUPER_PASSWORD || ADMIN_PASSWORD;
 const DATABASE_URL = process.env.DATABASE_URL;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
@@ -1754,6 +1758,7 @@ async function startServer() {
   });
   app.post("/api/admin/admins", requireAdmin, async (req, res) => {
     try {
+      if (String(req.body?.superPassword || "") !== ADMIN_SUPER_PASSWORD) return res.status(403).json({ error: "Неверный суперпароль" });
       const login = String(req.body?.login || "").trim().toLowerCase();
       const name = String(req.body?.name || "").trim() || null;
       const password = String(req.body?.password || "");
@@ -1771,6 +1776,7 @@ async function startServer() {
   });
   app.patch("/api/admin/admins/:id", requireAdmin, async (req, res) => {
     try {
+      if (String(req.body?.superPassword || "") !== ADMIN_SUPER_PASSWORD) return res.status(403).json({ error: "Неверный суперпароль" });
       const id = Number(req.params.id);
       const sets: string[] = [];
       const params: any[] = [];

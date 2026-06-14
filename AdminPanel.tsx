@@ -2380,6 +2380,7 @@ const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
     const [neu, setNeu] = useState({ login: '', name: '', password: '' });
+    const [superPwd, setSuperPwd] = useState('');
     const H = { 'Content-Type': 'application/json', 'X-Admin-Password': password };
 
     const load = async () => {
@@ -2389,17 +2390,19 @@ const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
     useEffect(() => { load(); }, []);
 
     const patch = async (id: number, body: any, okMsg: string) => {
+        if (!superPwd.trim()) { setMsg('Введите суперпароль для изменений'); return; }
         setBusy(true); setMsg(null);
         try {
-            const r = await fetch(`/api/admin/admins/${id}`, { method: 'PATCH', headers: H, body: JSON.stringify(body) });
+            const r = await fetch(`/api/admin/admins/${id}`, { method: 'PATCH', headers: H, body: JSON.stringify({ ...body, superPassword: superPwd }) });
             const j = await r.json();
             if (!r.ok) { setMsg(j.error || 'Ошибка'); } else { setMsg(okMsg); setPwd(p => ({ ...p, [id]: '' })); load(); }
         } catch { setMsg('Сервер недоступен'); } finally { setBusy(false); }
     };
     const add = async () => {
+        if (!superPwd.trim()) { setMsg('Введите суперпароль для изменений'); return; }
         setBusy(true); setMsg(null);
         try {
-            const r = await fetch('/api/admin/admins', { method: 'POST', headers: H, body: JSON.stringify(neu) });
+            const r = await fetch('/api/admin/admins', { method: 'POST', headers: H, body: JSON.stringify({ ...neu, superPassword: superPwd }) });
             const j = await r.json();
             if (!r.ok) { setMsg(j.error || 'Ошибка'); } else { setMsg('Аккаунт добавлен'); setNeu({ login: '', name: '', password: '' }); load(); }
         } catch { setMsg('Сервер недоступен'); } finally { setBusy(false); }
@@ -2409,6 +2412,12 @@ const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
         <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
             <div className="text-sm font-semibold text-slate-100 mb-1">👤 Администраторы (входы с логином)</div>
             <p className="text-xs text-slate-400 mb-3">5 аккаунтов созданы с паролем по умолчанию <code className="text-amber-300">qwe123!@#</code> — <b>обязательно смените их</b>. Общий пароль из настроек сервера тоже продолжает работать (запасной).</p>
+            <div className="mb-3 flex items-center gap-2 bg-amber-500/5 border border-amber-500/20 rounded-lg p-2">
+                <span className="text-xs text-amber-200 font-semibold whitespace-nowrap">🔑 Суперпароль</span>
+                <input type="password" autoComplete="off" placeholder="нужен для добавления / смены / отключения"
+                    value={superPwd} onChange={e => setSuperPwd(e.target.value)}
+                    className="flex-grow bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
+            </div>
             {msg && <div className="text-xs mb-2 px-2 py-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-200">{msg}</div>}
             {admins === null ? <div className="text-xs text-slate-400">Загрузка…</div> : (
                 <div className="space-y-2">
