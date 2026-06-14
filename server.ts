@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
 import ExcelJS from "exceljs";
 import webpush from "web-push";
+import { computeSlaDeadlineForSchedule, normalizePhone, computeScore } from "./lib/leadLogic";
 
 const { Pool } = pg;
 
@@ -908,75 +909,9 @@ const DEFAULT_SCHEDULE: WorkingSchedule = [
   null,                           // Sat
 ];
 
-function parseHm(s: string): number {
-  const [h, m] = s.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
-function tzPartsFromUtc(utc: Date) {
-  const adjusted = new Date(utc.getTime() + WORKING_HOURS_TZ_OFFSET_MIN * 60_000);
-  return {
-    dow: adjusted.getUTCDay(),
-    minOfDay: adjusted.getUTCHours() * 60 + adjusted.getUTCMinutes(),
-  };
-}
-
-function tzMidnightUtc(utc: Date, addDays = 0): Date {
-  // Returns a UTC Date that corresponds to 00:00 on (date-in-tz + addDays).
-  const adjusted = new Date(utc.getTime() + WORKING_HOURS_TZ_OFFSET_MIN * 60_000);
-  adjusted.setUTCHours(0, 0, 0, 0);
-  if (addDays) adjusted.setUTCDate(adjusted.getUTCDate() + addDays);
-  return new Date(adjusted.getTime() - WORKING_HOURS_TZ_OFFSET_MIN * 60_000);
-}
-
-export function computeSlaDeadlineForSchedule(
-  receivedAt: Date,
-  schedule: WorkingSchedule | null,
-  slaMinutes: number
-): Date {
-  if (!schedule || !Array.isArray(schedule) || schedule.every(d => d === null)) {
-    return new Date(receivedAt.getTime() + slaMinutes * 60_000);
-  }
-
-  let remaining = slaMinutes;
-  let cursor = new Date(receivedAt);
-
-  for (let safety = 0; safety < 60; safety++) {
-    const { dow, minOfDay } = tzPartsFromUtc(cursor);
-    const window = schedule[dow] ?? null;
-
-    if (!window) {
-      // Day off: jump to tomorrow's 00:00 in tz
-      cursor = tzMidnightUtc(cursor, 1);
-      continue;
-    }
-
-    const fromMin = parseHm(window.from);
-    const toMin = parseHm(window.to);
-
-    if (minOfDay < fromMin) {
-      // Before working hours — move cursor to today's start
-      const dayStart = tzMidnightUtc(cursor, 0);
-      cursor = new Date(dayStart.getTime() + fromMin * 60_000);
-      continue;
-    }
-    if (minOfDay >= toMin) {
-      // After working hours — move to next day
-      cursor = tzMidnightUtc(cursor, 1);
-      continue;
-    }
-
-    const availableToday = toMin - minOfDay;
-    if (availableToday >= remaining) {
-      return new Date(cursor.getTime() + remaining * 60_000);
-    }
-    remaining -= availableToday;
-    cursor = tzMidnightUtc(cursor, 1);
-  }
-
-  // Shouldn't normally hit; fallback
-  return new Date(cursor.getTime() + remaining * 60_000);
-}
+// SLA scheduling math (parseHm/tzPartsFromUtc/tzMidnightUtc/computeSlaDeadlineForSchedule)
+// + normalizePhone + computeScore now live in ./lib/leadLogic so they can be unit-tested
+// without booting the server. computeSlaDeadlineForSchedule is imported at the top.
 
 // Try to find a manager via configured routing_rules.
 // Lead must match all non-null filters of the rule. Rules ordered by priority ASC.
@@ -1280,32 +1215,7 @@ async function recalcLeadScore(leadId: number): Promise<number> {
   );
   if (rows.length === 0) return 0;
   const l = rows[0];
-  let score = 0;
-  // Profile completeness (max 40)
-  if (l.budget) score += 10;
-  if (l.english_level) score += 8;
-  if (l.desired_university) score += 8;
-  if (l.study_level) score += 6;
-  if (l.intake_term) score += 8;
-  // Contact channels (max 15)
-  if (l.phone) score += 8;
-  if (l.email) score += 4;
-  if (l.parent_contact) score += 3;
-  // Engagement (max 30)
-  if (l.status_code && l.status_code !== "new") score += 15;
-  if (l.comment_count >= 2) score += 10;
-  if (l.appointment_at) score += 5;
-  // Deal value (max 15)
-  if (l.deal_value) {
-    if (Number(l.deal_value) >= 30000) score += 15;
-    else if (Number(l.deal_value) >= 15000) score += 10;
-    else score += 5;
-  }
-  // Closed lost = 0 score
-  if (l.status_code === "closed_lost") score = 0;
-  // Closed won = 100
-  if (l.status_code === "closed_won") score = 100;
-  score = Math.min(100, Math.max(0, score));
+  const score = computeScore(l); // pure scoring lives in ./lib/leadLogic (unit-tested)
   await pool.query(`UPDATE leads SET score = $1 WHERE id = $2`, [score, leadId]);
   return score;
 }
@@ -1839,7 +1749,7 @@ async function startServer() {
     }
 
     // Smart deduplication — check for existing leads with same phone (normalized) or email
-    const normPhone = (phone || "").replace(/\D/g, "").slice(-10);
+    const normPhone = normalizePhone(phone);
     if (normPhone || email) {
       const dupQ = await pq().query(
         `SELECT id, status_code, assigned_manager_id FROM leads
@@ -3930,7 +3840,7 @@ async function startServer() {
           if (!name && !phone && !email) { failed++; continue; }
 
           if (skipDuplicates) {
-            const normPhone = phone.replace(/\D/g, "").slice(-10);
+            const normPhone = normalizePhone(phone);
             if (normPhone || email) {
               const dup = await pq().query(
                 `SELECT id FROM leads

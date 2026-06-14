@@ -26,6 +26,9 @@ jobs:
       - name: Build (vite) — gate, same command as Railway deploy
         run: npm run build
 
+      - name: Unit tests (SLA / score / dedup pure logic)
+        run: npm test
+
       - name: Type-check (informational, non-blocking)
         run: npx tsc --noEmit
         continue-on-error: true
