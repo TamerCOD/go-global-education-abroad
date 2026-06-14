@@ -2377,10 +2377,14 @@ const AuditViewer: React.FC<{ password: string }> = ({ password }) => {
 const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
     const [admins, setAdmins] = useState<any[] | null>(null);
     const [pwd, setPwd] = useState<Record<number, string>>({});
-    const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
     const [neu, setNeu] = useState({ login: '', name: '', password: '' });
-    const [superPwd, setSuperPwd] = useState('');
+    // Per-action confirmation: each sensitive action opens a modal that asks for the
+    // super-password. `exec(sp)` performs the request with the entered password.
+    const [confirm, setConfirm] = useState<{ title: string; danger?: boolean; exec: (sp: string) => Promise<Response> } | null>(null);
+    const [sp, setSp] = useState('');
+    const [cErr, setCErr] = useState('');
+    const [cBusy, setCBusy] = useState(false);
     const H = { 'Content-Type': 'application/json', 'X-Admin-Password': password };
 
     const load = async () => {
@@ -2389,35 +2393,25 @@ const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
     };
     useEffect(() => { load(); }, []);
 
-    const patch = async (id: number, body: any, okMsg: string) => {
-        if (!superPwd.trim()) { setMsg('Введите суперпароль для изменений'); return; }
-        setBusy(true); setMsg(null);
-        try {
-            const r = await fetch(`/api/admin/admins/${id}`, { method: 'PATCH', headers: H, body: JSON.stringify({ ...body, superPassword: superPwd }) });
-            const j = await r.json();
-            if (!r.ok) { setMsg(j.error || 'Ошибка'); } else { setMsg(okMsg); setPwd(p => ({ ...p, [id]: '' })); load(); }
-        } catch { setMsg('Сервер недоступен'); } finally { setBusy(false); }
+    const ask = (title: string, exec: (sp: string) => Promise<Response>, danger = false) => {
+        setSp(''); setCErr(''); setConfirm({ title, exec, danger });
     };
-    const add = async () => {
-        if (!superPwd.trim()) { setMsg('Введите суперпароль для изменений'); return; }
-        setBusy(true); setMsg(null);
+    const runConfirm = async () => {
+        if (!confirm) return;
+        if (!sp.trim()) { setCErr('Введите суперпароль'); return; }
+        setCBusy(true); setCErr('');
         try {
-            const r = await fetch('/api/admin/admins', { method: 'POST', headers: H, body: JSON.stringify({ ...neu, superPassword: superPwd }) });
-            const j = await r.json();
-            if (!r.ok) { setMsg(j.error || 'Ошибка'); } else { setMsg('Аккаунт добавлен'); setNeu({ login: '', name: '', password: '' }); load(); }
-        } catch { setMsg('Сервер недоступен'); } finally { setBusy(false); }
+            const r = await confirm.exec(sp);
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) { setCErr(j.error || 'Ошибка'); }
+            else { setConfirm(null); setSp(''); setMsg('Готово ✓'); load(); }
+        } catch { setCErr('Сервер недоступен'); } finally { setCBusy(false); }
     };
 
     return (
         <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
             <div className="text-sm font-semibold text-slate-100 mb-1">👤 Администраторы (входы с логином)</div>
-            <p className="text-xs text-slate-400 mb-3">5 аккаунтов созданы с паролем по умолчанию <code className="text-amber-300">qwe123!@#</code> — <b>обязательно смените их</b>. Общий пароль из настроек сервера тоже продолжает работать (запасной).</p>
-            <div className="mb-3 flex items-center gap-2 bg-amber-500/5 border border-amber-500/20 rounded-lg p-2">
-                <span className="text-xs text-amber-200 font-semibold whitespace-nowrap">🔑 Суперпароль</span>
-                <input type="password" autoComplete="off" placeholder="нужен для добавления / смены / отключения"
-                    value={superPwd} onChange={e => setSuperPwd(e.target.value)}
-                    className="flex-grow bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
-            </div>
+            <p className="text-xs text-slate-400 mb-3">5 аккаунтов созданы с паролем по умолчанию <code className="text-amber-300">qwe123!@#</code> — <b>обязательно смените их</b>. Любое изменение здесь требует подтверждения <b>суперпаролем</b>. Общий пароль из настроек сервера тоже продолжает работать (запасной).</p>
             {msg && <div className="text-xs mb-2 px-2 py-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-200">{msg}</div>}
             {admins === null ? <div className="text-xs text-slate-400">Загрузка…</div> : (
                 <div className="space-y-2">
@@ -2429,10 +2423,13 @@ const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
                             <div className="flex items-center gap-1 ml-auto">
                                 <input type="text" placeholder="новый пароль" value={pwd[a.id] || ''} onChange={e => setPwd(p => ({ ...p, [a.id]: e.target.value }))}
                                     className="w-36 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
-                                <button disabled={busy || !(pwd[a.id] || '').trim()} onClick={() => patch(a.id, { password: pwd[a.id] }, `Пароль для ${a.login} обновлён`)}
+                                <button disabled={!(pwd[a.id] || '').trim()}
+                                    onClick={() => ask(`Сменить пароль для «${a.login}»`, (s) => fetch(`/api/admin/admins/${a.id}`, { method: 'PATCH', headers: H, body: JSON.stringify({ password: pwd[a.id], superPassword: s }) }))}
                                     className="text-xs bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-2 py-1 rounded">Сменить</button>
-                                <button disabled={busy} onClick={() => patch(a.id, { active: !a.active }, a.active ? `${a.login} выключен` : `${a.login} включён`)}
+                                <button onClick={() => ask(`${a.active ? 'Отключить' : 'Включить'} «${a.login}»`, (s) => fetch(`/api/admin/admins/${a.id}`, { method: 'PATCH', headers: H, body: JSON.stringify({ active: !a.active, superPassword: s }) }))}
                                     className="text-xs border border-slate-600 text-slate-300 hover:bg-slate-700 px-2 py-1 rounded">{a.active ? 'Выкл' : 'Вкл'}</button>
+                                <button onClick={() => ask(`Удалить аккаунт «${a.login}» навсегда?`, (s) => fetch(`/api/admin/admins/${a.id}`, { method: 'DELETE', headers: H, body: JSON.stringify({ superPassword: s }) }), true)}
+                                    title="Удалить аккаунт" className="text-xs text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 px-2 py-1 rounded">🗑</button>
                             </div>
                         </div>
                     ))}
@@ -2440,7 +2437,33 @@ const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
                         <input placeholder="логин" value={neu.login} onChange={e => setNeu(n => ({ ...n, login: e.target.value }))} className="w-28 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
                         <input placeholder="имя" value={neu.name} onChange={e => setNeu(n => ({ ...n, name: e.target.value }))} className="w-32 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs" />
                         <input placeholder="пароль" value={neu.password} onChange={e => setNeu(n => ({ ...n, password: e.target.value }))} className="w-32 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
-                        <button disabled={busy || !neu.login.trim() || !neu.password.trim()} onClick={add} className="text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-1 rounded">+ Добавить</button>
+                        <button disabled={!neu.login.trim() || !neu.password.trim()}
+                            onClick={() => ask(`Добавить аккаунт «${neu.login.trim()}»`, (s) => fetch('/api/admin/admins', { method: 'POST', headers: H, body: JSON.stringify({ ...neu, superPassword: s }) }).then(r => { if (r.ok) setNeu({ login: '', name: '', password: '' }); return r; }))}
+                            className="text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-1 rounded">+ Добавить</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Super-password confirmation modal */}
+            {confirm && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" onClick={() => !cBusy && setConfirm(null)}>
+                    <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+                        <div className="text-sm font-semibold text-slate-50 mb-1">🔑 Подтверждение</div>
+                        <div className={`text-sm mb-3 ${confirm.danger ? 'text-rose-300' : 'text-slate-300'}`}>{confirm.title}</div>
+                        <label className="block text-xs text-slate-400 mb-1">Введите суперпароль</label>
+                        <input type="password" autoFocus name="super-confirm" autoComplete="new-password"
+                            value={sp} onChange={e => { setSp(e.target.value); setCErr(''); }}
+                            onKeyDown={e => { if (e.key === 'Enter') runConfirm(); if (e.key === 'Escape' && !cBusy) setConfirm(null); }}
+                            placeholder="••••••••"
+                            className="w-full bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-sky-500" />
+                        {cErr && <div className="text-xs text-rose-300 mt-2">⚠ {cErr}</div>}
+                        <div className="flex justify-end gap-2 mt-4">
+                            <button disabled={cBusy} onClick={() => setConfirm(null)} className="text-sm px-3 py-1.5 rounded-lg text-slate-300 hover:bg-slate-800">Отмена</button>
+                            <button disabled={cBusy || !sp.trim()} onClick={runConfirm}
+                                className={`text-sm px-4 py-1.5 rounded-lg text-white disabled:opacity-50 ${confirm.danger ? 'bg-rose-600 hover:bg-rose-500' : 'bg-sky-600 hover:bg-sky-500'}`}>
+                                {cBusy ? 'Проверка…' : (confirm.danger ? 'Удалить' : 'Подтвердить')}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

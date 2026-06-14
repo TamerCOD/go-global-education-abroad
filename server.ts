@@ -1793,6 +1793,15 @@ async function startServer() {
       res.json({ ok: true, admin: r.rows[0] });
     } catch (err) { console.error("[admin/admins PATCH]", err); res.status(500).json({ error: "Server error" }); }
   });
+  app.delete("/api/admin/admins/:id", requireAdmin, async (req, res) => {
+    try {
+      if (String(req.body?.superPassword || "") !== ADMIN_SUPER_PASSWORD) return res.status(403).json({ error: "Неверный суперпароль" });
+      const id = Number(req.params.id);
+      const r = await pq().query(`DELETE FROM admin_users WHERE id = $1 RETURNING login`, [id]);
+      if (r.rows.length === 0) return res.status(404).json({ error: "Не найдено" });
+      res.json({ ok: true });
+    } catch (err) { console.error("[admin/admins DELETE]", err); res.status(500).json({ error: "Server error" }); }
+  });
 
   // ----- Visit tracking -----
   app.post("/api/visit", async (req, res) => {
