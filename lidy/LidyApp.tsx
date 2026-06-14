@@ -1,6 +1,41 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+// ═════════════════════════════════════════════════════════════════════
+//  TOASTS — tiny global store, callable from anywhere (no prop threading)
+// ═════════════════════════════════════════════════════════════════════
+type ToastKind = 'ok' | 'err' | 'info';
+interface ToastItem { id: number; msg: string; kind: ToastKind; undo?: () => void }
+let _toastSeq = 0;
+let _toasts: ToastItem[] = [];
+const _toastSubs = new Set<(t: ToastItem[]) => void>();
+const _emitToasts = () => _toastSubs.forEach(fn => fn(_toasts));
+function dismissToast(id: number) { _toasts = _toasts.filter(t => t.id !== id); _emitToasts(); }
+function toast(msg: string, opts?: { kind?: ToastKind; undo?: () => void; ms?: number }) {
+    const id = ++_toastSeq;
+    _toasts = [..._toasts, { id, msg, kind: opts?.kind || 'ok', undo: opts?.undo }].slice(-4);
+    _emitToasts();
+    const ms = opts?.ms ?? (opts?.undo ? 6500 : 3200);
+    window.setTimeout(() => dismissToast(id), ms);
+    return id;
+}
+const ToastHost: React.FC = () => {
+    const [items, setItems] = useState<ToastItem[]>(_toasts);
+    useEffect(() => { _toastSubs.add(setItems); return () => { _toastSubs.delete(setItems); }; }, []);
+    return (
+        <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2 w-[min(92vw,360px)]">
+            {items.map(t => (
+                <div key={t.id}
+                    className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 shadow-2xl text-sm ${t.kind === 'err' ? 'bg-rose-950/95 border-rose-500/40 text-rose-100' : t.kind === 'info' ? 'bg-slate-900/95 border-slate-700 text-slate-100' : 'bg-emerald-950/95 border-emerald-500/40 text-emerald-100'}`}>
+                    <span className="flex-grow leading-snug">{t.msg}</span>
+                    {t.undo && <button onClick={() => { t.undo!(); dismissToast(t.id); }} className="font-semibold text-sky-300 hover:text-sky-200 whitespace-nowrap">Отменить</button>}
+                    <button onClick={() => dismissToast(t.id)} className="text-slate-500 hover:text-slate-300 text-xs">✕</button>
+                </div>
+            ))}
+        </div>
+    );
+};
+
 // Skeleton loader — shimmering placeholder card
 const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
     <div className={`relative overflow-hidden bg-slate-800/40 rounded ${className || ''}`}>
@@ -738,8 +773,8 @@ const PipelineView: React.FC<{
                     <span className="font-semibold text-sm text-slate-50 truncate">{label}</span>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                    {mode === 'stage' && colSummary(list) > 0 && (
-                        <span className="text-[10px] text-emerald-300 font-mono">${Math.round(colSummary(list) / 1000)}k</span>
+                    {colSummary(list) > 0 && (
+                        <span className="text-[10px] text-emerald-300 font-mono" title="Сумма сделок в колонке">${Math.round(colSummary(list) / 1000)}k</span>
                     )}
                     <span className="text-xs text-slate-400 font-mono bg-slate-800/70 px-1.5 py-0.5 rounded">{list.length}</span>
                 </div>
@@ -1352,6 +1387,7 @@ const LeadDetailDrawer: React.FC<{
     };
 
     const changeStatus = async (code: string, extras?: any) => {
+        const prevCode = lead.status_code;
         setPendingStatus(code);
         try {
             const r = await fetch(`/api/lidy/leads/${lead.id}/status`, {
@@ -1367,6 +1403,10 @@ const LeadDetailDrawer: React.FC<{
             const c = await fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' }).then(r => r.json());
             setComments(c.comments || []);
             onRefresh();
+            const newLabel = statuses.find(s => s.code === code)?.label || code;
+            toast(`Статус: ${newLabel}`, {
+                undo: (prevCode && prevCode !== code && !extras) ? () => changeStatus(prevCode) : undefined,
+            });
         } finally { setPendingStatus(null); }
     };
 
@@ -1392,6 +1432,7 @@ const LeadDetailDrawer: React.FC<{
             const c = await fetch(`/api/lidy/leads/${lead.id}/comments`, { credentials: 'include' }).then(r => r.json());
             setComments(c.comments || []);
             onRefresh();
+            toast(stageCode ? 'Этап обновлён' : 'Этап снят');
         } finally { setPendingStatus(null); }
     };
 
@@ -2780,6 +2821,7 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
 
     return (
         <div className="min-h-screen flex flex-col relative text-slate-100 bg-slate-950">
+            <ToastHost />
 
             {/* Top bar — calm, no glow */}
             <header className="sticky top-0 z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800">
@@ -2818,7 +2860,6 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             <svg className={`w-4 h-4 ${autoRefresh ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         </button>
                         <Btn variant="secondary" onClick={() => setShowKB(true)} title="База знаний — статьи и инструкции для менеджеров">📖</Btn>
-                        <Btn variant="secondary" onClick={load} title="Обновить данные вручную">↻</Btn>
                         <Btn variant="primary" onClick={() => setShowCreate(true)} title="Создать лида вручную: звонок, визит в офис, рекомендация">+ Лид</Btn>
                         <Dropdown align="right" width="w-60"
                             buttonCls="flex items-center gap-1 p-1 rounded-full hover:bg-slate-800 transition-colors"
@@ -3027,10 +3068,12 @@ const Dashboard: React.FC<{ manager: Manager; onLogout: () => void; onMeUpdate: 
                             <div className="text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">Без ответа <Hint text="Открытые лиды, которым ещё не дан первый ответ. Цель — обнулять этот счётчик в течение рабочего дня. Реальная цифра, не зависит от фильтров." /></div>
                             <div className="text-2xl font-bold text-amber-300 mt-0.5">{counters.open}</div>
                         </div>
-                        <div className={`rounded-xl p-3 border ${counters.overdue > 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-slate-900 border-slate-800'}`}>
-                            <div className={`text-xs uppercase tracking-wider flex items-center gap-1.5 ${counters.overdue > 0 ? 'text-rose-300' : 'text-slate-400'}`}>Просрочено <Hint text="Лиды, где не было ответа дольше SLA (3 рабочих часа). Сначала закрывайте их — клиент уже заждался." /></div>
+                        <button type="button" onClick={() => setQuick('overdue')}
+                            title="Показать только просроченные"
+                            className={`text-left rounded-xl p-3 border transition-colors ${activeQuick === 'overdue' ? 'bg-rose-500/20 border-rose-500/50' : counters.overdue > 0 ? 'bg-rose-500/10 border-rose-500/30 hover:bg-rose-500/15' : 'bg-slate-900 border-slate-800 hover:bg-slate-800/60'}`}>
+                            <div className={`text-xs uppercase tracking-wider flex items-center gap-1.5 ${counters.overdue > 0 ? 'text-rose-300' : 'text-slate-400'}`}>Просрочено <Hint text="Лиды, где не было ответа дольше SLA. Кликните плитку — отфильтрует только их." /></div>
                             <div className={`text-2xl font-bold mt-0.5 ${counters.overdue > 0 ? 'text-rose-200' : 'text-slate-50'}`}>{counters.overdue}</div>
-                        </div>
+                        </button>
                         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
                             <div className="text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">В очереди <Hint text="Лиды без менеджера: все были офлайн, когда они пришли. Включите «В сети» — очередь раздастся автоматически." /></div>
                             <div className="text-2xl font-bold text-orange-300 mt-0.5">{counters.queued}</div>
