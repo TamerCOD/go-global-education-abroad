@@ -23,8 +23,20 @@ export default {
           900: '#1e3a8a',
         },
         accent: {
+          // Full amber ramp. 500/600 keep the original values; the other shades
+          // are needed so gradient/clip-text classes like `from-accent-400`
+          // (Hero headline accent) actually generate — otherwise the text is
+          // transparent with no gradient and renders invisible.
+          50: '#fffbeb',
+          100: '#fef3c7',
+          200: '#fde68a',
+          300: '#fcd34d',
+          400: '#fbbf24',
           500: '#f59e0b',
           600: '#d97706',
+          700: '#b45309',
+          800: '#92400e',
+          900: '#78350f',
         },
         // CRM/Admin design system (public site does not use sky/cyan):
         // sky → indigo accent, cyan → teal secondary, slate → neutral graphite
