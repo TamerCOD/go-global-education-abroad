@@ -651,6 +651,29 @@ if (DATABASE_URL) {
     await pool!.query(`ALTER TABLE managers ADD COLUMN IF NOT EXISTS monthly_goal INTEGER;`);
     // Soft-delete for leads: «Корзина» + one-click restore (deletes become reversible)
     await pool!.query(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
+    // Named admin accounts (sessions) — in addition to the legacy shared ADMIN_PASSWORD.
+    await pool!.query(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        id SERIAL PRIMARY KEY,
+        login TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        name TEXT,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );`);
+    // Seed 5 admin accounts with the default password (owner renames/repasswords them).
+    try {
+      const seedHash = await bcrypt.hash("qwe123!@#", 10);
+      for (let i = 1; i <= 5; i++) {
+        await pool!.query(
+          `INSERT INTO admin_users (login, password_hash, name)
+           VALUES ($1, $2, $3) ON CONFLICT (login) DO NOTHING`,
+          [`admin${i}`, seedHash, `Администратор ${i}`]
+        );
+      }
+    } catch (err) {
+      console.error("[db] admin_users seed failed:", err);
+    }
     // Seed default password ONLY for managers with empty/missing password_hash.
     // Preserves any manually-changed passwords across restarts.
     try {
@@ -1309,12 +1332,32 @@ const upload = multer({
   },
 });
 
+// Named-admin session cookie (signed with the same JWT secret). Distinct from the
+// manager lidy_session by its `adm:true` claim.
+function signAdminSession(login: string) {
+  return jwt.sign({ adm: true, login }, JWT_SECRET, { expiresIn: "12h" });
+}
+function readAdminSession(req: express.Request): { adm: true; login: string } | null {
+  const token = (req as any).cookies?.admin_session as string | undefined;
+  if (!token) return null;
+  try {
+    const p = jwt.verify(token, JWT_SECRET) as any;
+    return p && p.adm === true ? { adm: true, login: p.login } : null;
+  } catch {
+    return null;
+  }
+}
+
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  // (a) a valid named-admin session cookie
+  const sess = readAdminSession(req);
+  if (sess) { (req as any).admin = sess; return next(); }
+  // (b) legacy shared password (header or body) — kept so the owner is never locked out
   const password =
     (req.headers["x-admin-password"] as string | undefined) ||
     (typeof req.body === "object" && req.body && req.body.password);
-  if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: "Unauthorized" });
-  next();
+  if (password === ADMIN_PASSWORD) { (req as any).admin = { adm: true, login: "master" }; return next(); }
+  return res.status(401).json({ error: "Unauthorized" });
 }
 
 function hashVisitor(ip: string, ua: string): string {
@@ -1659,14 +1702,90 @@ async function startServer() {
     }
   });
 
-  app.post("/api/login", (req, res) => {
+  app.post("/api/login", async (req, res) => {
     const { username, password } = req.body || {};
     const ip = clientIp(req);
     const key = `admin|${ip}`;
     const lock = loginLockRemainingMs(key);
     if (lock > 0) return res.status(429).json({ error: `Слишком много попыток. Подождите ${Math.ceil(lock / 60000)} мин.` });
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) { recordLoginSuccess(key); res.json({ success: true }); }
-    else { recordLoginFail(key, `Админка (IP ${ip})`); res.status(401).json({ error: "Invalid credentials" }); }
+    const setAdminCookie = (login: string) => {
+      res.cookie("admin_session", signAdminSession(login), {
+        httpOnly: true, secure: NODE_ENV === "production", sameSite: "lax",
+        maxAge: 12 * 60 * 60 * 1000, path: "/",
+      });
+    };
+    // Legacy master account (env ADMIN_USERNAME/ADMIN_PASSWORD) — always works.
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      recordLoginSuccess(key);
+      setAdminCookie("master");
+      return res.json({ success: true, name: "Главный администратор" });
+    }
+    // Named admin accounts (admin_users table)
+    if (pool && username && password) {
+      try {
+        const r = await pq().query(
+          `SELECT login, password_hash, name, active FROM admin_users WHERE login = $1`,
+          [String(username).trim().toLowerCase()]
+        );
+        const u = r.rows[0];
+        if (u && u.active && await bcrypt.compare(String(password), u.password_hash)) {
+          recordLoginSuccess(key);
+          setAdminCookie(u.login);
+          return res.json({ success: true, name: u.name || u.login });
+        }
+      } catch (e) { console.error("[admin login]", e); }
+    }
+    recordLoginFail(key, `Админка (IP ${ip})`);
+    res.status(401).json({ error: "Invalid credentials" });
+  });
+
+  // Logout — clear the admin session cookie
+  app.post("/api/admin/logout", (_req, res) => {
+    res.clearCookie("admin_session", { path: "/" });
+    res.json({ ok: true });
+  });
+
+  // ─────────────────── Named admin accounts management ───────────────────
+  app.get("/api/admin/admins", requireAdmin, async (_req, res) => {
+    try {
+      const r = await pq().query(`SELECT id, login, name, active, created_at FROM admin_users ORDER BY login`);
+      res.json({ admins: r.rows });
+    } catch (err) { console.error("[admin/admins GET]", err); res.status(500).json({ error: "Server error" }); }
+  });
+  app.post("/api/admin/admins", requireAdmin, async (req, res) => {
+    try {
+      const login = String(req.body?.login || "").trim().toLowerCase();
+      const name = String(req.body?.name || "").trim() || null;
+      const password = String(req.body?.password || "");
+      if (!/^[a-z0-9_.-]{3,40}$/.test(login)) return res.status(400).json({ error: "Логин: 3–40 символов a-z 0-9 _ . -" });
+      if (password.length < 6) return res.status(400).json({ error: "Пароль минимум 6 символов" });
+      const hash = await bcrypt.hash(password, 10);
+      const r = await pq().query(
+        `INSERT INTO admin_users (login, password_hash, name) VALUES ($1,$2,$3)
+         ON CONFLICT (login) DO NOTHING RETURNING id, login, name, active, created_at`,
+        [login, hash, name]
+      );
+      if (r.rows.length === 0) return res.status(409).json({ error: "Такой логин уже существует" });
+      res.json({ ok: true, admin: r.rows[0] });
+    } catch (err) { console.error("[admin/admins POST]", err); res.status(500).json({ error: "Server error" }); }
+  });
+  app.patch("/api/admin/admins/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const sets: string[] = [];
+      const params: any[] = [];
+      if (typeof req.body?.name === "string") { sets.push(`name = $${params.length + 1}`); params.push(req.body.name.trim() || null); }
+      if (typeof req.body?.active === "boolean") { sets.push(`active = $${params.length + 1}`); params.push(req.body.active); }
+      if (typeof req.body?.password === "string" && req.body.password) {
+        if (req.body.password.length < 6) return res.status(400).json({ error: "Пароль минимум 6 символов" });
+        sets.push(`password_hash = $${params.length + 1}`); params.push(await bcrypt.hash(String(req.body.password), 10));
+      }
+      if (sets.length === 0) return res.status(400).json({ error: "Нечего обновлять" });
+      params.push(id);
+      const r = await pq().query(`UPDATE admin_users SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING id, login, name, active`, params);
+      if (r.rows.length === 0) return res.status(404).json({ error: "Не найдено" });
+      res.json({ ok: true, admin: r.rows[0] });
+    } catch (err) { console.error("[admin/admins PATCH]", err); res.status(500).json({ error: "Server error" }); }
   });
 
   // ----- Visit tracking -----

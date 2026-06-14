@@ -2373,6 +2373,72 @@ const AuditViewer: React.FC<{ password: string }> = ({ password }) => {
     );
 };
 
+// ─────────────────────────── ADMIN ACCOUNTS ───────────────────────────
+const AdminAccountsSection: React.FC<{ password: string }> = ({ password }) => {
+    const [admins, setAdmins] = useState<any[] | null>(null);
+    const [pwd, setPwd] = useState<Record<number, string>>({});
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState<string | null>(null);
+    const [neu, setNeu] = useState({ login: '', name: '', password: '' });
+    const H = { 'Content-Type': 'application/json', 'X-Admin-Password': password };
+
+    const load = async () => {
+        try { const r = await fetch('/api/admin/admins', { headers: { 'X-Admin-Password': password } }); const j = await r.json(); setAdmins(j.admins || []); }
+        catch { setAdmins([]); }
+    };
+    useEffect(() => { load(); }, []);
+
+    const patch = async (id: number, body: any, okMsg: string) => {
+        setBusy(true); setMsg(null);
+        try {
+            const r = await fetch(`/api/admin/admins/${id}`, { method: 'PATCH', headers: H, body: JSON.stringify(body) });
+            const j = await r.json();
+            if (!r.ok) { setMsg(j.error || 'Ошибка'); } else { setMsg(okMsg); setPwd(p => ({ ...p, [id]: '' })); load(); }
+        } catch { setMsg('Сервер недоступен'); } finally { setBusy(false); }
+    };
+    const add = async () => {
+        setBusy(true); setMsg(null);
+        try {
+            const r = await fetch('/api/admin/admins', { method: 'POST', headers: H, body: JSON.stringify(neu) });
+            const j = await r.json();
+            if (!r.ok) { setMsg(j.error || 'Ошибка'); } else { setMsg('Аккаунт добавлен'); setNeu({ login: '', name: '', password: '' }); load(); }
+        } catch { setMsg('Сервер недоступен'); } finally { setBusy(false); }
+    };
+
+    return (
+        <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
+            <div className="text-sm font-semibold text-slate-100 mb-1">👤 Администраторы (входы с логином)</div>
+            <p className="text-xs text-slate-400 mb-3">5 аккаунтов созданы с паролем по умолчанию <code className="text-amber-300">qwe123!@#</code> — <b>обязательно смените их</b>. Общий пароль из настроек сервера тоже продолжает работать (запасной).</p>
+            {msg && <div className="text-xs mb-2 px-2 py-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-200">{msg}</div>}
+            {admins === null ? <div className="text-xs text-slate-400">Загрузка…</div> : (
+                <div className="space-y-2">
+                    {admins.map(a => (
+                        <div key={a.id} className="flex flex-wrap items-center gap-2 border border-slate-700/60 rounded-lg p-2">
+                            <span className="font-mono text-sm text-slate-100">{a.login}</span>
+                            <span className="text-xs text-slate-400">{a.name}</span>
+                            {!a.active && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">выключен</span>}
+                            <div className="flex items-center gap-1 ml-auto">
+                                <input type="text" placeholder="новый пароль" value={pwd[a.id] || ''} onChange={e => setPwd(p => ({ ...p, [a.id]: e.target.value }))}
+                                    className="w-36 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
+                                <button disabled={busy || !(pwd[a.id] || '').trim()} onClick={() => patch(a.id, { password: pwd[a.id] }, `Пароль для ${a.login} обновлён`)}
+                                    className="text-xs bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-2 py-1 rounded">Сменить</button>
+                                <button disabled={busy} onClick={() => patch(a.id, { active: !a.active }, a.active ? `${a.login} выключен` : `${a.login} включён`)}
+                                    className="text-xs border border-slate-600 text-slate-300 hover:bg-slate-700 px-2 py-1 rounded">{a.active ? 'Выкл' : 'Вкл'}</button>
+                            </div>
+                        </div>
+                    ))}
+                    <div className="flex flex-wrap items-center gap-2 border border-dashed border-slate-700 rounded-lg p-2 mt-2">
+                        <input placeholder="логин" value={neu.login} onChange={e => setNeu(n => ({ ...n, login: e.target.value }))} className="w-28 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
+                        <input placeholder="имя" value={neu.name} onChange={e => setNeu(n => ({ ...n, name: e.target.value }))} className="w-32 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs" />
+                        <input placeholder="пароль" value={neu.password} onChange={e => setNeu(n => ({ ...n, password: e.target.value }))} className="w-32 bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-xs font-mono" />
+                        <button disabled={busy || !neu.login.trim() || !neu.password.trim()} onClick={add} className="text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-3 py-1 rounded">+ Добавить</button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─────────────────────────── BACKUP / CALCULATOR SHARE ───────────────────────────
 const BackupAndToolsSection: React.FC<{ password: string }> = ({ password }) => {
     const [calcParams, setCalcParams] = useState({ country: '', isScholarship: false });
@@ -2400,6 +2466,7 @@ const BackupAndToolsSection: React.FC<{ password: string }> = ({ password }) => 
                     📦 Скачать полный дамп
                 </button>
             </div>
+            <AdminAccountsSection password={password} />
             <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
                 <div className="text-sm font-semibold text-slate-100 mb-1">🔗 Поделиться калькулятором с клиентом</div>
                 <p className="text-xs text-slate-400 mb-3">Сгенерируйте ссылку на калькулятор сайта с предзаполненными параметрами — пришлите клиенту в WhatsApp.</p>
@@ -3201,6 +3268,7 @@ const AdminPanel: React.FC = () => {
     const { data, refresh } = useData();
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [password, setPassword] = useState('');
+    const [adminLogin, setAdminLogin] = useState('');
     const [loginError, setLoginError] = useState<string | null>(null);
     const [loggingIn, setLoggingIn] = useState(false);
     const pwdInputRef = useRef<HTMLInputElement>(null);
@@ -3221,8 +3289,9 @@ const AdminPanel: React.FC = () => {
         try {
             const res = await fetch('/api/login', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: 'admin', password: pwd })
+                body: JSON.stringify({ username: adminLogin.trim() || 'admin', password: pwd })
             });
             if (res.ok) {
                 if (pwd !== password) setPassword(pwd); // keep for X-Admin-Password headers
@@ -3296,11 +3365,21 @@ const AdminPanel: React.FC = () => {
                             <p className="text-xs font-mono text-sky-400">// AUTH_REQUIRED</p>
                         </div>
                     </div>
+                    <label className="block text-xs uppercase tracking-widest font-bold mb-1 text-slate-300">Логин <span className="text-slate-500 normal-case font-normal tracking-normal">(необязательно)</span></label>
+                    <input
+                        type="text"
+                        placeholder="admin1 (или оставьте пустым для общего входа)"
+                        autoComplete="username"
+                        className={`w-full ${A_BORDER} bg-slate-800/50 text-slate-100 placeholder-slate-500 px-3 py-3 mb-3 font-mono text-sm focus:outline-none focus:bg-slate-800 focus:border-sky-500 rounded-lg`}
+                        value={adminLogin}
+                        onChange={e => { setAdminLogin(e.target.value); setLoginError(null); }}
+                    />
                     <label className="block text-xs uppercase tracking-widest font-bold mb-1 text-slate-300">Пароль</label>
                     <input
                         ref={pwdInputRef}
                         type="password" autoFocus
                         placeholder="••••••••"
+                        autoComplete="current-password"
                         className={`w-full ${A_BORDER} bg-slate-800/50 text-slate-100 placeholder-slate-500 px-3 py-3 mb-3 font-mono text-base focus:outline-none focus:bg-slate-800 focus:border-sky-500 rounded-lg`}
                         value={password}
                         onChange={e => { setPassword(e.target.value); setLoginError(null); }}
